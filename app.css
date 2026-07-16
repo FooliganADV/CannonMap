@@ -104,3 +104,16 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
   .toolbar-grid { grid-template-columns: 1fr 1fr; }
   .leaflet-control-layers { max-width: 76vw; font-size: .8rem; }
 }
+
+.import-report { display:grid; gap:10px; margin:12px 0; }
+.import-summary-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.import-summary-grid article { background:#172033; border:1px solid var(--border); border-radius:9px; padding:9px; }
+.import-summary-grid span { display:block; color:var(--muted); font-size:.7rem; }
+.import-summary-grid strong { display:block; margin-top:3px; font-size:1rem; }
+.import-warnings { max-height:180px; overflow:auto; padding-left:20px; color:#fed7aa; font-size:.78rem; }
+.import-actions { flex-wrap:wrap; }
+.version-ok { color:#86efac; }
+@media (max-width:840px) {
+  .import-actions .button { flex:1 1 44%; }
+  .map-status { right:10px; flex-wrap:wrap; }
+}

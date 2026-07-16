@@ -1,41 +1,47 @@
-# CannonMap Planner — Beta 0.3.0
+# CannonMap Planner — Beta 0.4.0
+
+Build: `2026.07.16.01`
 
 ## Major changes
-- Improved automatic day assignment for imported waypoints using names, descriptions, filenames, and geographic proximity to assigned daily routes/tracks.
-- Bulk reassignment of remaining unassigned point features.
-- Full feature metadata editing.
-- Point features can be moved by dragging or by entering latitude/longitude.
-- Route and track vertices can be edited on the map.
-- Undo support for recent changes.
-- Additional basemaps: Streets, Topographic, Satellite, CyclOSM, and USGS Topo.
-- Excel workbook manifest export with multiple sheets.
-- CSV manifest export.
-- Existing GPX import/export, day filtering, fit-map, local IndexedDB storage, GPS, and competitor snapshot support remain available.
 
-## Excel workbook sheets
-- Master Manifest
-- Daily Summary
-- Checkpoints
-- Routes
-- Tracks
-- Fuel Stops
-- Hotels
-- Waypoints
-- Competitor Trails
+- Portable `.cmap` project files:
+  - **Save .cmap** downloads the entire project.
+  - **Open .cmap** restores it in another browser or device.
+- Existing browser data remains available after this upgrade.
+- **Reassign days** repairs previously imported unassigned features without importing the GPX again.
+- Day detection now recognizes:
+  - `Day 5`
+  - `D5`
+  - `5.14 Checkpoint Name`
+  - `Day Five`
+  - Day references in notes and descriptions
+- GPX import report before changing the project.
+- Import choices:
+  - **Merge** — update duplicates and add new features
+  - **Add all** — retain duplicates
+  - **Replace** — replace the current map features
+- Duplicate detection for points, routes, and tracks.
+- Visible app version and build number.
+- Tracking screen now clearly states that live connectors are not active.
+- All v0.3.0 map layers, editing tools, Excel export, CSV export, GPX export, GPS, and local autosave remain.
 
-## Deployment
-Upload every file and folder in this package to the root of the GitHub repository, replacing the prior version. Cloudflare Pages will redeploy automatically.
+## First test after deployment
 
-## Testing priorities
-1. Import the America 250 master GPX.
-2. Confirm most checkpoints receive the correct day.
-3. Select a newly created checkpoint, choose Edit map, drag it, and choose Finish edit.
-4. Select a route or track, choose Edit map, move a vertex, and finish editing.
-5. Switch among all five basemaps.
-6. Export Excel and confirm the workbook opens with separate sheets.
-7. Export only one selected day and confirm the manifest is filtered.
+1. Open the browser that already contains the America 250 project.
+2. Confirm the bottom map status displays `v0.4.0`.
+3. Select **Reassign days**.
+4. Export Excel and inspect the Daily Summary and Master Manifest.
+5. Select **Save .cmap** and confirm a project file downloads.
+6. Open a different browser, select **Open .cmap**, and confirm the project appears.
+7. Import the master GPX again and test the **Merge** option.
 
-## Limitations
-- Route drawing is still point-to-point; road snapping is planned for a later release.
-- Basemap tiles require internet access.
-- Live competitor ingestion still requires an authorized endpoint and server component.
+## GitHub web upload
+
+Upload every extracted file to the repository root. The package is flat—there are no required folders.
+
+## Known limitations
+
+- Road snapping is not included yet.
+- Offline basemap downloads are not included yet.
+- Garmin inReach and GPSCheckpoints live ingestion are not active.
+- The external Excel library requires internet when first loaded.

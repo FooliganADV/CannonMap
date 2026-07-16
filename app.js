@@ -1,7 +1,8 @@
 'use strict';
 
-const APP_VERSION = '0.3.0';
-const SETTINGS_KEY = 'cannonmap.settings.v3';
+const APP_VERSION = '0.4.0';
+const BUILD_ID = '2026.07.16.01';
+const SETTINGS_KEY = 'cannonmap.settings.v4';
 const DB_NAME = 'CannonMapDB';
 const DB_STORE = 'projects';
 
@@ -12,7 +13,7 @@ const COLORS = {
 
 const state = {
   map: null, baseLayers: {}, featureGroup: null, gpsLayer: null, gpsAccuracyLayer: null,
-  gpsWatchId: null, pendingLayer: null, selectedId: null, editingLayer: null, history: [],
+  gpsWatchId: null, pendingLayer: null, pendingImport: null, selectedId: null, editingLayer: null, history: [],
   project: {
     version: APP_VERSION, name: 'America 250 – 2026', createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(), features: [], competitors: []
@@ -221,13 +222,25 @@ async function loadProject() {
     db.close();
     if(saved){state.project=saved;state.project.features ||= [];state.project.competitors ||= [];}
   } catch(_){}
-  try { Object.assign(state.settings,JSON.parse(localStorage.getItem(SETTINGS_KEY)||'{}')); } catch(_){}
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY) || localStorage.getItem('cannonmap.settings.v3') || '{}';
+    Object.assign(state.settings, JSON.parse(raw));
+  } catch(_){}
 }
 
 function inferDay(text,fallback=0) {
-  const value=String(text||'');
-  const patterns=[/\bday[\s_-]*0?([1-8])\b/i,/\bd[\s_-]*0?([1-8])\b/i,/\b0?([1-8])[\s_-]*(?:start|finish|route|track|checkpoint|cp)\b/i];
+  const value=String(text||'').replace(/<[^>]*>/g,' ').trim();
+  const wordDays={one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8};
+  const patterns=[
+    /\bday[\s_:#-]*0?([1-8])\b/i,
+    /\bd[\s_:#-]*0?([1-8])\b/i,
+    /^\s*0?([1-8])\s*[.\-_]/,
+    /\b0?([1-8])\s*[.\-_]\s*\d+\b/,
+    /\b0?([1-8])[\s_-]*(?:start|finish|route|track|checkpoint|cp)\b/i
+  ];
   for(const p of patterns){const m=value.match(p);if(m)return Number(m[1]);}
+  const wordMatch=value.match(/\bday\s+(one|two|three|four|five|six|seven|eight)\b/i);
+  if(wordMatch)return wordDays[wordMatch[1].toLowerCase()]||fallback;
   return fallback;
 }
 function textOf(element,tag){const node=element.getElementsByTagName(tag)[0];return node?node.textContent.trim():'';}
@@ -240,61 +253,202 @@ function distancePointToSegmentMiles(p,a,b) {
 function nearestAssignedDay(point,lines) {
   let best={day:0,d:Infinity};
   for(const line of lines){
-    for(let i=1;i<line.geometry.coordinates.length;i++){
-      const d=distancePointToSegmentMiles(point,line.geometry.coordinates[i-1],line.geometry.coordinates[i]);
+    const pts=line.geometry.coordinates;
+    const stride=Math.max(1,Math.floor(pts.length/500));
+    for(let i=stride;i<pts.length;i+=stride){
+      const a=pts[Math.max(0,i-stride)],b=pts[i];
+      const d=distancePointToSegmentMiles(point,a,b);
       if(d<best.d)best={day:line.day,d};
     }
   }
-  return best.d<=35?best.day:0;
+  return best.d<=45?best.day:0;
 }
-function assignWaypointDays(features) {
-  const assignedLines=features.filter(f=>f.geometry.kind==='line'&&f.day>=1&&f.day<=8);
-  let auto=0;
-  for(const f of features.filter(f=>f.geometry.kind==='point'&&!f.day)){
-    const combined=`${f.name} ${f.notes} ${f.source}`;
-    const explicit=inferDay(combined,0);
-    if(explicit){f.day=explicit;auto++;continue;}
-    const day=nearestAssignedDay(f.geometry.coordinates[0],assignedLines);
-    if(day){f.day=day;auto++;}
+function assignLineDays(features) {
+  let changed=0;
+  const lines=features.filter(f=>f.geometry.kind==='line');
+  for(const f of lines){
+    if(f.day)continue;
+    const explicit=inferDay(`${f.name} ${f.notes} ${f.source}`,0);
+    if(explicit){f.day=explicit;f.assignmentMethod='explicit';changed++;}
   }
-  return auto;
+  const remaining=lines.filter(f=>!f.day);
+  if(remaining.length===8){
+    remaining.forEach((f,index)=>{f.day=index+1;f.assignmentMethod='line-order';changed++;});
+  }
+  return changed;
+}
+function assignWaypointDays(features,onlyUnassigned=true) {
+  let changed=assignLineDays(features);
+  const assignedLines=features.filter(f=>f.geometry.kind==='line'&&f.day>=1&&f.day<=8);
+  for(const f of features.filter(f=>f.geometry.kind==='point'&&(!onlyUnassigned||!f.day))){
+    if(onlyUnassigned&&f.day)continue;
+    const explicit=inferDay(`${f.name} ${f.notes} ${f.source}`,0);
+    if(explicit){
+      if(f.day!==explicit){f.day=explicit;changed++;}
+      f.assignmentMethod='explicit';
+      continue;
+    }
+    const day=nearestAssignedDay(f.geometry.coordinates[0],assignedLines);
+    if(day){
+      if(f.day!==day){f.day=day;changed++;}
+      f.assignmentMethod='route-proximity';
+    }
+  }
+  return changed;
+}
+function classifyPoint(name,notes,sym='') {
+  const lc=`${name} ${notes} ${sym}`.toLowerCase();
+  if(/\bfuel\b|\bgas\b|gasoline|service station/.test(lc))return 'fuel';
+  if(/\bhotel\b|\bmotel\b|\blodging\b|\binn\b/.test(lc))return 'hotel';
+  if(/checkpoint|\bcp\s*\d*\b|\bstart\b|\bfinish\b|\bdirt\b|\bextreme\b|type\s+(standard|dirt|extreme|finish)/.test(lc))return 'checkpoint';
+  return 'waypoint';
 }
 function parseGpx(xmlText,filename) {
   const doc=new DOMParser().parseFromString(xmlText,'application/xml');
   if(doc.querySelector('parsererror'))throw new Error('The file is not valid GPX/XML.');
   const features=[];
+  let sourceOrder=0;
   [...doc.getElementsByTagName('rte')].forEach((rte,index)=>{
     const name=textOf(rte,'name')||`${filename} route ${index+1}`;
     const notes=textOf(rte,'desc')||textOf(rte,'cmt');
     const coordinates=[...rte.getElementsByTagName('rtept')].map(p=>({lat:Number(p.getAttribute('lat')),lon:Number(p.getAttribute('lon'))})).filter(validPoint);
-    if(coordinates.length)features.push({id:uid(),name,type:'route',day:inferDay(`${name} ${notes} ${filename}`),notes,visible:true,source:filename,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),geometry:{kind:'line',coordinates}});
+    if(coordinates.length)features.push({id:uid(),name,type:'route',day:inferDay(`${name} ${notes} ${filename}`),assignmentMethod:'',notes,visible:true,source:filename,sourceOrder:sourceOrder++,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),geometry:{kind:'line',coordinates}});
   });
   [...doc.getElementsByTagName('trk')].forEach((trk,index)=>{
     const baseName=textOf(trk,'name')||`${filename} track ${index+1}`,notes=textOf(trk,'desc')||textOf(trk,'cmt');
-    [...trk.getElementsByTagName('trkseg')].forEach((segment,segIndex)=>{
+    const segments=[...trk.getElementsByTagName('trkseg')];
+    segments.forEach((segment,segIndex)=>{
       const coordinates=[...segment.getElementsByTagName('trkpt')].map(p=>({lat:Number(p.getAttribute('lat')),lon:Number(p.getAttribute('lon'))})).filter(validPoint);
-      if(coordinates.length)features.push({id:uid(),name:[...trk.getElementsByTagName('trkseg')].length>1?`${baseName} segment ${segIndex+1}`:baseName,type:'track',day:inferDay(`${baseName} ${notes} ${filename}`),notes,visible:true,source:filename,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),geometry:{kind:'line',coordinates}});
+      if(coordinates.length)features.push({id:uid(),name:segments.length>1?`${baseName} segment ${segIndex+1}`:baseName,type:'track',day:inferDay(`${baseName} ${notes} ${filename}`),assignmentMethod:'',notes,visible:true,source:filename,sourceOrder:sourceOrder++,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),geometry:{kind:'line',coordinates}});
     });
   });
   [...doc.getElementsByTagName('wpt')].forEach((wpt,index)=>{
-    const name=textOf(wpt,'name')||`${filename} waypoint ${index+1}`,notes=textOf(wpt,'desc')||textOf(wpt,'cmt'),sym=textOf(wpt,'sym').toLowerCase(),lc=`${name} ${notes}`.toLowerCase();
-    const type=/fuel|gas/.test(lc)||/fuel/.test(sym)?'fuel':/hotel|motel|lodging/.test(lc)?'hotel':/checkpoint|\bcp\b|start|finish|dirt|extreme/.test(lc)?'checkpoint':'waypoint';
+    const name=textOf(wpt,'name')||`${filename} waypoint ${index+1}`;
+    const notes=textOf(wpt,'desc')||textOf(wpt,'cmt');
+    const sym=textOf(wpt,'sym');
     const p={lat:Number(wpt.getAttribute('lat')),lon:Number(wpt.getAttribute('lon'))};
-    if(validPoint(p))features.push({id:uid(),name,type,day:inferDay(`${name} ${notes} ${filename}`),notes,visible:true,source:filename,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),geometry:{kind:'point',coordinates:[p]}});
+    if(validPoint(p))features.push({id:uid(),name,type:classifyPoint(name,notes,sym),day:inferDay(`${name} ${notes} ${filename}`),assignmentMethod:'',notes,visible:true,source:filename,sourceOrder:sourceOrder++,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),geometry:{kind:'point',coordinates:[p]}});
   });
-  const auto=assignWaypointDays(features);
+  const auto=assignWaypointDays(features,true);
   return {features,auto};
 }
-async function importGpxFiles(files) {
-  let total=0,auto=0;
-  snapshot();
-  for(const file of files){
-    try{const parsed=parseGpx(await file.text(),file.name);state.project.features.push(...parsed.features);total+=parsed.features.length;auto+=parsed.auto;}
-    catch(error){setStatus(`Could not import ${file.name}: ${error.message}`,true);}
+function normalizedName(value){return String(value||'').toLowerCase().replace(/<[^>]*>/g,' ').replace(/[^a-z0-9]+/g,' ').trim();}
+function featureDuplicate(imported,existing) {
+  if(imported.geometry.kind!==existing.geometry.kind)return false;
+  const sameName=normalizedName(imported.name)===normalizedName(existing.name);
+  if(imported.geometry.kind==='point'){
+    const distance=haversine(imported.geometry.coordinates[0],existing.geometry.coordinates[0]);
+    return distance<=40 || (sameName&&distance<=805);
   }
+  if(imported.type!==existing.type&&!sameName)return false;
+  const ia=imported.geometry.coordinates[0],ib=imported.geometry.coordinates.at(-1);
+  const ea=existing.geometry.coordinates[0],eb=existing.geometry.coordinates.at(-1);
+  const direct=haversine(ia,ea)+haversine(ib,eb);
+  const reverse=haversine(ia,eb)+haversine(ib,ea);
+  return sameName&&Math.min(direct,reverse)<=1609;
+}
+function findDuplicate(feature,pool=state.project.features){return pool.find(existing=>featureDuplicate(feature,existing));}
+function buildImportReport(features,files,auto) {
+  const byType=type=>features.filter(f=>f.type===type).length;
+  const unassigned=features.filter(f=>!f.day).length;
+  const duplicates=features.filter(f=>findDuplicate(f)).length;
+  return {
+    files,features,auto,unassigned,duplicates,
+    counts:{tracks:byType('track'),routes:byType('route'),points:features.filter(f=>f.geometry.kind==='point').length,checkpoints:byType('checkpoint')}
+  };
+}
+async function importGpxFiles(files) {
+  const imported=[];let auto=0;const names=[];const errors=[];
+  for(const file of files){
+    try{const parsed=parseGpx(await file.text(),file.name);imported.push(...parsed.features);auto+=parsed.auto;names.push(file.name);}
+    catch(error){errors.push(`${file.name}: ${error.message}`);}
+  }
+  if(!imported.length)return setStatus(errors.length?errors.join(' | '):'No GPX features were found.',true);
+  state.pendingImport=buildImportReport(imported,names,auto);
+  const r=state.pendingImport;
+  $('importReport').innerHTML=`
+    <div><strong>${escapeHtml(r.files.join(', '))}</strong></div>
+    <div class="import-summary-grid">
+      <article><span>Total features</span><strong>${r.features.length}</strong></article>
+      <article><span>Assigned days</span><strong>${r.features.length-r.unassigned}</strong></article>
+      <article><span>Still unassigned</span><strong>${r.unassigned}</strong></article>
+      <article><span>Duplicates found</span><strong>${r.duplicates}</strong></article>
+      <article><span>Tracks / Routes</span><strong>${r.counts.tracks} / ${r.counts.routes}</strong></article>
+      <article><span>Points / Checkpoints</span><strong>${r.counts.points} / ${r.counts.checkpoints}</strong></article>
+    </div>
+    ${errors.length?`<ul class="import-warnings">${errors.map(e=>`<li>${escapeHtml(e)}</li>`).join('')}</ul>`:''}`;
+  $('importDialog').showModal();
+}
+async function applyPendingImport(mode) {
+  const pending=state.pendingImport;if(!pending)return;
+  snapshot();
+  let added=0,updated=0,skipped=0;
+  if(mode==='replace'){
+    state.project.features=pending.features;
+    added=pending.features.length;
+  } else if(mode==='add'){
+    state.project.features.push(...pending.features);
+    added=pending.features.length;
+  } else {
+    for(const incoming of pending.features){
+      const existing=findDuplicate(incoming);
+      if(existing){
+        existing.name=incoming.name||existing.name;
+        existing.type=incoming.type||existing.type;
+        existing.notes=incoming.notes||existing.notes;
+        existing.source=incoming.source||existing.source;
+        existing.geometry=incoming.geometry;
+        if(incoming.day)existing.day=incoming.day;
+        existing.updatedAt=new Date().toISOString();
+        updated++;
+      } else {
+        state.project.features.push(incoming);added++;
+      }
+    }
+  }
+  assignWaypointDays(state.project.features,true);
+  state.pendingImport=null;
   await saveProject(false);renderAll();fitMap();
-  const unassigned=state.project.features.filter(f=>f.geometry.kind==='point'&&!f.day).length;
-  setStatus(`Imported ${total} features. ${auto} waypoint days assigned automatically; ${unassigned} point features remain unassigned.`);
+  setStatus(`GPX ${mode}: ${added} added, ${updated} updated, ${skipped} skipped. ${state.project.features.filter(f=>!f.day).length} features remain unassigned.`);
+}
+function reassignExistingDays() {
+  const targets=state.project.features.filter(f=>!f.day);
+  if(!targets.length)return setStatus('No unassigned features remain.');
+  snapshot();
+  const changed=assignWaypointDays(state.project.features,true);
+  state.project.features.forEach(f=>{if(f.day)f.updatedAt=new Date().toISOString();});
+  saveProject(false);renderAll();
+  setStatus(`Reassigned ${changed} features. ${state.project.features.filter(f=>!f.day).length} remain unassigned.`);
+}
+function exportProjectFile() {
+  const payload={
+    format:'CannonMap Project',
+    schemaVersion:1,
+    appVersion:APP_VERSION,
+    build:BUILD_ID,
+    exportedAt:new Date().toISOString(),
+    project:deepClean(state.project),
+    settings:deepClean(state.settings)
+  };
+  downloadBlob(JSON.stringify(payload,null,2),`${safeFilename(state.project.name)}.cmap`,'application/json');
+  setStatus('Saved portable .cmap project file.');
+}
+async function openProjectFile(file) {
+  try{
+    const payload=JSON.parse(await file.text());
+    const project=payload.project||payload;
+    if(!project||!Array.isArray(project.features))throw new Error('This is not a valid CannonMap project file.');
+    snapshot();
+    state.project=project;
+    state.project.features ||= [];
+    state.project.competitors ||= [];
+    state.project.version=APP_VERSION;
+    if(payload.settings)Object.assign(state.settings,payload.settings);
+    clearSelection();
+    await saveProject(false);
+    renderAll();fitMap();
+    setStatus(`Opened ${file.name}: ${state.project.features.length} features.`);
+  }catch(error){setStatus(`Project open failed: ${error.message}`,true);}
 }
 
 function clearSelection() {
@@ -401,14 +555,14 @@ function manifestRows() {
       Latitude:Number.isFinite(p.lat)?p.lat:'', Longitude:Number.isFinite(p.lon)?p.lon:'',
       'Point Count':f.geometry.coordinates.length, 'Distance (mi)':Number(distance.toFixed(2)),
       Status:'Planned', Notes:f.notes||'', 'Source GPX':f.source||'', Visible:f.visible?'Yes':'No',
-      'Updated At':f.updatedAt||''
+      'Assignment Method':f.assignmentMethod||'', 'Updated At':f.updatedAt||''
     };
   }).sort((a,b)=>(Number(a.Day)||99)-(Number(b.Day)||99)||(typeOrder[a.Type]||99)-(typeOrder[b.Type]||99)||a.Sequence-b.Sequence);
 }
 function exportExcel() {
   if(typeof XLSX==='undefined')return setStatus('Excel library did not load. Check the internet connection and reload.',true);
   const manifest=manifestRows(),wb=XLSX.utils.book_new();
-  const add=(name,rows)=>{const ws=XLSX.utils.json_to_sheet(rows.length?rows:[{Message:'No records'}]);ws['!autofilter']={ref:ws['!ref']};ws['!freeze']={xSplit:0,ySplit:1};ws['!cols']=[18,10,34,14,14,14,12,14,12,45,28,10,24].map(w=>({wch:w}));XLSX.utils.book_append_sheet(wb,ws,name);};
+  const add=(name,rows)=>{const ws=XLSX.utils.json_to_sheet(rows.length?rows:[{Message:'No records'}]);ws['!autofilter']={ref:ws['!ref']};ws['!freeze']={xSplit:0,ySplit:1};ws['!cols']=[18,10,34,14,14,14,12,14,12,45,28,10,20,24].map(w=>({wch:w}));XLSX.utils.book_append_sheet(wb,ws,name);};
   add('Master Manifest',manifest);
   add('Daily Summary',[1,2,3,4,5,6,7,8].map(day=>{const rows=manifest.filter(r=>r.Day===day);return {Day:day,Features:rows.length,Checkpoints:rows.filter(r=>r.Type==='checkpoint').length,Routes:rows.filter(r=>r.Type==='route').length,Tracks:rows.filter(r=>r.Type==='track').length,'Line Miles':Number(rows.reduce((s,r)=>s+(Number(r['Distance (mi)'])||0),0).toFixed(2))};}));
   for(const [sheet,type] of [['Checkpoints','checkpoint'],['Routes','route'],['Tracks','track'],['Fuel Stops','fuel'],['Hotels','hotel'],['Waypoints','waypoint']])add(sheet,manifest.filter(r=>r.Type===type));
@@ -458,7 +612,11 @@ function wireUi() {
   document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>{document.querySelectorAll('.tab,.panel').forEach(el=>el.classList.remove('active'));tab.classList.add('active');$(`${tab.dataset.tab}Panel`).classList.add('active');}));
   $('sidebarToggle').addEventListener('click',()=>setSidebarOpen(!$('sidebar').classList.contains('open')));$('sidebarClose').addEventListener('click',()=>setSidebarOpen(false));$('sidebarBackdrop').addEventListener('click',()=>setSidebarOpen(false));
   document.addEventListener('keydown',event=>{if(event.key==='Escape')setSidebarOpen(false);});
-  $('gpxInput').addEventListener('change',event=>importGpxFiles([...event.target.files]));$('saveButton').addEventListener('click',()=>saveProject(true));
+  $('gpxInput').addEventListener('change',event=>{importGpxFiles([...event.target.files]);event.target.value='';});
+  $('projectInput').addEventListener('change',event=>{const file=event.target.files[0];if(file)openProjectFile(file);event.target.value='';});
+  $('saveButton').addEventListener('click',()=>saveProject(true));
+  $('saveProjectFileButton').addEventListener('click',exportProjectFile);
+  $('reassignDaysButton').addEventListener('click',reassignExistingDays);
   $('exportAllButton').addEventListener('click',exportGpx);$('exportExcelButton').addEventListener('click',exportExcel);$('exportCsvButton').addEventListener('click',exportCsv);
   $('fitButton').addEventListener('click',fitMap);$('newProjectButton').addEventListener('click',newProject);$('gpsButton').addEventListener('click',startGps);
   $('projectName').addEventListener('change',()=>saveProject(false));$('dayFilter').addEventListener('change',()=>{state.settings.dayFilter=$('dayFilter').value;saveProject(false);renderAll();});
@@ -467,17 +625,28 @@ function wireUi() {
   $('undoButton').addEventListener('click',undo);$('bulkAssignButton').addEventListener('click',bulkAssign);
   $('saveTrackingSettings').addEventListener('click',()=>{state.settings.inreachUrl=$('inreachUrl').value.trim();saveProject(true);});
   $('competitorInput').addEventListener('change',e=>e.target.files[0]&&importCompetitorJson(e.target.files[0]));
+  $('importForm').addEventListener('submit',event=>{
+    event.preventDefault();
+    const mode=event.submitter?.value||'cancel';
+    $('importDialog').close(mode);
+    if(mode!=='cancel')applyPendingImport(mode);else state.pendingImport=null;
+  });
   $('createDialog').addEventListener('close',()=>{if($('createDialog').returnValue!=='default'&&state.pendingLayer){state.pendingLayer.remove();state.pendingLayer=null;}});
   $('createForm').addEventListener('submit',event=>{
     event.preventDefault();
     if(event.submitter&&event.submitter.value==='cancel'){state.pendingLayer?.remove();state.pendingLayer=null;$('createDialog').close('cancel');return;}
     if(!state.pendingLayer)return;snapshot();
-    const feature={id:uid(),name:$('createName').value.trim()||'New feature',type:$('createType').value,day:Number($('createDay').value),notes:$('createNotes').value.trim(),visible:true,source:'CannonMap drawing',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),geometry:layerToGeometry(state.pendingLayer)};
+    const feature={id:uid(),name:$('createName').value.trim()||'New feature',type:$('createType').value,day:Number($('createDay').value),assignmentMethod:'manual',notes:$('createNotes').value.trim(),visible:true,source:'CannonMap drawing',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),geometry:layerToGeometry(state.pendingLayer)};
     state.pendingLayer.remove();state.pendingLayer=null;state.project.features.push(feature);saveProject(false);renderAll();selectFeature(feature.id);$('createDialog').close('default');setStatus(`Created ${feature.name}.`);
   });
 }
 async function init() {
-  await loadProject();initMap();wireUi();renderAll();setTimeout(()=>{if(state.project.features.length)fitMap();},200);
+  await loadProject();
+  state.project.features.forEach(f=>{f.assignmentMethod ||= '';});
+  initMap();wireUi();
+  $('buildLabel').textContent=`Beta ${APP_VERSION}`;
+  $('appVersion').textContent=`v${APP_VERSION} · ${BUILD_ID}`;
+  renderAll();setTimeout(()=>{if(state.project.features.length)fitMap();},200);
   if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
 }
 init();

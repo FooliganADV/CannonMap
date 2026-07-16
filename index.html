@@ -18,7 +18,7 @@
       <span class="brand-mark">CM</span>
       <div>
         <h1>CannonMap</h1>
-        <p>America 250 Planner · Beta 0.3.0</p>
+        <p>America 250 Planner · <span id="buildLabel">Beta 0.4.0</span></p>
       </div>
     </div>
     <div class="top-actions">
@@ -46,9 +46,14 @@
           <label class="button primary file-button">Import GPX
             <input id="gpxInput" type="file" accept=".gpx,application/gpx+xml,text/xml" multiple />
           </label>
+          <label class="button secondary file-button">Open .cmap
+            <input id="projectInput" type="file" accept=".cmap,.json,application/json" />
+          </label>
+          <button id="saveProjectFileButton" class="button secondary">Save .cmap</button>
           <button id="exportAllButton" class="button secondary">Export GPX</button>
           <button id="exportExcelButton" class="button secondary">Export Excel</button>
           <button id="exportCsvButton" class="button secondary">Export CSV</button>
+          <button id="reassignDaysButton" class="button secondary">Reassign days</button>
           <button id="fitButton" class="button secondary">Fit map</button>
           <button id="newProjectButton" class="button danger-outline">New project</button>
         </div>
@@ -134,8 +139,8 @@
       </section>
 
       <section id="trackingPanel" class="panel">
-        <div class="section-heading"><div><h2>Trail Intelligence</h2><p>Foundation for competitor and inReach overlays.</p></div><span class="badge">FOUNDATION</span></div>
-        <label class="field"><span>Garmin inReach KML feed</span><input id="inreachUrl" placeholder="Paste feed URL later" /></label>
+        <div class="section-heading"><div><h2>Trail Intelligence</h2><p>Configuration foundation; live connectors are not active yet.</p></div><span class="badge">NOT ACTIVE</span></div>
+        <label class="field"><span>Garmin inReach KML feed (saved only)</span><input id="inreachUrl" placeholder="Live ingestion is not active in this build" /></label>
         <button id="saveTrackingSettings" class="button secondary wide">Save tracking settings</button>
         <hr />
         <label class="button secondary file-button wide">Import competitor snapshot JSON
@@ -154,6 +159,7 @@
       <div class="map-status">
         <span id="cursorCoordinates">—</span>
         <span id="gpsStatus">GPS off</span>
+        <span id="appVersion">v0.4.0</span>
       </div>
       <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open planner" aria-expanded="false">Planner</button>
     </main>
@@ -189,6 +195,25 @@
       <div class="dialog-actions">
         <button value="cancel" class="button secondary">Cancel</button>
         <button id="confirmCreate" value="default" class="button primary">Add feature</button>
+      </div>
+    </form>
+  </dialog>
+
+
+  <dialog id="importDialog">
+    <form method="dialog" id="importForm" class="dialog-form">
+      <h2>GPX import report</h2>
+      <div id="importReport" class="import-report"></div>
+      <div class="notice muted">
+        <strong>Merge</strong> updates matching features and adds new ones.
+        <strong>Add all</strong> keeps duplicates.
+        <strong>Replace</strong> removes current map features first.
+      </div>
+      <div class="dialog-actions import-actions">
+        <button value="cancel" class="button secondary">Cancel</button>
+        <button id="importAddButton" value="add" class="button secondary">Add all</button>
+        <button id="importReplaceButton" value="replace" class="button danger-outline">Replace</button>
+        <button id="importMergeButton" value="merge" class="button primary">Merge</button>
       </div>
     </form>
   </dialog>
