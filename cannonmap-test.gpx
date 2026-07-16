@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="CannonMap Test" xmlns="http://www.topografix.com/GPX/1/1">
+  <wpt lat="30.358250" lon="-90.065600"><name>Day 1 Test Checkpoint</name><desc>Sample checkpoint for import testing.</desc></wpt>
+  <rte><name>Day 1 Test Route</name>
+    <rtept lat="30.358250" lon="-90.065600" />
+    <rtept lat="30.381500" lon="-90.042800" />
+    <rtept lat="30.410200" lon="-90.055900" />
+  </rte>
+  <trk><name>Day 1 Test Track</name><trkseg>
+    <trkpt lat="30.358250" lon="-90.065600" />
+    <trkpt lat="30.370500" lon="-90.051500" />
+    <trkpt lat="30.381500" lon="-90.042800" />
+  </trkseg></trk>
+</gpx>
