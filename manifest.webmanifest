@@ -1,9 +1,11 @@
 {
-  "name": "CannonMap America 250",
+  "name": "CannonMap America 250 Planner",
   "short_name": "CannonMap",
-  "start_url": "./index.html",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#0b1220",
+  "background_color": "#0b1120",
   "theme_color": "#111827",
+  "description": "GPX route, track and checkpoint planner for the America 250 rally",
   "icons": []
 }

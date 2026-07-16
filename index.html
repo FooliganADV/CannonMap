@@ -1,93 +1,184 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#111827">
-  <title>CannonMap Beta</title>
-  <link rel="manifest" href="manifest.webmanifest">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="styles.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#111827" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>CannonMap Planner</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <link rel="stylesheet" href="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.18.3/dist/leaflet-geoman.css" />
+  <link rel="stylesheet" href="app.css" />
 </head>
 <body>
-  <header>
-    <div>
-      <h1>CannonMap</h1>
-      <div class="subtitle">America 250 Rally Beta</div>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">CM</span>
+      <div>
+        <h1>CannonMap</h1>
+        <p>America 250 Planner · Beta 0.2</p>
+      </div>
     </div>
-    <button id="gpsBtn" class="primary">Start GPS</button>
+    <div class="top-actions">
+      <button id="gpsButton" class="button secondary">Start GPS</button>
+      <button id="saveButton" class="button primary">Save</button>
+    </div>
   </header>
 
-  <main>
-    <section id="mapWrap">
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <nav class="tabs" aria-label="CannonMap sections">
+        <button class="tab active" data-tab="project">Project</button>
+        <button class="tab" data-tab="features">Features</button>
+        <button class="tab" data-tab="tracking">Tracking</button>
+      </nav>
+
+      <section id="projectPanel" class="panel active">
+        <label class="field">
+          <span>Project name</span>
+          <input id="projectName" value="America 250 – 2026" />
+        </label>
+
+        <div class="toolbar-grid">
+          <label class="button primary file-button">Import GPX
+            <input id="gpxInput" type="file" accept=".gpx,application/gpx+xml,text/xml" multiple />
+          </label>
+          <button id="exportAllButton" class="button secondary">Export GPX</button>
+          <button id="fitButton" class="button secondary">Fit map</button>
+          <button id="newProjectButton" class="button danger-outline">New project</button>
+        </div>
+
+        <label class="field">
+          <span>Active rally day</span>
+          <select id="dayFilter">
+            <option value="all">All days</option>
+            <option value="1">Day 1</option><option value="2">Day 2</option>
+            <option value="3">Day 3</option><option value="4">Day 4</option>
+            <option value="5">Day 5</option><option value="6">Day 6</option>
+            <option value="7">Day 7</option><option value="8">Day 8</option>
+            <option value="0">Unassigned</option>
+          </select>
+        </label>
+
+        <div class="stats-grid">
+          <article><span>Tracks</span><strong id="trackCount">0</strong></article>
+          <article><span>Routes</span><strong id="routeCount">0</strong></article>
+          <article><span>Waypoints</span><strong id="waypointCount">0</strong></article>
+          <article><span>Distance</span><strong id="distanceTotal">0 mi</strong></article>
+        </div>
+
+        <div class="notice" id="status">Import a GPX file or use the drawing controls on the map.</div>
+
+        <details open>
+          <summary>Map layers</summary>
+          <div id="layerList" class="layer-list empty">No map features yet.</div>
+        </details>
+      </section>
+
+      <section id="featuresPanel" class="panel">
+        <div class="section-heading">
+          <div><h2>Selected feature</h2><p>Edit the selected route, track, or waypoint.</p></div>
+        </div>
+        <form id="featureForm" class="feature-form">
+          <input id="selectedFeatureId" type="hidden" />
+          <label class="field"><span>Name</span><input id="featureName" disabled /></label>
+          <div class="two-col">
+            <label class="field"><span>Type</span>
+              <select id="featureType" disabled>
+                <option value="track">Track</option>
+                <option value="route">Route</option>
+                <option value="waypoint">Waypoint</option>
+                <option value="checkpoint">Checkpoint</option>
+                <option value="fuel">Fuel</option>
+                <option value="hotel">Hotel</option>
+              </select>
+            </label>
+            <label class="field"><span>Day</span>
+              <select id="featureDay" disabled>
+                <option value="0">Unassigned</option>
+                <option value="1">Day 1</option><option value="2">Day 2</option>
+                <option value="3">Day 3</option><option value="4">Day 4</option>
+                <option value="5">Day 5</option><option value="6">Day 6</option>
+                <option value="7">Day 7</option><option value="8">Day 8</option>
+              </select>
+            </label>
+          </div>
+          <label class="field"><span>Notes</span><textarea id="featureNotes" rows="4" disabled></textarea></label>
+          <div class="toolbar-grid">
+            <button id="updateFeatureButton" class="button primary" type="submit" disabled>Update</button>
+            <button id="zoomFeatureButton" class="button secondary" type="button" disabled>Zoom</button>
+            <button id="duplicateFeatureButton" class="button secondary" type="button" disabled>Duplicate</button>
+            <button id="deleteFeatureButton" class="button danger" type="button" disabled>Delete</button>
+          </div>
+        </form>
+        <div class="notice muted">
+          Use the map’s pencil control to move vertices. This beta draws point-to-point routes; road snapping comes later.
+        </div>
+      </section>
+
+      <section id="trackingPanel" class="panel">
+        <div class="section-heading"><div><h2>Trail Intelligence</h2><p>Foundation for competitor and inReach overlays.</p></div><span class="badge">FOUNDATION</span></div>
+        <label class="field"><span>Garmin inReach KML feed</span><input id="inreachUrl" placeholder="Paste feed URL later" /></label>
+        <button id="saveTrackingSettings" class="button secondary wide">Save tracking settings</button>
+        <hr />
+        <label class="button secondary file-button wide">Import competitor snapshot JSON
+          <input id="competitorInput" type="file" accept=".json,application/json" />
+        </label>
+        <div class="notice muted">
+          Automatic GPSCheckpoints ingestion requires an authorized data endpoint and a Cloudflare Worker. This screen stores the configuration now; live polling is the next integration milestone.
+        </div>
+        <div id="competitorSummary" class="layer-list empty">No competitor data loaded.</div>
+      </section>
+    </aside>
+
+    <main class="map-area">
       <div id="map"></div>
-      <div id="offlineNotice" hidden>Basemap unavailable. Imported GPX data remains usable.</div>
-    </section>
-
-    <nav>
-      <button data-panel="dashboard" class="active">Dashboard</button>
-      <button data-panel="checkpoints">Checkpoints</button>
-      <button data-panel="files">GPX</button>
-      <button data-panel="settings">Settings</button>
-    </nav>
-
-    <section id="dashboard" class="panel active">
-      <div class="cards">
-        <article><span>Checkpoints</span><strong id="cpProgress">0 / 0</strong></article>
-        <article><span>Track distance</span><strong id="trackDistance">0 mi</strong></article>
-        <article><span>GPS accuracy</span><strong id="gpsAccuracy">—</strong></article>
-        <article><span>Nearest checkpoint</span><strong id="nearestCp">—</strong></article>
+      <div class="map-status">
+        <span id="cursorCoordinates">—</span>
+        <span id="gpsStatus">GPS off</span>
       </div>
-      <div class="actions">
-        <label class="fileButton">
-          Import GPX
-          <input id="gpxInput" type="file" accept=".gpx,application/gpx+xml,text/xml" multiple>
+      <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open planner">Planner</button>
+    </main>
+  </div>
+
+  <dialog id="createDialog">
+    <form method="dialog" id="createForm" class="dialog-form">
+      <h2>New map feature</h2>
+      <input id="createLayerStamp" type="hidden" />
+      <label class="field"><span>Name</span><input id="createName" required /></label>
+      <div class="two-col">
+        <label class="field"><span>Type</span>
+          <select id="createType">
+            <option value="track">Track</option>
+            <option value="route">Route</option>
+            <option value="waypoint">Waypoint</option>
+            <option value="checkpoint">Checkpoint</option>
+            <option value="fuel">Fuel</option>
+            <option value="hotel">Hotel</option>
+          </select>
         </label>
-        <button id="fitBtn">Fit GPX</button>
-        <button id="exportBtn">Export Progress</button>
-      </div>
-      <div class="status" id="status">Import a GPX file to begin.</div>
-    </section>
-
-    <section id="checkpoints" class="panel">
-      <div class="toolbar">
-        <input id="cpSearch" type="search" placeholder="Search checkpoints">
-        <select id="cpFilter">
-          <option value="all">All</option>
-          <option value="pending">Pending</option>
-          <option value="complete">Completed</option>
-        </select>
-      </div>
-      <div id="checkpointList" class="list empty">No checkpoints imported.</div>
-    </section>
-
-    <section id="files" class="panel">
-      <div class="actions">
-        <label class="fileButton">
-          Import GPX
-          <input id="gpxInput2" type="file" accept=".gpx,application/gpx+xml,text/xml" multiple>
+        <label class="field"><span>Day</span>
+          <select id="createDay">
+            <option value="0">Unassigned</option>
+            <option value="1">Day 1</option><option value="2">Day 2</option>
+            <option value="3">Day 3</option><option value="4">Day 4</option>
+            <option value="5">Day 5</option><option value="6">Day 6</option>
+            <option value="7">Day 7</option><option value="8">Day 8</option>
+          </select>
         </label>
-        <button id="clearBtn" class="danger">Clear Rally Data</button>
       </div>
-      <div id="fileList" class="list empty">No GPX files imported.</div>
-      <p class="fineprint">Tracks, routes and waypoints are stored only on this device.</p>
-    </section>
+      <label class="field"><span>Notes</span><textarea id="createNotes" rows="3"></textarea></label>
+      <div class="dialog-actions">
+        <button value="cancel" class="button secondary">Cancel</button>
+        <button id="confirmCreate" value="default" class="button primary">Add feature</button>
+      </div>
+    </form>
+  </dialog>
 
-    <section id="settings" class="panel">
-      <label>Checkpoint proximity alert
-        <select id="alertDistance">
-          <option value="500">500 ft</option>
-          <option value="1609">1 mile</option>
-          <option value="8047">5 miles</option>
-        </select>
-      </label>
-      <label class="check"><input id="followGps" type="checkbox" checked> Follow GPS position</label>
-      <label class="check"><input id="showCompleted" type="checkbox" checked> Show completed checkpoints</label>
-      <p class="fineprint">This beta is a GPX viewer and checkpoint logger. Continue using the Garmin Zumo XT3 for primary turn-by-turn navigation.</p>
-    </section>
-  </main>
-
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.18.3/dist/leaflet-geoman.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
