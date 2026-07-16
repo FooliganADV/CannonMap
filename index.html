@@ -18,7 +18,7 @@
       <span class="brand-mark">CM</span>
       <div>
         <h1>CannonMap</h1>
-        <p>America 250 Planner · Beta 0.2</p>
+        <p>America 250 Planner · Beta 0.3.0</p>
       </div>
     </div>
     <div class="top-actions">
@@ -33,6 +33,7 @@
         <button class="tab active" data-tab="project">Project</button>
         <button class="tab" data-tab="features">Features</button>
         <button class="tab" data-tab="tracking">Tracking</button>
+        <button id="sidebarClose" class="sidebar-close" type="button" aria-label="Close planner panel">×</button>
       </nav>
 
       <section id="projectPanel" class="panel active">
@@ -46,6 +47,8 @@
             <input id="gpxInput" type="file" accept=".gpx,application/gpx+xml,text/xml" multiple />
           </label>
           <button id="exportAllButton" class="button secondary">Export GPX</button>
+          <button id="exportExcelButton" class="button secondary">Export Excel</button>
+          <button id="exportCsvButton" class="button secondary">Export CSV</button>
           <button id="fitButton" class="button secondary">Fit map</button>
           <button id="newProjectButton" class="button danger-outline">New project</button>
         </div>
@@ -106,16 +109,28 @@
             </label>
           </div>
           <label class="field"><span>Notes</span><textarea id="featureNotes" rows="4" disabled></textarea></label>
+          <div class="two-col point-coordinates" id="pointCoordinates">
+            <label class="field"><span>Latitude</span><input id="featureLatitude" type="number" step="0.000001" disabled /></label>
+            <label class="field"><span>Longitude</span><input id="featureLongitude" type="number" step="0.000001" disabled /></label>
+          </div>
           <div class="toolbar-grid">
             <button id="updateFeatureButton" class="button primary" type="submit" disabled>Update</button>
             <button id="zoomFeatureButton" class="button secondary" type="button" disabled>Zoom</button>
             <button id="duplicateFeatureButton" class="button secondary" type="button" disabled>Duplicate</button>
+            <button id="editGeometryButton" class="button secondary" type="button" disabled>Edit map</button>
+            <button id="stopEditButton" class="button secondary" type="button" disabled>Finish edit</button>
+            <button id="undoButton" class="button secondary" type="button">Undo</button>
             <button id="deleteFeatureButton" class="button danger" type="button" disabled>Delete</button>
           </div>
         </form>
-        <div class="notice muted">
-          Use the map’s pencil control to move vertices. This beta draws point-to-point routes; road snapping comes later.
-        </div>
+        <div class="notice muted">Select a feature and use <strong>Edit map</strong>. Points can be dragged; route and track vertices can be moved, added, or removed. Select <strong>Finish edit</strong> when complete.</div>
+        <details>
+          <summary>Bulk day assignment</summary>
+          <label class="field"><span>Assign all currently unassigned point features to</span>
+            <select id="bulkDay"><option value="1">Day 1</option><option value="2">Day 2</option><option value="3">Day 3</option><option value="4">Day 4</option><option value="5">Day 5</option><option value="6">Day 6</option><option value="7">Day 7</option><option value="8">Day 8</option></select>
+          </label>
+          <button id="bulkAssignButton" class="button secondary wide" type="button">Assign unassigned points</button>
+        </details>
       </section>
 
       <section id="trackingPanel" class="panel">
@@ -132,6 +147,7 @@
         <div id="competitorSummary" class="layer-list empty">No competitor data loaded.</div>
       </section>
     </aside>
+    <button id="sidebarBackdrop" class="sidebar-backdrop" type="button" aria-label="Close planner panel" tabindex="-1"></button>
 
     <main class="map-area">
       <div id="map"></div>
@@ -139,7 +155,7 @@
         <span id="cursorCoordinates">—</span>
         <span id="gpsStatus">GPS off</span>
       </div>
-      <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open planner">Planner</button>
+      <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open planner" aria-expanded="false">Planner</button>
     </main>
   </div>
 
@@ -179,6 +195,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.18.3/dist/leaflet-geoman.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
