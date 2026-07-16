@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111827">
+  <title>CannonMap Beta</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <div>
+      <h1>CannonMap</h1>
+      <div class="subtitle">America 250 Rally Beta</div>
+    </div>
+    <button id="gpsBtn" class="primary">Start GPS</button>
+  </header>
+
+  <main>
+    <section id="mapWrap">
+      <div id="map"></div>
+      <div id="offlineNotice" hidden>Basemap unavailable. Imported GPX data remains usable.</div>
+    </section>
+
+    <nav>
+      <button data-panel="dashboard" class="active">Dashboard</button>
+      <button data-panel="checkpoints">Checkpoints</button>
+      <button data-panel="files">GPX</button>
+      <button data-panel="settings">Settings</button>
+    </nav>
+
+    <section id="dashboard" class="panel active">
+      <div class="cards">
+        <article><span>Checkpoints</span><strong id="cpProgress">0 / 0</strong></article>
+        <article><span>Track distance</span><strong id="trackDistance">0 mi</strong></article>
+        <article><span>GPS accuracy</span><strong id="gpsAccuracy">—</strong></article>
+        <article><span>Nearest checkpoint</span><strong id="nearestCp">—</strong></article>
+      </div>
+      <div class="actions">
+        <label class="fileButton">
+          Import GPX
+          <input id="gpxInput" type="file" accept=".gpx,application/gpx+xml,text/xml" multiple>
+        </label>
+        <button id="fitBtn">Fit GPX</button>
+        <button id="exportBtn">Export Progress</button>
+      </div>
+      <div class="status" id="status">Import a GPX file to begin.</div>
+    </section>
+
+    <section id="checkpoints" class="panel">
+      <div class="toolbar">
+        <input id="cpSearch" type="search" placeholder="Search checkpoints">
+        <select id="cpFilter">
+          <option value="all">All</option>
+          <option value="pending">Pending</option>
+          <option value="complete">Completed</option>
+        </select>
+      </div>
+      <div id="checkpointList" class="list empty">No checkpoints imported.</div>
+    </section>
+
+    <section id="files" class="panel">
+      <div class="actions">
+        <label class="fileButton">
+          Import GPX
+          <input id="gpxInput2" type="file" accept=".gpx,application/gpx+xml,text/xml" multiple>
+        </label>
+        <button id="clearBtn" class="danger">Clear Rally Data</button>
+      </div>
+      <div id="fileList" class="list empty">No GPX files imported.</div>
+      <p class="fineprint">Tracks, routes and waypoints are stored only on this device.</p>
+    </section>
+
+    <section id="settings" class="panel">
+      <label>Checkpoint proximity alert
+        <select id="alertDistance">
+          <option value="500">500 ft</option>
+          <option value="1609">1 mile</option>
+          <option value="8047">5 miles</option>
+        </select>
+      </label>
+      <label class="check"><input id="followGps" type="checkbox" checked> Follow GPS position</label>
+      <label class="check"><input id="showCompleted" type="checkbox" checked> Show completed checkpoints</label>
+      <p class="fineprint">This beta is a GPX viewer and checkpoint logger. Continue using the Garmin Zumo XT3 for primary turn-by-turn navigation.</p>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
