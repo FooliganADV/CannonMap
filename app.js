@@ -1,8 +1,9 @@
 'use strict';
 
-const APP_VERSION = '0.4.0';
-const BUILD_ID = '2026.07.16.01';
-const SETTINGS_KEY = 'cannonmap.settings.v4';
+const APP_VERSION = '0.5.0';
+const BUILD_ID = '2026.07.17.01';
+const SETTINGS_KEY = 'cannonmap.settings.v5';
+const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
 const DB_STORE = 'projects';
 
@@ -18,7 +19,7 @@ const state = {
     version: APP_VERSION, name: 'America 250 – 2026', createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(), features: [], competitors: []
   },
-  settings: { dayFilter: 'all', inreachUrl: '', baseLayer: 'Streets' }
+  settings: { dayFilter: 'all', inreachUrl: '', baseLayer: 'Streets', lineOpacity:90, typeVisibility:{track:true,route:true,waypoint:true,checkpoint:true,fuel:true,hotel:true} }
 };
 
 const $ = id => document.getElementById(id);
@@ -100,7 +101,7 @@ function layerToGeometry(layer) {
 function featureMatchesDay(feature) { return state.settings.dayFilter === 'all' || String(feature.day ?? 0) === String(state.settings.dayFilter); }
 function featureStyle(feature) {
   const color = COLORS[feature.type] || COLORS.track;
-  return { color, fillColor:color, weight:feature.type === 'route' ? 5 : 4, opacity:.9, fillOpacity:.9 };
+  return { color, fillColor:color, weight:feature.type === 'route' ? 5 : 4, opacity:(state.settings.lineOpacity||90)/100, fillOpacity:.9 };
 }
 function markerIcon(feature) {
   const color = COLORS[feature.type] || COLORS.waypoint;
@@ -118,6 +119,7 @@ function createLeafletLayer(feature) {
   layer._cannonId = feature.id;
   layer.bindTooltip(feature.name || feature.type, {sticky:true});
   layer.on('click', () => selectFeature(feature.id));
+  layer.on('contextmenu', e => { L.DomEvent.preventDefault(e); openContextMenu(feature.id, e.originalEvent.clientX, e.originalEvent.clientY); });
   layer.on('pm:edit', () => syncGeometryFromLayer(layer));
   layer.on('pm:dragend', () => syncGeometryFromLayer(layer));
   layer.on('dragend', () => syncGeometryFromLayer(layer));
@@ -137,7 +139,7 @@ function renderMapFeatures() {
   state.featureGroup.clearLayers();
   state.project.features.forEach(feature => {
     delete feature._layer;
-    if (!feature.visible || !featureMatchesDay(feature)) return;
+    if (!feature.visible || !featureMatchesDay(feature) || state.settings.typeVisibility?.[feature.type]===false) return;
     const layer = createLeafletLayer(feature);
     state.featureGroup.addLayer(layer);
     feature._layer = layer;
@@ -185,7 +187,7 @@ function renderStats() {
 function renderAll() {
   $('projectName').value=state.project.name; $('dayFilter').value=state.settings.dayFilter;
   $('inreachUrl').value=state.settings.inreachUrl||'';
-  renderMapFeatures(); renderLayerList(); renderStats(); renderCompetitorSummary();
+  renderMapFeatures(); renderLayerList(); renderStats(); renderCompetitorSummary(); renderMissionControl(); renderTypeLayerControls(); renderSearch();
 }
 function lineDistanceMiles(points) {
   let meters=0; for(let i=1;i<points.length;i++) meters += haversine(points[i-1],points[i]);
@@ -223,7 +225,7 @@ async function loadProject() {
     if(saved){state.project=saved;state.project.features ||= [];state.project.competitors ||= [];}
   } catch(_){}
   try {
-    const raw = localStorage.getItem(SETTINGS_KEY) || localStorage.getItem('cannonmap.settings.v3') || '{}';
+    const raw = localStorage.getItem(SETTINGS_KEY) || localStorage.getItem('cannonmap.settings.v4') || localStorage.getItem('cannonmap.settings.v3') || '{}';
     Object.assign(state.settings, JSON.parse(raw));
   } catch(_){}
 }
@@ -352,8 +354,11 @@ function buildImportReport(features,files,auto) {
   const byType=type=>features.filter(f=>f.type===type).length;
   const unassigned=features.filter(f=>!f.day).length;
   const duplicates=features.filter(f=>findDuplicate(f)).length;
+  const unnamed=features.filter(f=>!f.name||/^.+ (route|track|waypoint) \d+$/i.test(f.name)).length;
+  const shortLines=features.filter(f=>f.geometry.kind==='line'&&f.geometry.coordinates.length<2).length;
+  const warnings=[]; if(unassigned)warnings.push(`${unassigned} features still need day review.`); if(duplicates)warnings.push(`${duplicates} probable duplicates match the current project.`); if(unnamed)warnings.push(`${unnamed} features use generated or weak names.`); if(shortLines)warnings.push(`${shortLines} line features have insufficient geometry.`);
   return {
-    files,features,auto,unassigned,duplicates,
+    files,features,auto,unassigned,duplicates,unnamed,shortLines,warnings,
     counts:{tracks:byType('track'),routes:byType('route'),points:features.filter(f=>f.geometry.kind==='point').length,checkpoints:byType('checkpoint')}
   };
 }
@@ -375,13 +380,16 @@ async function importGpxFiles(files) {
       <article><span>Duplicates found</span><strong>${r.duplicates}</strong></article>
       <article><span>Tracks / Routes</span><strong>${r.counts.tracks} / ${r.counts.routes}</strong></article>
       <article><span>Points / Checkpoints</span><strong>${r.counts.points} / ${r.counts.checkpoints}</strong></article>
+      <article><span>Weak names</span><strong>${r.unnamed}</strong></article>
+      <article><span>Geometry warnings</span><strong>${r.shortLines}</strong></article>
     </div>
+    ${r.warnings.length?`<ul class="inspector-warnings">${r.warnings.map(w=>`<li>${escapeHtml(w)}</li>`).join('')}</ul>`:'<div class="notice muted">Inspector found no major structural warnings.</div>'}
     ${errors.length?`<ul class="import-warnings">${errors.map(e=>`<li>${escapeHtml(e)}</li>`).join('')}</ul>`:''}`;
   $('importDialog').showModal();
 }
 async function applyPendingImport(mode) {
   const pending=state.pendingImport;if(!pending)return;
-  snapshot();
+  createNamedSnapshot(`Before GPX ${mode}`,true);snapshot();
   let added=0,updated=0,skipped=0;
   if(mode==='replace'){
     state.project.features=pending.features;
@@ -451,6 +459,28 @@ async function openProjectFile(file) {
   }catch(error){setStatus(`Project open failed: ${error.message}`,true);}
 }
 
+
+function getSnapshots(){try{return JSON.parse(localStorage.getItem(SNAPSHOT_KEY)||'[]');}catch(_){return[];}}
+function writeSnapshots(items){localStorage.setItem(SNAPSHOT_KEY,JSON.stringify(items.slice(0,12)));}
+function createNamedSnapshot(label='Manual snapshot',quiet=false){
+  const items=getSnapshots();items.unshift({id:uid(),label,createdAt:new Date().toISOString(),project:deepClean(state.project),settings:deepClean(state.settings)});writeSnapshots(items);renderSnapshots();if(!quiet)setStatus(`Snapshot created: ${label}.`);
+}
+function restoreSnapshot(id){const item=getSnapshots().find(x=>x.id===id);if(!item)return;snapshot();state.project=item.project;if(item.settings)Object.assign(state.settings,item.settings);saveProject(false);clearSelection();renderAll();fitMap();setStatus(`Restored snapshot from ${new Date(item.createdAt).toLocaleString()}.`);}
+function deleteSnapshot(id){writeSnapshots(getSnapshots().filter(x=>x.id!==id));renderSnapshots();}
+function renderSnapshots(){const box=$('snapshotList');if(!box)return;const items=getSnapshots();if(!items.length){box.className='snapshot-list empty';box.textContent='No snapshots yet.';return;}box.className='snapshot-list';box.innerHTML=items.map(x=>`<div class="snapshot-row"><div><strong>${escapeHtml(x.label)}</strong><small>${new Date(x.createdAt).toLocaleString()} · ${x.project.features?.length||0} features</small></div><button class="button secondary" data-restore="${x.id}">Restore</button><button class="button danger-outline" data-drop="${x.id}">×</button></div>`).join('');box.querySelectorAll('[data-restore]').forEach(b=>b.onclick=()=>restoreSnapshot(b.dataset.restore));box.querySelectorAll('[data-drop]').forEach(b=>b.onclick=()=>deleteSnapshot(b.dataset.drop));}
+function renderMissionControl(){
+  const fs=state.project.features,miles=fs.filter(f=>f.geometry.kind==='line').reduce((s,f)=>s+lineDistanceMiles(f.geometry.coordinates),0);
+  $('missionProjectName').textContent=state.project.name;$('missionUpdated').textContent=`Updated ${new Date(state.project.updatedAt||Date.now()).toLocaleString()}`;
+  $('missionFeatureCount').textContent=fs.length;$('missionCheckpointCount').textContent=fs.filter(f=>f.type==='checkpoint').length;$('missionFuelCount').textContent=fs.filter(f=>f.type==='fuel').length;$('missionHotelCount').textContent=fs.filter(f=>f.type==='hotel').length;$('missionUnassignedCount').textContent=fs.filter(f=>!f.day).length;$('missionMileage').textContent=`${miles.toFixed(1)} mi`;
+  $('dailyReadiness').innerHTML=[1,2,3,4,5,6,7,8].map(day=>{const rows=fs.filter(f=>f.day===day),cp=rows.filter(f=>f.type==='checkpoint').length,fuel=rows.filter(f=>f.type==='fuel').length,hotel=rows.filter(f=>f.type==='hotel').length,dm=rows.filter(f=>f.geometry.kind==='line').reduce((s,f)=>s+lineDistanceMiles(f.geometry.coordinates),0),score=Math.min(100,(rows.length?40:0)+(cp?25:0)+(fuel?15:0)+(hotel?20:0));return `<div class="day-card" data-day-card="${day}"><header><strong>Day ${day}</strong><span>${dm.toFixed(0)} mi</span></header><small>${cp} checkpoints · ${fuel} fuel · ${hotel} hotel · ${rows.length} features</small><div class="day-meter"><i style="width:${score}%"></i></div></div>`}).join('');
+  $('dailyReadiness').querySelectorAll('[data-day-card]').forEach(c=>c.onclick=()=>{state.settings.dayFilter=c.dataset.dayCard;$('dayFilter').value=state.settings.dayFilter;document.querySelector('[data-tab="project"]').click();saveProject(false);renderAll();});renderSnapshots();
+}
+function renderTypeLayerControls(){const box=$('typeLayerControls');if(!box)return;const labels={track:'Tracks',route:'Routes',waypoint:'Waypoints',checkpoint:'Checkpoints',fuel:'Fuel',hotel:'Hotels'};box.innerHTML=Object.entries(labels).map(([type,label])=>`<label class="type-toggle"><input type="checkbox" data-type-visible="${type}" ${state.settings.typeVisibility?.[type]!==false?'checked':''}><span class="swatch" style="background:${COLORS[type]}"></span>${label}</label>`).join('');box.querySelectorAll('[data-type-visible]').forEach(input=>input.onchange=()=>{state.settings.typeVisibility[input.dataset.typeVisible]=input.checked;saveProject(false);renderMapFeatures();});$('lineOpacity').value=state.settings.lineOpacity||90;}
+function renderSearch(){const box=$('searchResults');if(!box)return;const q=$('globalSearch').value.trim().toLowerCase(),type=$('searchType').value,day=$('searchDay').value;let rows=state.project.features.filter(f=>(type==='all'||f.type===type)&&(day==='all'||String(f.day||0)===day));if(q)rows=rows.filter(f=>`${f.name} ${f.notes||''} ${f.source||''}`.toLowerCase().includes(q));rows=rows.slice(0,100);if(!q&&type==='all'&&day==='all'){box.className='search-results empty';box.textContent='Enter a search term or choose filters.';return;}if(!rows.length){box.className='search-results empty';box.textContent='No matching features.';return;}box.className='search-results';box.innerHTML=rows.map(f=>`<button class="search-result" data-search-id="${f.id}"><strong>${f.favorite?'<span class="favorite-star">★</span> ':''}${escapeHtml(f.name)}</strong><small>${f.type} · ${f.day?`Day ${f.day}`:'Unassigned'}${f.notes?` · ${escapeHtml(f.notes.slice(0,90))}`:''}</small></button>`).join('');box.querySelectorAll('[data-search-id]').forEach(b=>b.onclick=()=>{selectFeature(b.dataset.searchId);zoomSelected();document.querySelector('[data-tab="features"]').click();});}
+function openContextMenu(id,x,y){state.selectedId=id;const menu=$('contextMenu');menu.hidden=false;menu.style.left=`${Math.min(x,window.innerWidth-190)}px`;menu.style.top=`${Math.min(y,window.innerHeight-260)}px`;}
+function closeContextMenu(){$('contextMenu').hidden=true;}
+function reverseSelected(){const f=state.project.features.find(x=>x.id===state.selectedId);if(!f||f.geometry.kind!=='line')return setStatus('Only routes and tracks can be reversed.');snapshot();f.geometry.coordinates.reverse();f.updatedAt=new Date().toISOString();saveProject(false);renderAll();selectFeature(f.id);setStatus(`Reversed ${f.name}.`);}
+function toggleFavorite(){const f=state.project.features.find(x=>x.id===state.selectedId);if(!f)return;snapshot();f.favorite=!f.favorite;saveProject(false);renderAll();setStatus(`${f.favorite?'Favorited':'Removed favorite from'} ${f.name}.`);}
 function clearSelection() {
   stopEditing();
   state.selectedId=null; $('selectedFeatureId').value='';
@@ -602,7 +632,7 @@ function renderCompetitorSummary() {
 }
 function newProject() {
   if(!confirm('Create a new empty project? The currently saved local project will be replaced.'))return;
-  snapshot();state.project={version:APP_VERSION,name:'America 250 – 2026',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),features:[],competitors:[]};
+  createNamedSnapshot('Before new project',true);snapshot();state.project={version:APP_VERSION,name:'America 250 – 2026',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),features:[],competitors:[]};
   clearSelection();saveProject(false);renderAll();setStatus('New project created.');
 }
 function setSidebarOpen(open) {
@@ -614,6 +644,10 @@ function wireUi() {
   document.addEventListener('keydown',event=>{if(event.key==='Escape')setSidebarOpen(false);});
   $('gpxInput').addEventListener('change',event=>{importGpxFiles([...event.target.files]);event.target.value='';});
   $('projectInput').addEventListener('change',event=>{const file=event.target.files[0];if(file)openProjectFile(file);event.target.value='';});
+  $('missionFitButton').addEventListener('click',fitMap);$('missionUnassignedButton').addEventListener('click',()=>{state.settings.dayFilter='0';$('dayFilter').value='0';document.querySelector('[data-tab="project"]').click();saveProject(false);renderAll();});$('missionSnapshotButton').addEventListener('click',()=>createNamedSnapshot('Manual snapshot'));
+  ['globalSearch','searchType','searchDay'].forEach(id=>$(id).addEventListener(id==='globalSearch'?'input':'change',renderSearch));
+  $('lineOpacity').addEventListener('input',()=>{state.settings.lineOpacity=Number($('lineOpacity').value);renderMapFeatures();});$('lineOpacity').addEventListener('change',()=>saveProject(false));
+  document.addEventListener('click',event=>{if(!$('contextMenu').contains(event.target))closeContextMenu();});$('contextMenu').querySelectorAll('[data-context]').forEach(btn=>btn.addEventListener('click',()=>{const a=btn.dataset.context;closeContextMenu();if(a==='zoom')zoomSelected();if(a==='edit'){selectFeature(state.selectedId);editSelectedGeometry();}if(a==='duplicate')duplicateSelected();if(a==='reverse')reverseSelected();if(a==='favorite')toggleFavorite();if(a==='delete')deleteSelected();}));
   $('saveButton').addEventListener('click',()=>saveProject(true));
   $('saveProjectFileButton').addEventListener('click',exportProjectFile);
   $('reassignDaysButton').addEventListener('click',reassignExistingDays);
@@ -642,7 +676,8 @@ function wireUi() {
 }
 async function init() {
   await loadProject();
-  state.project.features.forEach(f=>{f.assignmentMethod ||= '';});
+  state.project.features.forEach(f=>{f.assignmentMethod ||= '';f.favorite ||= false;});
+  state.settings.typeVisibility=Object.assign({track:true,route:true,waypoint:true,checkpoint:true,fuel:true,hotel:true},state.settings.typeVisibility||{});
   initMap();wireUi();
   $('buildLabel').textContent=`Beta ${APP_VERSION}`;
   $('appVersion').textContent=`v${APP_VERSION} · ${BUILD_ID}`;

@@ -1,47 +1,37 @@
-# CannonMap Planner — Beta 0.4.0
+# CannonMap Planner — Beta 0.5.0 Mission Control
 
-Build: `2026.07.16.01`
+Build: `2026.07.17.01`
 
-## Major changes
+## New in this release
 
-- Portable `.cmap` project files:
-  - **Save .cmap** downloads the entire project.
-  - **Open .cmap** restores it in another browser or device.
-- Existing browser data remains available after this upgrade.
-- **Reassign days** repairs previously imported unassigned features without importing the GPX again.
-- Day detection now recognizes:
-  - `Day 5`
-  - `D5`
-  - `5.14 Checkpoint Name`
-  - `Day Five`
-  - Day references in notes and descriptions
-- GPX import report before changing the project.
-- Import choices:
-  - **Merge** — update duplicates and add new features
-  - **Add all** — retain duplicates
-  - **Replace** — replace the current map features
-- Duplicate detection for points, routes, and tracks.
-- Visible app version and build number.
-- Tracking screen now clearly states that live connectors are not active.
-- All v0.3.0 map layers, editing tools, Excel export, CSV export, GPX export, GPS, and local autosave remain.
+- Mission Control dashboard with total and day-by-day readiness statistics
+- Global project search by text, type, and rally day
+- Layer Manager with type visibility and line-opacity controls
+- GPX Inspector warnings inside the import preview
+- Persistent project snapshots with restore and delete controls
+- Automatic safety snapshots before GPX imports and New Project
+- Right-click context menu on map features
+- Reverse route/track and favorite feature commands
+- Existing `.cmap`, GPX, Excel, CSV, editing, GPS, competitor JSON, and map layers retained
 
-## First test after deployment
+## Upload
 
-1. Open the browser that already contains the America 250 project.
-2. Confirm the bottom map status displays `v0.4.0`.
-3. Select **Reassign days**.
-4. Export Excel and inspect the Daily Summary and Master Manifest.
-5. Select **Save .cmap** and confirm a project file downloads.
-6. Open a different browser, select **Open .cmap**, and confirm the project appears.
-7. Import the master GPX again and test the **Merge** option.
+Extract the ZIP and upload every file to the GitHub repository root. Replace the existing files.
 
-## GitHub web upload
+## First test
 
-Upload every extracted file to the repository root. The package is flat—there are no required folders.
+1. Confirm the map status shows `v0.5.0 · 2026.07.17.01`.
+2. Open Mission Control and verify all eight daily cards.
+3. Search for a known checkpoint, fuel stop, and hotel.
+4. Hide Tracks in Layer Manager, then restore them.
+5. Adjust route/track opacity.
+6. Create and restore a snapshot.
+7. Right-click a route or track and test Reverse Line, then Undo.
+8. Import a GPX and inspect the warning report before choosing Merge.
 
-## Known limitations
+## Not active yet
 
-- Road snapping is not included yet.
-- Offline basemap downloads are not included yet.
-- Garmin inReach and GPSCheckpoints live ingestion are not active.
-- The external Excel library requires internet when first loaded.
+- Live Garmin inReach / GPSCheckpoints connectors
+- Downloadable offline map packs
+- Road/trail snapping and offline routing
+- Full split/merge geometry workflows
