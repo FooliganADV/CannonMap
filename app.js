@@ -1,25 +1,34 @@
 'use strict';
 
-const APP_VERSION = '0.5.0';
-const BUILD_ID = '2026.07.17.01';
-const SETTINGS_KEY = 'cannonmap.settings.v5';
+const APP_VERSION = '0.6.0';
+const BUILD_ID = '2026.07.18.02';
+const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
 const DB_STORE = 'projects';
 
 const COLORS = {
   track: '#f97316', route: '#38bdf8', waypoint: '#facc15', checkpoint: '#22c55e',
-  fuel: '#a78bfa', hotel: '#fb7185', competitor: '#ef4444'
+  fuel: '#a78bfa', hotel: '#fb7185', backbone: '#94a3b8', competitor: '#ef4444', traffic: '#facc15', weather: '#38bdf8'
 };
 
 const state = {
-  map: null, baseLayers: {}, featureGroup: null, gpsLayer: null, gpsAccuracyLayer: null,
-  gpsWatchId: null, pendingLayer: null, pendingImport: null, selectedId: null, editingLayer: null, history: [],
+  map: null, baseLayers: {}, featureGroup: null, competitorGroup: null, trafficGroup: null, weatherGroup: null,
+  gpsLayer: null, gpsAccuracyLayer: null, gpsWatchId: null, lastGpsPosition: null,
+  pendingLayer: null, pendingImport: null, selectedId: null, editingLayer: null, history: [],
+  rallyPollTimer: null, rallySync: { running:false, lastSync:null, lastError:'', pointsAdded:0 },
+  weatherData: null, weatherPoint: null, trafficIncidents: [],
   project: {
     version: APP_VERSION, name: 'America 250 – 2026', createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(), features: [], competitors: []
   },
-  settings: { dayFilter: 'all', inreachUrl: '', baseLayer: 'Streets', lineOpacity:90, typeVisibility:{track:true,route:true,waypoint:true,checkpoint:true,fuel:true,hotel:true} }
+  settings: {
+    dayFilter: 'all', inreachUrl: '', baseLayer: 'Streets', lineOpacity:90,
+    typeVisibility:{track:true,route:true,backbone:true,waypoint:true,checkpoint:true,fuel:true,hotel:true},
+    leaderboardUrl:'https://gpscheckpoints.com/admin/leaderboard.html?id_event=15', rallyEndpointUrl:'', rallyEventId:'15', rallyPollSeconds:30,
+    showCompetitorTrails:true, showCompetitorMarkers:true, competitorFreshMinutes:15,
+    trafficProvider:'none', tomtomApiKey:'', wazeFeedUrl:''
+  }
 };
 
 const $ = id => document.getElementById(id);
@@ -62,10 +71,16 @@ function initMap() {
   };
   state.baseLayers = layers;
   (layers[state.settings.baseLayer] || layers.Streets).addTo(state.map);
-  L.control.layers(layers, {}, { position:'topright', collapsed:true }).addTo(state.map);
-  state.map.on('baselayerchange', e => { state.settings.baseLayer = e.name; saveProject(false); });
-
   state.featureGroup = L.featureGroup().addTo(state.map);
+  state.competitorGroup = L.featureGroup().addTo(state.map);
+  state.trafficGroup = L.featureGroup().addTo(state.map);
+  state.weatherGroup = L.featureGroup().addTo(state.map);
+  L.control.layers(layers, {
+    'Competitor trails': state.competitorGroup,
+    'Traffic incidents': state.trafficGroup,
+    'Weather': state.weatherGroup
+  }, { position:'topright', collapsed:true }).addTo(state.map);
+  state.map.on('baselayerchange', e => { state.settings.baseLayer = e.name; saveProject(false); });
   state.map.pm.addControls({
     position:'topleft', drawMarker:true, drawPolyline:true, drawPolygon:false, drawRectangle:false,
     drawCircle:false, drawCircleMarker:false, editMode:false, dragMode:false, cutPolygon:false,
@@ -101,7 +116,12 @@ function layerToGeometry(layer) {
 function featureMatchesDay(feature) { return state.settings.dayFilter === 'all' || String(feature.day ?? 0) === String(state.settings.dayFilter); }
 function featureStyle(feature) {
   const color = COLORS[feature.type] || COLORS.track;
-  return { color, fillColor:color, weight:feature.type === 'route' ? 5 : 4, opacity:(state.settings.lineOpacity||90)/100, fillOpacity:.9 };
+  const isBackbone = feature.type === 'backbone';
+  return {
+    color, fillColor:color, weight:feature.type === 'route' ? 5 : isBackbone ? 3 : 4,
+    opacity:isBackbone ? Math.min(.65,(state.settings.lineOpacity||90)/100) : (state.settings.lineOpacity||90)/100,
+    fillOpacity:.9, dashArray:isBackbone ? '10 8' : null
+  };
 }
 function markerIcon(feature) {
   const color = COLORS[feature.type] || COLORS.waypoint;
@@ -146,16 +166,36 @@ function renderMapFeatures() {
   });
   renderCompetitors();
 }
+function pointTimestamp(point) {
+  const value = point?.time || point?.timestamp || '';
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : 0;
+}
+function competitorFreshness(comp) {
+  const last = comp.points?.at(-1);
+  const time = pointTimestamp(last);
+  if (!time) return { fresh:false, ageMinutes:null };
+  const ageMinutes = Math.max(0,(Date.now()-time)/60000);
+  return { fresh:ageMinutes <= Number(state.settings.competitorFreshMinutes||15), ageMinutes };
+}
 function renderCompetitors() {
+  state.competitorGroup?.clearLayers();
   state.project.competitors.forEach(comp => {
     if (!Array.isArray(comp.points) || !comp.points.length) return;
-    const line = L.polyline(comp.points.map(p => [p.lat,p.lon]), {color:COLORS.competitor,weight:3,dashArray:'7 7',opacity:.75});
-    line.bindTooltip(`${comp.name || comp.id} competitor trail`);
-    state.featureGroup.addLayer(line);
-    const last = comp.points.at(-1);
-    const marker = L.circleMarker([last.lat,last.lon], {radius:6,color:COLORS.competitor,fillColor:COLORS.competitor,fillOpacity:1});
-    marker.bindPopup(`<strong>${escapeHtml(comp.name || comp.id)}</strong><br>${escapeHtml(last.time || 'Latest position')}`);
-    state.featureGroup.addLayer(marker);
+    const freshness = competitorFreshness(comp);
+    const opacity = freshness.fresh ? .88 : .28;
+    const points = comp.points.filter(validPoint);
+    if (state.settings.showCompetitorTrails !== false && points.length > 1) {
+      const line = L.polyline(points.map(p => [p.lat,p.lon]), {color:COLORS.competitor,weight:freshness.fresh?4:3,dashArray:freshness.fresh?null:'7 7',opacity});
+      line.bindTooltip(`${comp.name || comp.id} · ${freshness.ageMinutes===null?'unknown age':`${Math.round(freshness.ageMinutes)} min old`}`);
+      state.competitorGroup.addLayer(line);
+    }
+    if (state.settings.showCompetitorMarkers !== false) {
+      const last = points.at(-1);
+      const marker = L.circleMarker([last.lat,last.lon], {radius:freshness.fresh?7:5,color:'#fff',weight:2,fillColor:COLORS.competitor,fillOpacity:opacity});
+      marker.bindPopup(`<strong>${escapeHtml(comp.name || comp.id)}</strong><br>${escapeHtml(last.time || 'Time unavailable')}<br>${freshness.fresh?'Fresh':'Stale or undated'} trail`);
+      state.competitorGroup.addLayer(marker);
+    }
   });
 }
 function renderLayerList() {
@@ -176,18 +216,37 @@ function renderLayerList() {
     if (feature) { snapshot(); feature.visible=input.checked; saveProject(false); renderMapFeatures(); }
   }));
 }
+function planningMileage(features) {
+  const lines = features.filter(f => f.geometry?.kind==='line' && f.type !== 'backbone');
+  const groups = new Map();
+  lines.forEach(f => { const key=String(f.day||0); if(!groups.has(key))groups.set(key,[]); groups.get(key).push(f); });
+  let miles=0;
+  groups.forEach(rows => {
+    const tracks=rows.filter(f=>f.type==='track');
+    const routes=rows.filter(f=>f.type==='route');
+    const chosen=tracks.length?tracks:routes.length?routes:rows;
+    miles += chosen.reduce((sum,f)=>sum+lineDistanceMiles(f.geometry.coordinates),0);
+  });
+  return miles;
+}
 function renderStats() {
   const visible = state.project.features.filter(featureMatchesDay);
   $('trackCount').textContent = visible.filter(f => f.type==='track').length;
   $('routeCount').textContent = visible.filter(f => f.type==='route').length;
   $('waypointCount').textContent = visible.filter(f => ['waypoint','checkpoint','fuel','hotel'].includes(f.type)).length;
-  const miles = visible.filter(f => f.geometry.kind==='line').reduce((s,f)=>s+lineDistanceMiles(f.geometry.coordinates),0);
-  $('distanceTotal').textContent = `${miles.toFixed(1)} mi`;
+  $('distanceTotal').textContent = `${planningMileage(visible).toFixed(1)} mi`;
 }
 function renderAll() {
   $('projectName').value=state.project.name; $('dayFilter').value=state.settings.dayFilter;
-  $('inreachUrl').value=state.settings.inreachUrl||'';
-  renderMapFeatures(); renderLayerList(); renderStats(); renderCompetitorSummary(); renderMissionControl(); renderTypeLayerControls(); renderSearch();
+  const fields={
+    inreachUrl:'inreachUrl', leaderboardUrl:'leaderboardUrl', rallyEndpointUrl:'rallyEndpointUrl', rallyEventId:'rallyEventId',
+    rallyPollSeconds:'rallyPollSeconds', competitorFreshMinutes:'competitorFreshMinutes', trafficProvider:'trafficProvider',
+    tomtomApiKey:'tomtomApiKey', wazeFeedUrl:'wazeFeedUrl'
+  };
+  Object.entries(fields).forEach(([key,id])=>{if($(id))$(id).value=state.settings[key]??'';});
+  if($('showCompetitorTrails'))$('showCompetitorTrails').checked=state.settings.showCompetitorTrails!==false;
+  if($('showCompetitorMarkers'))$('showCompetitorMarkers').checked=state.settings.showCompetitorMarkers!==false;
+  renderMapFeatures(); renderLayerList(); renderStats(); renderCompetitorSummary(); renderMissionControl(); renderTypeLayerControls(); renderSearch(); renderIntelSummary();
 }
 function lineDistanceMiles(points) {
   let meters=0; for(let i=1;i<points.length;i++) meters += haversine(points[i-1],points[i]);
@@ -225,7 +284,7 @@ async function loadProject() {
     if(saved){state.project=saved;state.project.features ||= [];state.project.competitors ||= [];}
   } catch(_){}
   try {
-    const raw = localStorage.getItem(SETTINGS_KEY) || localStorage.getItem('cannonmap.settings.v4') || localStorage.getItem('cannonmap.settings.v3') || '{}';
+    const raw = localStorage.getItem(SETTINGS_KEY) || localStorage.getItem('cannonmap.settings.v5') || localStorage.getItem('cannonmap.settings.v4') || localStorage.getItem('cannonmap.settings.v3') || '{}';
     Object.assign(state.settings, JSON.parse(raw));
   } catch(_){}
 }
@@ -436,7 +495,7 @@ function exportProjectFile() {
     build:BUILD_ID,
     exportedAt:new Date().toISOString(),
     project:deepClean(state.project),
-    settings:deepClean(state.settings)
+    settings:safeExportSettings()
   };
   downloadBlob(JSON.stringify(payload,null,2),`${safeFilename(state.project.name)}.cmap`,'application/json');
   setStatus('Saved portable .cmap project file.');
@@ -469,13 +528,13 @@ function restoreSnapshot(id){const item=getSnapshots().find(x=>x.id===id);if(!it
 function deleteSnapshot(id){writeSnapshots(getSnapshots().filter(x=>x.id!==id));renderSnapshots();}
 function renderSnapshots(){const box=$('snapshotList');if(!box)return;const items=getSnapshots();if(!items.length){box.className='snapshot-list empty';box.textContent='No snapshots yet.';return;}box.className='snapshot-list';box.innerHTML=items.map(x=>`<div class="snapshot-row"><div><strong>${escapeHtml(x.label)}</strong><small>${new Date(x.createdAt).toLocaleString()} · ${x.project.features?.length||0} features</small></div><button class="button secondary" data-restore="${x.id}">Restore</button><button class="button danger-outline" data-drop="${x.id}">×</button></div>`).join('');box.querySelectorAll('[data-restore]').forEach(b=>b.onclick=()=>restoreSnapshot(b.dataset.restore));box.querySelectorAll('[data-drop]').forEach(b=>b.onclick=()=>deleteSnapshot(b.dataset.drop));}
 function renderMissionControl(){
-  const fs=state.project.features,miles=fs.filter(f=>f.geometry.kind==='line').reduce((s,f)=>s+lineDistanceMiles(f.geometry.coordinates),0);
+  const fs=state.project.features,miles=planningMileage(fs);
   $('missionProjectName').textContent=state.project.name;$('missionUpdated').textContent=`Updated ${new Date(state.project.updatedAt||Date.now()).toLocaleString()}`;
   $('missionFeatureCount').textContent=fs.length;$('missionCheckpointCount').textContent=fs.filter(f=>f.type==='checkpoint').length;$('missionFuelCount').textContent=fs.filter(f=>f.type==='fuel').length;$('missionHotelCount').textContent=fs.filter(f=>f.type==='hotel').length;$('missionUnassignedCount').textContent=fs.filter(f=>!f.day).length;$('missionMileage').textContent=`${miles.toFixed(1)} mi`;
-  $('dailyReadiness').innerHTML=[1,2,3,4,5,6,7,8].map(day=>{const rows=fs.filter(f=>f.day===day),cp=rows.filter(f=>f.type==='checkpoint').length,fuel=rows.filter(f=>f.type==='fuel').length,hotel=rows.filter(f=>f.type==='hotel').length,dm=rows.filter(f=>f.geometry.kind==='line').reduce((s,f)=>s+lineDistanceMiles(f.geometry.coordinates),0),score=Math.min(100,(rows.length?40:0)+(cp?25:0)+(fuel?15:0)+(hotel?20:0));return `<div class="day-card" data-day-card="${day}"><header><strong>Day ${day}</strong><span>${dm.toFixed(0)} mi</span></header><small>${cp} checkpoints · ${fuel} fuel · ${hotel} hotel · ${rows.length} features</small><div class="day-meter"><i style="width:${score}%"></i></div></div>`}).join('');
+  $('dailyReadiness').innerHTML=[1,2,3,4,5,6,7,8].map(day=>{const rows=fs.filter(f=>f.day===day),cp=rows.filter(f=>f.type==='checkpoint').length,fuel=rows.filter(f=>f.type==='fuel').length,hotel=rows.filter(f=>f.type==='hotel').length,dm=planningMileage(rows),score=Math.min(100,(rows.length?40:0)+(cp?25:0)+(fuel?15:0)+(hotel?20:0));return `<div class="day-card" data-day-card="${day}"><header><strong>Day ${day}</strong><span>${dm.toFixed(0)} mi</span></header><small>${cp} checkpoints · ${fuel} fuel · ${hotel} hotel · ${rows.length} features</small><div class="day-meter"><i style="width:${score}%"></i></div></div>`}).join('');
   $('dailyReadiness').querySelectorAll('[data-day-card]').forEach(c=>c.onclick=()=>{state.settings.dayFilter=c.dataset.dayCard;$('dayFilter').value=state.settings.dayFilter;document.querySelector('[data-tab="project"]').click();saveProject(false);renderAll();});renderSnapshots();
 }
-function renderTypeLayerControls(){const box=$('typeLayerControls');if(!box)return;const labels={track:'Tracks',route:'Routes',waypoint:'Waypoints',checkpoint:'Checkpoints',fuel:'Fuel',hotel:'Hotels'};box.innerHTML=Object.entries(labels).map(([type,label])=>`<label class="type-toggle"><input type="checkbox" data-type-visible="${type}" ${state.settings.typeVisibility?.[type]!==false?'checked':''}><span class="swatch" style="background:${COLORS[type]}"></span>${label}</label>`).join('');box.querySelectorAll('[data-type-visible]').forEach(input=>input.onchange=()=>{state.settings.typeVisibility[input.dataset.typeVisible]=input.checked;saveProject(false);renderMapFeatures();});$('lineOpacity').value=state.settings.lineOpacity||90;}
+function renderTypeLayerControls(){const box=$('typeLayerControls');if(!box)return;const labels={track:'Tracks',route:'Routes',backbone:'Backbone',waypoint:'Waypoints',checkpoint:'Checkpoints',fuel:'Fuel',hotel:'Hotels'};box.innerHTML=Object.entries(labels).map(([type,label])=>`<label class="type-toggle"><input type="checkbox" data-type-visible="${type}" ${state.settings.typeVisibility?.[type]!==false?'checked':''}><span class="swatch" style="background:${COLORS[type]}"></span>${label}</label>`).join('');box.querySelectorAll('[data-type-visible]').forEach(input=>input.onchange=()=>{state.settings.typeVisibility[input.dataset.typeVisible]=input.checked;saveProject(false);renderMapFeatures();});$('lineOpacity').value=state.settings.lineOpacity||90;}
 function renderSearch(){const box=$('searchResults');if(!box)return;const q=$('globalSearch').value.trim().toLowerCase(),type=$('searchType').value,day=$('searchDay').value;let rows=state.project.features.filter(f=>(type==='all'||f.type===type)&&(day==='all'||String(f.day||0)===day));if(q)rows=rows.filter(f=>`${f.name} ${f.notes||''} ${f.source||''}`.toLowerCase().includes(q));rows=rows.slice(0,100);if(!q&&type==='all'&&day==='all'){box.className='search-results empty';box.textContent='Enter a search term or choose filters.';return;}if(!rows.length){box.className='search-results empty';box.textContent='No matching features.';return;}box.className='search-results';box.innerHTML=rows.map(f=>`<button class="search-result" data-search-id="${f.id}"><strong>${f.favorite?'<span class="favorite-star">★</span> ':''}${escapeHtml(f.name)}</strong><small>${f.type} · ${f.day?`Day ${f.day}`:'Unassigned'}${f.notes?` · ${escapeHtml(f.notes.slice(0,90))}`:''}</small></button>`).join('');box.querySelectorAll('[data-search-id]').forEach(b=>b.onclick=()=>{selectFeature(b.dataset.searchId);zoomSelected();document.querySelector('[data-tab="features"]').click();});}
 function openContextMenu(id,x,y){state.selectedId=id;const menu=$('contextMenu');menu.hidden=false;menu.style.left=`${Math.min(x,window.innerWidth-190)}px`;menu.style.top=`${Math.min(y,window.innerHeight-260)}px`;}
 function closeContextMenu(){$('contextMenu').hidden=true;}
@@ -577,7 +636,7 @@ function exportGpx() {
 }
 function manifestRows() {
   const fs=state.project.features.filter(featureMatchesDay);
-  const typeOrder={checkpoint:1,fuel:2,hotel:3,waypoint:4,route:5,track:6};
+  const typeOrder={checkpoint:1,fuel:2,hotel:3,waypoint:4,route:5,track:6,backbone:7};
   return fs.map((f,index)=>{
     const p=f.geometry.coordinates[0]||{},distance=f.geometry.kind==='line'?lineDistanceMiles(f.geometry.coordinates):0;
     return {
@@ -595,7 +654,7 @@ function exportExcel() {
   const add=(name,rows)=>{const ws=XLSX.utils.json_to_sheet(rows.length?rows:[{Message:'No records'}]);ws['!autofilter']={ref:ws['!ref']};ws['!freeze']={xSplit:0,ySplit:1};ws['!cols']=[18,10,34,14,14,14,12,14,12,45,28,10,20,24].map(w=>({wch:w}));XLSX.utils.book_append_sheet(wb,ws,name);};
   add('Master Manifest',manifest);
   add('Daily Summary',[1,2,3,4,5,6,7,8].map(day=>{const rows=manifest.filter(r=>r.Day===day);return {Day:day,Features:rows.length,Checkpoints:rows.filter(r=>r.Type==='checkpoint').length,Routes:rows.filter(r=>r.Type==='route').length,Tracks:rows.filter(r=>r.Type==='track').length,'Line Miles':Number(rows.reduce((s,r)=>s+(Number(r['Distance (mi)'])||0),0).toFixed(2))};}));
-  for(const [sheet,type] of [['Checkpoints','checkpoint'],['Routes','route'],['Tracks','track'],['Fuel Stops','fuel'],['Hotels','hotel'],['Waypoints','waypoint']])add(sheet,manifest.filter(r=>r.Type===type));
+  for(const [sheet,type] of [['Checkpoints','checkpoint'],['Routes','route'],['Tracks','track'],['Backbone','backbone'],['Fuel Stops','fuel'],['Hotels','hotel'],['Waypoints','waypoint']])add(sheet,manifest.filter(r=>r.Type===type));
   const comp=[];state.project.competitors.forEach(c=>c.points.forEach((p,i)=>comp.push({Rider:c.name||c.id,Sequence:i+1,Latitude:p.lat,Longitude:p.lon,Time:p.time||''})));add('Competitor Trails',comp);
   XLSX.writeFile(wb,`${safeFilename(state.project.name)}-manifest${state.settings.dayFilter==='all'?'':`-day-${state.settings.dayFilter}`}.xlsx`);
   setStatus(`Exported ${manifest.length} manifest rows to Excel.`);
@@ -611,7 +670,7 @@ function startGps() {
   if(!navigator.geolocation)return setStatus('This browser does not support GPS.',true);
   if(state.gpsWatchId!==null){navigator.geolocation.clearWatch(state.gpsWatchId);state.gpsWatchId=null;$('gpsButton').textContent='Start GPS';$('gpsStatus').textContent='GPS off';return;}
   state.gpsWatchId=navigator.geolocation.watchPosition(position=>{
-    const ll=[position.coords.latitude,position.coords.longitude];state.gpsLayer?.remove();state.gpsAccuracyLayer?.remove();
+    const ll=[position.coords.latitude,position.coords.longitude];state.lastGpsPosition={lat:ll[0],lon:ll[1],time:new Date(position.timestamp||Date.now()).toISOString()};state.gpsLayer?.remove();state.gpsAccuracyLayer?.remove();
     state.gpsAccuracyLayer=L.circle(ll,{radius:position.coords.accuracy,color:'#38bdf8',weight:1,fillOpacity:.08}).addTo(state.map);
     state.gpsLayer=L.circleMarker(ll,{radius:8,color:'#fff',weight:3,fillColor:'#38bdf8',fillOpacity:1}).addTo(state.map);
     $('gpsStatus').textContent=`GPS ±${Math.round(position.coords.accuracy*3.28084)} ft`;
@@ -622,17 +681,306 @@ async function importCompetitorJson(file) {
   try {
     const data=JSON.parse(await file.text()),entries=Array.isArray(data)?data:data.competitors;
     if(!Array.isArray(entries))throw new Error('Expected an array or a competitors array.');
-    snapshot();state.project.competitors=entries.map((entry,index)=>({id:entry.id||entry.riderId||`rider-${index+1}`,name:entry.name||entry.riderName||`Rider ${index+1}`,points:(entry.points||entry.positions||[]).map(p=>({lat:Number(p.lat??p.latitude),lon:Number(p.lon??p.longitude),time:p.time||p.timestamp||''})).filter(validPoint)}));
-    saveProject(false);renderAll();fitMap();setStatus(`Imported ${state.project.competitors.length} competitor trails.`);
+    snapshot();state.project.competitors=normalizeCompetitorPayload(data);
+    saveProject(false);renderAll();fitIntelligence();setStatus(`Imported ${state.project.competitors.length} competitor trails.`);
   } catch(error){setStatus(`Competitor import failed: ${error.message}`,true);}
 }
 function renderCompetitorSummary() {
   const box=$('competitorSummary');if(!state.project.competitors.length){box.className='layer-list empty';box.textContent='No competitor data loaded.';return;}
-  box.className='layer-list';box.innerHTML=state.project.competitors.map(c=>`<div class="layer-row"><span class="swatch" style="background:${COLORS.competitor}"></span><div><strong>${escapeHtml(c.name)}</strong><small>${c.points.length} breadcrumb points</small></div><span></span></div>`).join('');
+  box.className='layer-list';box.innerHTML=state.project.competitors.map(c=>{const fresh=competitorFreshness(c);const age=fresh.ageMinutes===null?'undated':`${Math.round(fresh.ageMinutes)} min`;return `<div class="layer-row"><span class="swatch" style="background:${fresh.fresh?COLORS.competitor:'#64748b'}"></span><button type="button" data-rider-id="${escapeHtml(c.id)}"><strong>${escapeHtml(c.name)}</strong><small>${c.points.length} breadcrumbs · ${age}</small></button><span class="fresh-dot ${fresh.fresh?'is-fresh':''}" title="${fresh.fresh?'Fresh':'Stale'}"></span></div>`}).join('');
+  box.querySelectorAll('[data-rider-id]').forEach(button=>button.onclick=()=>zoomCompetitor(button.dataset.riderId));
+}
+
+function safeExportSettings() {
+  const settings=deepClean(state.settings);
+  delete settings.tomtomApiKey;
+  return settings;
+}
+function formatAge(minutes) {
+  if(minutes===null || !Number.isFinite(minutes))return 'Unknown';
+  if(minutes<1)return '<1 min';
+  if(minutes<60)return `${Math.round(minutes)} min`;
+  return `${Math.floor(minutes/60)}h ${Math.round(minutes%60)}m`;
+}
+function formatClock(value) {
+  if(!value)return 'Never';
+  const date=new Date(value);
+  return Number.isNaN(date.getTime())?'Never':date.toLocaleTimeString([],{hour:'numeric',minute:'2-digit',second:'2-digit'});
+}
+function getNestedCandidates(payload) {
+  if(Array.isArray(payload))return payload;
+  if(!payload || typeof payload!=='object')return [];
+  const candidates=[payload.competitors,payload.riders,payload.positions,payload.locations,payload.features,payload.data?.competitors,payload.data?.riders,payload.data?.positions,payload.data?.locations,payload.data,payload.results,payload.items];
+  return candidates.find(Array.isArray)||[];
+}
+function normalizeFeedPoint(source) {
+  if(!source || typeof source!=='object')return null;
+  const nested=source.location||source.position||source.coords||source.coordinate||source.lastPosition||source.last_location||source;
+  let lat=Number(nested.lat??nested.latitude??nested.y??source.lat??source.latitude);
+  let lon=Number(nested.lon??nested.lng??nested.longitude??nested.x??source.lon??source.lng??source.longitude);
+  const geometry=source.geometry||nested.geometry;
+  if((!Number.isFinite(lat)||!Number.isFinite(lon)) && geometry?.type==='Point' && Array.isArray(geometry.coordinates)){
+    lon=Number(geometry.coordinates[0]);lat=Number(geometry.coordinates[1]);
+  }
+  const point={lat,lon,time:source.time||source.timestamp||source.recordedAt||source.updatedAt||source.lastUpdate||source.datetime||nested.time||nested.timestamp||''};
+  return validPoint(point)?point:null;
+}
+function competitorIdentity(entry,index=0) {
+  const props=entry?.properties||{};
+  const competitor=entry?.competitor||entry?.rider||{};
+  const id=entry?.id??entry?.competitorId??entry?.id_competitor??entry?.riderId??entry?.number??props.id??props.competitorId??competitor.id??competitor.number??`rider-${index+1}`;
+  const name=entry?.name||entry?.riderName||entry?.competitorName||props.name||props.riderName||competitor.name||`Rider ${id}`;
+  return {id:String(id),name:String(name)};
+}
+function normalizeCompetitorPayload(payload) {
+  const entries=getNestedCandidates(payload);
+  const grouped=new Map();
+  entries.forEach((entry,index)=>{
+    const identity=competitorIdentity(entry,index);
+    if(!grouped.has(identity.id))grouped.set(identity.id,{...identity,points:[]});
+    const target=grouped.get(identity.id);
+    if(identity.name && !/^Rider rider-/.test(identity.name))target.name=identity.name;
+    const sourcePoints=entry?.points||entry?.positions||entry?.locations||entry?.history||entry?.trail||entry?.breadcrumbs;
+    if(Array.isArray(sourcePoints))sourcePoints.forEach(raw=>{const point=normalizeFeedPoint(raw);if(point)target.points.push(point);});
+    else {const point=normalizeFeedPoint(entry);if(point)target.points.push(point);}
+  });
+  return [...grouped.values()].map(comp=>{
+    const seen=new Set();
+    comp.points=comp.points.filter(point=>{const key=`${point.lat.toFixed(6)}|${point.lon.toFixed(6)}|${point.time||''}`;if(seen.has(key))return false;seen.add(key);return true;}).sort((a,b)=>(pointTimestamp(a)||0)-(pointTimestamp(b)||0));
+    return comp;
+  }).filter(comp=>comp.points.length);
+}
+function mergeCompetitorData(incoming) {
+  let added=0, riders=0;
+  incoming.forEach(next=>{
+    let current=state.project.competitors.find(comp=>String(comp.id)===String(next.id));
+    if(!current){current={id:String(next.id),name:next.name||`Rider ${next.id}`,points:[]};state.project.competitors.push(current);riders++;}
+    if(next.name)current.name=next.name;
+    const keys=new Set(current.points.map(point=>`${point.lat.toFixed(6)}|${point.lon.toFixed(6)}|${point.time||''}`));
+    next.points.forEach(point=>{const key=`${point.lat.toFixed(6)}|${point.lon.toFixed(6)}|${point.time||''}`;if(!keys.has(key)){current.points.push(point);keys.add(key);added++;}});
+    current.points.sort((a,b)=>(pointTimestamp(a)||0)-(pointTimestamp(b)||0));
+    if(current.points.length>10000)current.points=current.points.slice(-10000);
+  });
+  return {added,riders};
+}
+async function fetchWithTimeout(url,options={},timeout=15000) {
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),timeout);
+  try{return await fetch(url,{...options,signal:controller.signal,cache:'no-store'});}finally{clearTimeout(timer);}
+}
+async function syncRallyFeed() {
+  const endpoint=(state.settings.rallyEndpointUrl||'').trim();
+  if(!endpoint){
+    state.rallySync.lastError='Live endpoint not captured yet.';
+    renderIntelSummary();
+    setStatus('Live trail sync needs the JSON/location endpoint from a live leaderboard HAR capture.',true);
+    return;
+  }
+  if(/leaderboard\.html|cmp_checkpoints\.html/i.test(endpoint)){
+    state.rallySync.lastError='This is a web page, not the data endpoint.';renderIntelSummary();
+    setStatus('Use the live JSON/location request from Developer Tools, not the leaderboard page URL.',true);return;
+  }
+  state.rallySync.running=true;state.rallySync.lastError='';renderIntelSummary();
+  try{
+    const response=await fetchWithTimeout(endpoint,{headers:{Accept:'application/json, text/plain;q=0.9, */*;q=0.5'}});
+    if(!response.ok)throw new Error(`HTTP ${response.status}`);
+    const text=await response.text();
+    if(/^\s*</.test(text))throw new Error('Endpoint returned HTML instead of location JSON.');
+    let payload;try{payload=JSON.parse(text);}catch(_){throw new Error('Endpoint did not return valid JSON.');}
+    const incoming=normalizeCompetitorPayload(payload);
+    if(!incoming.length)throw new Error('No competitor coordinates were recognized in the response.');
+    const result=mergeCompetitorData(incoming);
+    state.rallySync.lastSync=new Date().toISOString();state.rallySync.pointsAdded=result.added;state.rallySync.lastError='';
+    await saveProject(false);renderMapFeatures();renderCompetitorSummary();renderIntelSummary();
+    setStatus(`Trail sync complete: ${incoming.length} riders, ${result.added} new breadcrumbs.`);
+  }catch(error){
+    state.rallySync.lastError=error.name==='AbortError'?'Feed request timed out.':error.message;
+    setStatus(`Trail sync failed: ${state.rallySync.lastError}`,true);renderIntelSummary();
+  }finally{state.rallySync.running=false;renderIntelSummary();}
+}
+function stopRallyPolling() {
+  if(state.rallyPollTimer){clearInterval(state.rallyPollTimer);state.rallyPollTimer=null;}
+  if($('toggleRallyPollingButton'))$('toggleRallyPollingButton').textContent='Start live polling';
+  renderIntelSummary();
+}
+async function toggleRallyPolling() {
+  if(state.rallyPollTimer){stopRallyPolling();setStatus('Live trail polling stopped.');return;}
+  if(!state.settings.rallyEndpointUrl)return syncRallyFeed();
+  await syncRallyFeed();
+  if(state.rallySync.lastError)return;
+  const seconds=Math.max(10,Number(state.settings.rallyPollSeconds)||30);
+  state.rallyPollTimer=setInterval(syncRallyFeed,seconds*1000);
+  $('toggleRallyPollingButton').textContent='Stop live polling';
+  setStatus(`Live trail polling started every ${seconds} seconds.`);renderIntelSummary();
+}
+function saveIntegrationSettings() {
+  state.settings.inreachUrl=$('inreachUrl').value.trim();
+  state.settings.leaderboardUrl=$('leaderboardUrl').value.trim();
+  state.settings.rallyEndpointUrl=$('rallyEndpointUrl').value.trim();
+  state.settings.rallyEventId=$('rallyEventId').value.trim();
+  state.settings.rallyPollSeconds=Number($('rallyPollSeconds').value)||30;
+  state.settings.competitorFreshMinutes=Number($('competitorFreshMinutes').value)||15;
+  state.settings.showCompetitorTrails=$('showCompetitorTrails').checked;
+  state.settings.showCompetitorMarkers=$('showCompetitorMarkers').checked;
+  state.settings.trafficProvider=$('trafficProvider').value;
+  state.settings.tomtomApiKey=$('tomtomApiKey').value.trim();
+  state.settings.wazeFeedUrl=$('wazeFeedUrl').value.trim();
+  saveProject(true);renderMapFeatures();renderIntelSummary();
+}
+function openLeaderboard() {
+  const url=(state.settings.leaderboardUrl||$('leaderboardUrl').value||'').trim();
+  if(!url)return setStatus('Enter the public leaderboard URL first.',true);
+  window.open(url,'_blank','noopener,noreferrer');
+}
+function exportCompetitorData() {
+  if(!state.project.competitors.length)return setStatus('No competitor trails to export.');
+  const payload={format:'CannonMap Competitor Trails',appVersion:APP_VERSION,exportedAt:new Date().toISOString(),eventId:state.settings.rallyEventId||'',competitors:deepClean(state.project.competitors)};
+  downloadBlob(JSON.stringify(payload,null,2),`${safeFilename(state.project.name)}-competitor-trails.json`,'application/json');
+  setStatus(`Exported ${state.project.competitors.length} competitor trails.`);
+}
+function clearCompetitors() {
+  if(!state.project.competitors.length)return;
+  if(!confirm('Clear all captured competitor trails from this project?'))return;
+  snapshot();state.project.competitors=[];stopRallyPolling();saveProject(false);renderAll();setStatus('Competitor trails cleared.');
+}
+function zoomCompetitor(id) {
+  const comp=state.project.competitors.find(item=>String(item.id)===String(id));
+  if(!comp?.points?.length)return;
+  const bounds=L.latLngBounds(comp.points.map(point=>[point.lat,point.lon]));
+  if(bounds.isValid())state.map.fitBounds(bounds,{padding:[35,35],maxZoom:14});
+}
+function fitIntelligence() {
+  const groups=[state.competitorGroup,state.trafficGroup,state.weatherGroup].filter(Boolean);
+  const bounds=L.latLngBounds([]);groups.forEach(group=>group.eachLayer(layer=>{if(layer.getBounds)bounds.extend(layer.getBounds());else if(layer.getLatLng)bounds.extend(layer.getLatLng());}));
+  if(bounds.isValid())state.map.fitBounds(bounds,{padding:[30,30],maxZoom:14});
+}
+function clearIntelligenceLayers() {
+  state.competitorGroup?.clearLayers();state.trafficGroup?.clearLayers();state.weatherGroup?.clearLayers();state.weatherData=null;state.weatherPoint=null;state.trafficIncidents=[];
+}
+function currentIntelPoint() {
+  if(state.lastGpsPosition)return {lat:state.lastGpsPosition.lat,lon:state.lastGpsPosition.lon,label:'GPS position'};
+  const selected=state.project.features.find(feature=>feature.id===state.selectedId&&feature.geometry?.kind==='point');
+  if(selected){const point=selected.geometry.coordinates[0];return {...point,label:selected.name};}
+  const center=state.map.getCenter();return {lat:center.lat,lon:center.lng,label:'Map center'};
+}
+const WEATHER_CODES={0:'Clear',1:'Mostly clear',2:'Partly cloudy',3:'Overcast',45:'Fog',48:'Rime fog',51:'Light drizzle',53:'Drizzle',55:'Heavy drizzle',56:'Freezing drizzle',57:'Heavy freezing drizzle',61:'Light rain',63:'Rain',65:'Heavy rain',66:'Freezing rain',67:'Heavy freezing rain',71:'Light snow',73:'Snow',75:'Heavy snow',77:'Snow grains',80:'Rain showers',81:'Rain showers',82:'Heavy showers',85:'Snow showers',86:'Heavy snow showers',95:'Thunderstorm',96:'Thunderstorm with hail',99:'Severe thunderstorm with hail'};
+async function loadWeatherHere() {
+  const point=currentIntelPoint();
+  $('weatherSummary').className='intel-card loading';$('weatherSummary').textContent='Loading weather…';
+  try{
+    const params=new URLSearchParams({latitude:point.lat.toFixed(5),longitude:point.lon.toFixed(5),current:'temperature_2m,apparent_temperature,precipitation,rain,weather_code,wind_speed_10m,wind_gusts_10m',hourly:'temperature_2m,precipitation_probability,weather_code,wind_speed_10m,wind_gusts_10m',forecast_hours:'6',temperature_unit:'fahrenheit',wind_speed_unit:'mph',precipitation_unit:'inch',timezone:'auto'});
+    const response=await fetchWithTimeout(`https://api.open-meteo.com/v1/forecast?${params}`);
+    if(!response.ok)throw new Error(`HTTP ${response.status}`);
+    const data=await response.json();
+    state.weatherData=data;state.weatherPoint=point;renderWeather();renderIntelSummary();setStatus(`Weather loaded for ${point.label}.`);
+  }catch(error){$('weatherSummary').className='intel-card error';$('weatherSummary').textContent=`Weather failed: ${error.message}`;setStatus(`Weather failed: ${error.message}`,true);}
+}
+function renderWeather() {
+  state.weatherGroup?.clearLayers();
+  const data=state.weatherData,point=state.weatherPoint;if(!data||!point)return;
+  const current=data.current||{};const hourly=data.hourly||{};
+  const precip=Array.isArray(hourly.precipitation_probability)?Math.max(...hourly.precipitation_probability.filter(Number.isFinite),0):0;
+  const gusts=Array.isArray(hourly.wind_gusts_10m)?Math.max(...hourly.wind_gusts_10m.filter(Number.isFinite),Number(current.wind_gusts_10m)||0):Number(current.wind_gusts_10m)||0;
+  const condition=WEATHER_CODES[current.weather_code]||`Code ${current.weather_code??'—'}`;
+  const warning=(current.weather_code>=95||precip>=60||gusts>=35);
+  const html=`<strong>${Math.round(current.temperature_2m??0)}°F · ${escapeHtml(condition)}</strong><small>Feels ${Math.round(current.apparent_temperature??current.temperature_2m??0)}°F · Wind ${Math.round(current.wind_speed_10m??0)} mph · Gusts up to ${Math.round(gusts)} mph · Rain chance ${Math.round(precip)}%</small>${warning?'<em>Weather could affect the next decision.</em>':''}`;
+  $('weatherSummary').className=`intel-card${warning?' warning':''}`;$('weatherSummary').innerHTML=html;
+  const marker=L.circleMarker([point.lat,point.lon],{radius:9,color:'#fff',weight:2,fillColor:COLORS.weather,fillOpacity:.95});
+  marker.bindPopup(`<strong>${escapeHtml(point.label)}</strong><br>${Math.round(current.temperature_2m??0)}°F · ${escapeHtml(condition)}<br>Gusts ${Math.round(gusts)} mph · Rain ${Math.round(precip)}%`);state.weatherGroup.addLayer(marker);
+}
+function clearWeather() {state.weatherData=null;state.weatherPoint=null;state.weatherGroup?.clearLayers();$('weatherSummary').className='intel-card empty';$('weatherSummary').textContent='No weather loaded.';renderIntelSummary();}
+function bboxAreaKm2(bounds) {
+  const south=bounds.getSouth(),north=bounds.getNorth(),west=bounds.getWest(),east=bounds.getEast();
+  const height=Math.abs(north-south)*111.32;const width=Math.abs(east-west)*111.32*Math.cos(((north+south)/2)*Math.PI/180);return height*width;
+}
+const TRAFFIC_CATEGORY={0:'Unknown',1:'Accident',2:'Fog',3:'Dangerous conditions',4:'Rain',5:'Ice',6:'Traffic jam',7:'Lane closed',8:'Road closed',9:'Road work',10:'Wind',11:'Flooding',14:'Broken-down vehicle'};
+function trafficStyle(category) {
+  if([1,8,11].includes(Number(category)))return {color:'#ef4444',fillColor:'#ef4444'};
+  if([7,9,14].includes(Number(category)))return {color:'#f97316',fillColor:'#f97316'};
+  return {color:COLORS.traffic,fillColor:COLORS.traffic};
+}
+async function loadTrafficHere() {
+  state.settings.trafficProvider=$('trafficProvider').value;state.settings.tomtomApiKey=$('tomtomApiKey').value.trim();state.settings.wazeFeedUrl=$('wazeFeedUrl').value.trim();saveProject(false);
+  if(state.settings.trafficProvider==='none')return setStatus('Choose TomTom or Waze for Cities first.',true);
+  $('trafficSummary').className='intel-card loading';$('trafficSummary').textContent='Loading traffic…';
+  try{
+    if(state.settings.trafficProvider==='tomtom')await loadTomTomTraffic();else await loadWazeTraffic();
+    renderTraffic();renderIntelSummary();setStatus(`Loaded ${state.trafficIncidents.length} traffic incidents.`);
+  }catch(error){$('trafficSummary').className='intel-card error';$('trafficSummary').textContent=`Traffic failed: ${error.message}`;setStatus(`Traffic failed: ${error.message}`,true);}
+}
+async function loadTomTomTraffic() {
+  const key=state.settings.tomtomApiKey;if(!key)throw new Error('TomTom API key is required.');
+  const bounds=state.map.getBounds();const area=bboxAreaKm2(bounds);if(area>10000)throw new Error('Zoom in. TomTom limits one incident request to 10,000 km².');
+  const bbox=[bounds.getWest(),bounds.getSouth(),bounds.getEast(),bounds.getNorth()].map(value=>value.toFixed(6)).join(',');
+  const fields='{incidents{type,geometry{type,coordinates},properties{id,iconCategory,magnitudeOfDelay,events{description,code,iconCategory},startTime,endTime,from,to,length,delay,roadNumbers,timeValidity,probabilityOfOccurrence,numberOfReports,lastReportTime}}}';
+  const params=new URLSearchParams({key,bbox,fields,language:'en-US',timeValidityFilter:'present'});
+  const response=await fetchWithTimeout(`https://api.tomtom.com/traffic/services/5/incidentDetails?${params}`);
+  if(!response.ok)throw new Error(`TomTom HTTP ${response.status}`);
+  const data=await response.json();state.trafficIncidents=(data.incidents||[]).map(item=>({...item,source:'TomTom'}));
+}
+function parseWazeJson(data) {
+  const rows=[...(data.alerts||[]),...(data.jams||[]),...(data.irregularities||[]),...(Array.isArray(data)?data:[])];
+  return rows.map((row,index)=>{
+    let geometry=null;
+    if(Array.isArray(row.line)&&row.line.length)geometry={type:'LineString',coordinates:row.line.map(point=>[Number(point.x??point.lon??point.lng),Number(point.y??point.lat)]).filter(pair=>pair.every(Number.isFinite))};
+    else {const loc=row.location||row.position||row;const lon=Number(loc.x??loc.lon??loc.lng??loc.longitude),lat=Number(loc.y??loc.lat??loc.latitude);if(Number.isFinite(lat)&&Number.isFinite(lon))geometry={type:'Point',coordinates:[lon,lat]};}
+    return geometry?{type:'Feature',geometry,properties:{id:row.uuid||row.id||`waze-${index}`,iconCategory:row.type||row.subtype||'Waze report',events:[{description:row.subtype||row.type||row.street||'Waze traffic report'}],from:row.street||'',delay:Number(row.delay)||0},source:'Waze'}:null;
+  }).filter(Boolean);
+}
+function parseWazeXml(text) {
+  const doc=new DOMParser().parseFromString(text,'application/xml');if(doc.querySelector('parsererror'))throw new Error('Waze feed was not valid XML/JSON.');
+  const items=[...doc.querySelectorAll('item, entry')];
+  return items.map((item,index)=>{
+    const title=item.querySelector('title')?.textContent?.trim()||'Waze traffic report';
+    const point=item.getElementsByTagNameNS('*','point')[0]?.textContent?.trim();const line=item.getElementsByTagNameNS('*','line')[0]?.textContent?.trim();let geometry=null;
+    if(line){const values=line.split(/[\s,]+/).map(Number).filter(Number.isFinite);const coordinates=[];for(let i=0;i+1<values.length;i+=2)coordinates.push([values[i+1],values[i]]);geometry={type:'LineString',coordinates};}
+    else if(point){const [lat,lon]=point.split(/[\s,]+/).map(Number);if(Number.isFinite(lat)&&Number.isFinite(lon))geometry={type:'Point',coordinates:[lon,lat]};}
+    return geometry?{type:'Feature',geometry,properties:{id:`waze-${index}`,iconCategory:'Waze report',events:[{description:title}],from:'',delay:0},source:'Waze'}:null;
+  }).filter(Boolean);
+}
+async function loadWazeTraffic() {
+  const url=state.settings.wazeFeedUrl;if(!url)throw new Error('A Waze for Cities partner GeoRSS URL is required.');
+  const response=await fetchWithTimeout(url);if(!response.ok)throw new Error(`Waze feed HTTP ${response.status}`);const text=await response.text();
+  let data=null;try{data=JSON.parse(text);}catch(_){}
+  state.trafficIncidents=data?parseWazeJson(data):parseWazeXml(text);
+}
+function renderTraffic() {
+  state.trafficGroup?.clearLayers();
+  let severe=0;
+  state.trafficIncidents.forEach((incident,index)=>{
+    const geometry=incident.geometry;if(!geometry)return;const p=incident.properties||{};const category=Number(p.iconCategory);if([1,8,11].includes(category))severe++;
+    const style=trafficStyle(category);let layer;
+    if(geometry.type==='Point')layer=L.circleMarker([geometry.coordinates[1],geometry.coordinates[0]],{radius:7,color:'#fff',weight:2,fillColor:style.fillColor,fillOpacity:.95});
+    else if(geometry.type==='LineString')layer=L.polyline(geometry.coordinates.map(pair=>[pair[1],pair[0]]),{color:style.color,weight:6,opacity:.8});
+    if(!layer)return;
+    const description=p.events?.[0]?.description||TRAFFIC_CATEGORY[category]||String(p.iconCategory||'Traffic incident');const delay=Number(p.delay)||0;const road=[p.from,p.to].filter(Boolean).join(' → ')||p.roadNumbers?.join(', ')||'';
+    layer.bindPopup(`<strong>${escapeHtml(description)}</strong><br>${escapeHtml(road)}${delay?`<br>Reported delay: ${Math.round(delay/60)} min`:''}<br><small>${escapeHtml(incident.source||'Traffic provider')}</small>`);state.trafficGroup.addLayer(layer);
+  });
+  $('trafficSummary').className=`intel-card${severe?' warning':''}`;$('trafficSummary').innerHTML=`<strong>${state.trafficIncidents.length} current incidents</strong><small>${severe} severe · Map viewport only · ${escapeHtml(state.settings.trafficProvider==='tomtom'?'TomTom':'Waze for Cities')}</small>`;
+}
+function clearTraffic() {state.trafficIncidents=[];state.trafficGroup?.clearLayers();$('trafficSummary').className='intel-card empty';$('trafficSummary').textContent='No traffic loaded.';renderIntelSummary();}
+
+function openWazeAtMapCenter() {
+  const point=currentIntelPoint();
+  const url=`https://www.waze.com/ul?ll=${encodeURIComponent(`${point.lat.toFixed(6)},${point.lon.toFixed(6)}`)}&navigate=no&utm_source=CannonMap`;
+  window.open(url,'_blank','noopener,noreferrer');
+  setStatus(`Opened Waze near ${point.label}.`);
+}
+function renderIntelSummary() {
+  const riders=state.project.competitors||[];const fresh=riders.filter(comp=>competitorFreshness(comp).fresh).length;const points=riders.reduce((sum,comp)=>sum+(comp.points?.length||0),0);
+  if($('intelRiderCount'))$('intelRiderCount').textContent=riders.length;if($('intelFreshCount'))$('intelFreshCount').textContent=fresh;if($('intelPointCount'))$('intelPointCount').textContent=points;if($('intelLastSync'))$('intelLastSync').textContent=formatClock(state.rallySync.lastSync);
+  const running=Boolean(state.rallyPollTimer);const badge=$('feedBadge');if(badge){badge.textContent=state.rallySync.running?'SYNCING':running?'LIVE':state.rallySync.lastError?'CHECK':'READY';badge.className=`badge ${state.rallySync.lastError?'warning':running?'live':'neutral'}`;}
+  if($('rallyFeedNotice')){$('rallyFeedNotice').textContent=state.rallySync.lastError?state.rallySync.lastError:state.settings.rallyEndpointUrl?`${running?'Polling':'Connector ready'} · ${riders.length} riders · ${points} breadcrumbs`:'The public leaderboard URL is saved. Live trail polling needs the JSON/location endpoint captured from a live event. Polling runs only while CannonMap is open and active.';}
+  if($('mobileRiderCount'))$('mobileRiderCount').textContent=riders.length;if($('mobileFreshCount'))$('mobileFreshCount').textContent=fresh;if($('mobileTrafficCount'))$('mobileTrafficCount').textContent=state.trafficIncidents.length;
+  if($('mobileIntelStatus'))$('mobileIntelStatus').textContent=running?`Live · last ${formatClock(state.rallySync.lastSync)}`:state.rallySync.lastSync?`Last sync ${formatClock(state.rallySync.lastSync)}`:'No live feed';
+  if($('mobileWeatherSummary')){if(state.weatherData){const c=state.weatherData.current||{};$('mobileWeatherSummary').textContent=`${Math.round(c.temperature_2m??0)}°F · ${WEATHER_CODES[c.weather_code]||'Weather'} · Gusts ${Math.round(c.wind_gusts_10m??0)} mph`;}else $('mobileWeatherSummary').textContent='Weather not loaded';}
+}
+function setIntelSheetOpen(open) {
+  const sheet=$('intelSheet');sheet.classList.toggle('open',open);sheet.setAttribute('aria-hidden',String(!open));$('intelButton').setAttribute('aria-expanded',String(open));
 }
 function newProject() {
   if(!confirm('Create a new empty project? The currently saved local project will be replaced.'))return;
-  createNamedSnapshot('Before new project',true);snapshot();state.project={version:APP_VERSION,name:'America 250 – 2026',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),features:[],competitors:[]};
+  createNamedSnapshot('Before new project',true);snapshot();state.project={version:APP_VERSION,name:'America 250 – 2026',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),features:[],competitors:[]};clearIntelligenceLayers();
   clearSelection();saveProject(false);renderAll();setStatus('New project created.');
 }
 function setSidebarOpen(open) {
@@ -641,7 +989,7 @@ function setSidebarOpen(open) {
 function wireUi() {
   document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>{document.querySelectorAll('.tab,.panel').forEach(el=>el.classList.remove('active'));tab.classList.add('active');$(`${tab.dataset.tab}Panel`).classList.add('active');}));
   $('sidebarToggle').addEventListener('click',()=>setSidebarOpen(!$('sidebar').classList.contains('open')));$('sidebarClose').addEventListener('click',()=>setSidebarOpen(false));$('sidebarBackdrop').addEventListener('click',()=>setSidebarOpen(false));
-  document.addEventListener('keydown',event=>{if(event.key==='Escape')setSidebarOpen(false);});
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'){setSidebarOpen(false);setIntelSheetOpen(false);}});
   $('gpxInput').addEventListener('change',event=>{importGpxFiles([...event.target.files]);event.target.value='';});
   $('projectInput').addEventListener('change',event=>{const file=event.target.files[0];if(file)openProjectFile(file);event.target.value='';});
   $('missionFitButton').addEventListener('click',fitMap);$('missionUnassignedButton').addEventListener('click',()=>{state.settings.dayFilter='0';$('dayFilter').value='0';document.querySelector('[data-tab="project"]').click();saveProject(false);renderAll();});$('missionSnapshotButton').addEventListener('click',()=>createNamedSnapshot('Manual snapshot'));
@@ -657,8 +1005,21 @@ function wireUi() {
   $('featureForm').addEventListener('submit',updateSelectedFeature);$('zoomFeatureButton').addEventListener('click',zoomSelected);$('duplicateFeatureButton').addEventListener('click',duplicateSelected);
   $('deleteFeatureButton').addEventListener('click',deleteSelected);$('editGeometryButton').addEventListener('click',editSelectedGeometry);$('stopEditButton').addEventListener('click',()=>{stopEditing();renderAll();selectFeature(state.selectedId);setStatus('Geometry edit saved.');});
   $('undoButton').addEventListener('click',undo);$('bulkAssignButton').addEventListener('click',bulkAssign);
-  $('saveTrackingSettings').addEventListener('click',()=>{state.settings.inreachUrl=$('inreachUrl').value.trim();saveProject(true);});
-  $('competitorInput').addEventListener('change',e=>e.target.files[0]&&importCompetitorJson(e.target.files[0]));
+  $('saveTrackingSettings').addEventListener('click',saveIntegrationSettings);
+  $('openLeaderboardButton').addEventListener('click',openLeaderboard);
+  $('syncRallyButton').addEventListener('click',syncRallyFeed);
+  $('toggleRallyPollingButton').addEventListener('click',toggleRallyPolling);
+  $('exportCompetitorButton').addEventListener('click',exportCompetitorData);
+  $('clearCompetitorButton').addEventListener('click',clearCompetitors);
+  $('showCompetitorTrails').addEventListener('change',()=>{state.settings.showCompetitorTrails=$('showCompetitorTrails').checked;saveProject(false);renderCompetitors();});
+  $('showCompetitorMarkers').addEventListener('change',()=>{state.settings.showCompetitorMarkers=$('showCompetitorMarkers').checked;saveProject(false);renderCompetitors();});
+  $('competitorFreshMinutes').addEventListener('change',()=>{state.settings.competitorFreshMinutes=Number($('competitorFreshMinutes').value)||15;saveProject(false);renderCompetitors();renderCompetitorSummary();renderIntelSummary();});
+  $('weatherHereButton').addEventListener('click',loadWeatherHere);$('clearWeatherButton').addEventListener('click',clearWeather);
+  $('trafficHereButton').addEventListener('click',loadTrafficHere);$('openWazeButton').addEventListener('click',openWazeAtMapCenter);$('clearTrafficButton').addEventListener('click',clearTraffic);
+  $('trafficProvider').addEventListener('change',()=>{state.settings.trafficProvider=$('trafficProvider').value;saveProject(false);});
+  $('competitorInput').addEventListener('change',e=>{if(e.target.files[0])importCompetitorJson(e.target.files[0]);e.target.value='';});
+  $('intelButton').addEventListener('click',()=>setIntelSheetOpen(!$('intelSheet').classList.contains('open')));$('intelCloseButton').addEventListener('click',()=>setIntelSheetOpen(false));
+  $('mobileSyncButton').addEventListener('click',syncRallyFeed);$('mobileWeatherButton').addEventListener('click',loadWeatherHere);$('mobileTrafficButton').addEventListener('click',loadTrafficHere);
   $('importForm').addEventListener('submit',event=>{
     event.preventDefault();
     const mode=event.submitter?.value||'cancel';
@@ -677,7 +1038,9 @@ function wireUi() {
 async function init() {
   await loadProject();
   state.project.features.forEach(f=>{f.assignmentMethod ||= '';f.favorite ||= false;});
-  state.settings.typeVisibility=Object.assign({track:true,route:true,waypoint:true,checkpoint:true,fuel:true,hotel:true},state.settings.typeVisibility||{});
+  state.settings.typeVisibility=Object.assign({track:true,route:true,backbone:true,waypoint:true,checkpoint:true,fuel:true,hotel:true},state.settings.typeVisibility||{});
+  state.settings=Object.assign({leaderboardUrl:'https://gpscheckpoints.com/admin/leaderboard.html?id_event=15',rallyEndpointUrl:'',rallyEventId:'15',rallyPollSeconds:30,showCompetitorTrails:true,showCompetitorMarkers:true,competitorFreshMinutes:15,trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:''},state.settings);
+  state.project.competitors ||= [];
   initMap();wireUi();
   $('buildLabel').textContent=`Beta ${APP_VERSION}`;
   $('appVersion').textContent=`v${APP_VERSION} · ${BUILD_ID}`;

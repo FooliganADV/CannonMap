@@ -1,18 +1,26 @@
-# CannonMap Planner — Beta 0.5.0 Mission Control
+# CannonMap Planner — Beta 0.6.0 Trail Intelligence Foundation
 
-Build: `2026.07.17.01`
+Build: `2026.07.18.02`
+
+## Purpose
+
+CannonMap is a rally decision system. The primary live-rally function is displaying and preserving competitor trails from the official GPS Checkpoint leaderboard feed. The backbone is only an optional sightseeing/reference layer; it is not an official route.
 
 ## New in this release
 
-- Mission Control dashboard with total and day-by-day readiness statistics
-- Global project search by text, type, and rally day
-- Layer Manager with type visibility and line-opacity controls
-- GPX Inspector warnings inside the import preview
-- Persistent project snapshots with restore and delete controls
-- Automatic safety snapshots before GPX imports and New Project
-- Right-click context menu on map features
-- Reverse route/track and favorite feature commands
-- Existing `.cmap`, GPX, Excel, CSV, editing, GPS, competitor JSON, and map layers retained
+- Trail Intelligence integration hub
+- Generic live competitor-location JSON connector with configurable polling
+- Breadcrumb history preservation when a feed only returns each rider's latest position
+- Fresh/stale rider display and trail-age indicators
+- Competitor trail export, clearing, and per-rider zoom
+- Live Open-Meteo weather at GPS position, selected checkpoint, or map center
+- TomTom Traffic incident support for the current map viewport
+- Waze launch button plus optional Waze for Cities inbound data-feed support for approved partners
+- Compact mobile Intel sheet instead of adding another full phone dashboard
+- Backbone feature type with a gray dashed reference style
+- Planning mileage no longer automatically adds route and track mileage together
+- TomTom keys remain local to the browser and are excluded from portable `.cmap` exports
+- Existing GPX, `.cmap`, search, editing, snapshots, layer controls, Excel/CSV, and manual competitor JSON features retained
 
 ## Upload
 
@@ -20,18 +28,34 @@ Extract the ZIP and upload every file to the GitHub repository root. Replace the
 
 ## First test
 
-1. Confirm the map status shows `v0.5.0 · 2026.07.17.01`.
-2. Open Mission Control and verify all eight daily cards.
-3. Search for a known checkpoint, fuel stop, and hotel.
-4. Hide Tracks in Layer Manager, then restore them.
-5. Adjust route/track opacity.
-6. Create and restore a snapshot.
-7. Right-click a route or track and test Reverse Line, then Undo.
-8. Import a GPX and inspect the warning report before choosing Merge.
+1. Confirm the status shows `v0.6.0 · 2026.07.18.01`.
+2. Import `competitor-test.json`; verify the red trail appears and Rider 27 is listed.
+3. Open **Trail Intel** and select **Weather here**. No key is required.
+4. On a phone, select **Intel** and verify the compact bottom sheet opens without covering the entire map.
+5. Change a line feature to **Backbone (reference)** and verify it becomes gray and dashed.
+6. Confirm project mileage does not double-count both a route and its matching track.
+7. Enter a TomTom API key, zoom to a local area, and select **Traffic in map view**.
+8. Do not start live rally polling until the live GPS Checkpoint JSON/location endpoint is captured.
 
-## Not active yet
+## What is still needed from the user
 
-- Live Garmin inReach / GPSCheckpoints connectors
-- Downloadable offline map packs
-- Road/trail snapping and offline routing
-- Full split/merge geometry workflows
+### Official competitor trails
+
+Capture a live public leaderboard session as a HAR file. CannonMap needs the actual JSON/location request, not the visible `leaderboard.html` page URL. Once identified, paste that endpoint into **Trail Intel → Official rally feed setup**.
+
+### Traffic
+
+Choose one:
+
+- TomTom developer API key; or
+- Waze for Cities partner GeoRSS URL.
+
+The normal consumer Waze application does not provide CannonMap a general-purpose public traffic feed. CannonMap can open Waze at the active map location; an in-app Waze overlay requires approved Waze for Cities data access.
+
+## Current limitations
+
+- The exact GPS Checkpoint live-feed schema remains unverified until a live HAR capture is available.
+- Consensus routing, turnaround detection, rider-ahead filtering, and scoring recommendations require verified live data.
+- Browser CORS restrictions may require a Cloudflare Worker after the official feed endpoint is identified. Browser polling also stops when iOS suspends or closes the page.
+- Weather is currently point-based, not a full route-corridor forecast.
+- TomTom incident requests require the map viewport to be no larger than 10,000 km².
