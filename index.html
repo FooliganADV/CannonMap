@@ -18,7 +18,7 @@
       <span class="brand-mark">CM</span>
       <div>
         <h1>CannonMap</h1>
-        <p>America 250 Planner · <span id="buildLabel">Beta 0.6.0</span></p>
+        <p>America 250 Planner · <span id="buildLabel">Beta 0.6.1</span></p>
       </div>
     </div>
     <div class="top-actions">
@@ -228,6 +228,19 @@
             <button id="clearWeatherButton" class="button secondary">Clear weather</button>
           </div>
           <small class="helper-text">Uses GPS when available, otherwise the selected point or map center.</small>
+          <div class="weather-radar-controls">
+            <div id="radarSummary" class="intel-card empty">Weather radar is off.</div>
+            <div class="toolbar-grid">
+              <button id="radarToggleButton" class="button secondary">Show radar</button>
+              <button id="radarPlayButton" class="button secondary" disabled>Play loop</button>
+            </div>
+            <label class="field"><span>Radar opacity</span><input id="radarOpacity" type="range" min="20" max="100" step="5" value="65" /></label>
+            <label class="field"><span>Planning speed for route rain estimate</span><select id="routeWeatherSpeed"><option value="30">30 mph</option><option value="40">40 mph</option><option value="45" selected>45 mph</option><option value="55">55 mph</option><option value="65">65 mph</option></select></label>
+            <button id="routeWeatherButton" class="button secondary wide">Check rain along track</button>
+            <div id="routeWeatherSummary" class="intel-card empty">Route rain outlook not checked.</div>
+            <small class="helper-text">Radar is a recent two-hour loop, not a forecast. Route timing and rainfall totals are forecast estimates sampled ahead on the selected or active-day track.</small>
+            <small class="helper-text weather-attribution">Radar data: <a href="https://www.rainviewer.com/" target="_blank" rel="noopener noreferrer">RainViewer</a></small>
+          </div>
         </details>
 
         <details>
@@ -261,7 +274,7 @@
       <div class="map-status">
         <span id="cursorCoordinates">—</span>
         <span id="gpsStatus">GPS off</span>
-        <span id="appVersion">v0.6.0</span>
+        <span id="appVersion">v0.6.1</span>
       </div>
       <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open planner" aria-expanded="false">Planner</button>
       <button id="intelButton" class="intel-toggle" aria-label="Open live intelligence" aria-expanded="false">Intel</button>

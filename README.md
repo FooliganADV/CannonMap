@@ -1,6 +1,6 @@
-# CannonMap Planner — Beta 0.6.0 Trail Intelligence Foundation
+# CannonMap Planner — Beta 0.6.1 Weather Intelligence
 
-Build: `2026.07.18.02`
+Build: `2026.07.21.01`
 
 ## Purpose
 
@@ -8,6 +8,10 @@ CannonMap is a rally decision system. The primary live-rally function is display
 
 ## New in this release
 
+- Optional animated recent-weather radar overlay with opacity control and timestamps
+- Track-ahead weather scan with an estimated rain start time, distance, and rainfall exposure
+- Route hazard warnings for wind gusts, snow, freezing precipitation, thunderstorms/hail, low visibility, dust, and poor air quality
+- Configurable planning speed for arrival-time estimates along the track
 - Trail Intelligence integration hub
 - Generic live competitor-location JSON connector with configurable polling
 - Breadcrumb history preservation when a feed only returns each rider's latest position
@@ -36,7 +40,7 @@ node --test tests/*.test.mjs
 
 ## First test
 
-1. Confirm the status shows `v0.6.0 · 2026.07.18.01`.
+1. Confirm the status shows `v0.6.1 · 2026.07.21.01`.
 2. Import `competitor-test.json`; verify the red trail appears and Rider 27 is listed.
 3. Open **Trail Intel** and select **Weather here**. No key is required.
 4. On a phone, select **Intel** and verify the compact bottom sheet opens without covering the entire map.
@@ -65,5 +69,6 @@ The normal consumer Waze application does not provide CannonMap a general-purpos
 - The exact GPS Checkpoint live-feed schema remains unverified until a live HAR capture is available.
 - Consensus routing, turnaround detection, rider-ahead filtering, and scoring recommendations require verified live data.
 - Browser CORS restrictions may require a Cloudflare Worker after the official feed endpoint is identified. Browser polling also stops when iOS suspends or closes the page.
-- Weather is currently point-based, not a full route-corridor forecast.
+- Radar requires internet access, shows recent observed precipitation rather than forecast nowcast frames, and has source resolution through zoom level 7.
+- Track-ahead weather uses sampled forecast points and the selected planning speed. Timing, rainfall, dust, and hazard values are estimates—not safety guarantees.
 - TomTom incident requests require the map viewport to be no larger than 10,000 km².

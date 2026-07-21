@@ -1,7 +1,7 @@
 'use strict';
 
-const APP_VERSION = '0.6.0';
-const BUILD_ID = '2026.07.18.02';
+const APP_VERSION = '0.6.1';
+const BUILD_ID = '2026.07.21.01';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
@@ -18,6 +18,7 @@ const state = {
   pendingLayer: null, pendingImport: null, selectedId: null, editingLayer: null, history: [],
   rallyPollTimer: null, rallySync: { running:false, lastSync:null, lastError:'', pointsAdded:0 },
   weatherData: null, weatherPoint: null, trafficIncidents: [],
+  radarLayer: null, radarFrames: [], radarFrameIndex: -1, radarTimer: null,
   project: {
     version: APP_VERSION, name: 'America 250 – 2026', createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(), features: [], competitors: []
@@ -27,7 +28,7 @@ const state = {
     typeVisibility:{track:true,route:true,backbone:true,waypoint:true,checkpoint:true,fuel:true,hotel:true},
     leaderboardUrl:'https://gpscheckpoints.com/admin/leaderboard.html?id_event=15', rallyEndpointUrl:'', rallyEventId:'15', rallyPollSeconds:30,
     showCompetitorTrails:true, showCompetitorMarkers:true, competitorFreshMinutes:15,
-    trafficProvider:'none', tomtomApiKey:'', wazeFeedUrl:''
+    trafficProvider:'none', tomtomApiKey:'', wazeFeedUrl:'', radarOpacity:65, routeWeatherSpeed:45
   }
 };
 
@@ -855,7 +856,7 @@ function fitIntelligence() {
   if(bounds.isValid())state.map.fitBounds(bounds,{padding:[30,30],maxZoom:14});
 }
 function clearIntelligenceLayers() {
-  state.competitorGroup?.clearLayers();state.trafficGroup?.clearLayers();state.weatherGroup?.clearLayers();state.weatherData=null;state.weatherPoint=null;state.trafficIncidents=[];
+  state.competitorGroup?.clearLayers();state.trafficGroup?.clearLayers();state.weatherGroup?.clearLayers();state.weatherData=null;state.weatherPoint=null;state.trafficIncidents=[];hideRadar();
 }
 function currentIntelPoint() {
   if(state.lastGpsPosition)return {lat:state.lastGpsPosition.lat,lon:state.lastGpsPosition.lon,label:'GPS position'};
@@ -894,6 +895,84 @@ function weatherMaxGustMph(data) {
   return Math.max(...hourly,current);
 }
 function clearWeather() {state.weatherData=null;state.weatherPoint=null;state.weatherGroup?.clearLayers();$('weatherSummary').className='intel-card empty';$('weatherSummary').textContent='No weather loaded.';renderIntelSummary();}
+
+const RAINVIEWER_MAPS_URL='https://api.rainviewer.com/public/weather-maps.json';
+function radarTileUrl(frame) {return `${frame.host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;}
+function radarFrameTime(frame) {return new Date(Number(frame.time)*1000);}
+async function showRadar() {
+  $('radarSummary').className='intel-card loading';$('radarSummary').textContent='Loading recent radar frames…';
+  try{
+    const response=await fetchWithTimeout(RAINVIEWER_MAPS_URL);
+    if(!response.ok)throw new Error(`RainViewer HTTP ${response.status}`);
+    const data=await response.json();
+    const host=String(data.host||'');const frames=(data.radar?.past||[]).filter(frame=>frame?.path&&Number.isFinite(Number(frame.time))).map(frame=>({...frame,host}));
+    if(!host||!frames.length)throw new Error('No radar frames are currently available.');
+    state.radarFrames=frames;state.radarFrameIndex=frames.length-1;renderRadarFrame();
+    $('radarPlayButton').disabled=frames.length<2;$('radarToggleButton').textContent='Hide radar';setStatus('Weather radar loaded.');
+  }catch(error){hideRadar(false);$('radarSummary').className='intel-card error';$('radarSummary').textContent=`Radar failed: ${error.message}`;setStatus(`Radar failed: ${error.message}`,true);}
+}
+function renderRadarFrame() {
+  const frame=state.radarFrames[state.radarFrameIndex];if(!frame)return;
+  if(state.radarLayer)state.map.removeLayer(state.radarLayer);
+  state.radarLayer=L.tileLayer(radarTileUrl(frame),{opacity:Number(state.settings.radarOpacity||65)/100,maxNativeZoom:7,maxZoom:19,zIndex:450,attribution:'Radar data © <a href="https://www.rainviewer.com/">RainViewer</a>'}).addTo(state.map);
+  const time=radarFrameTime(frame);$('radarSummary').className='intel-card';$('radarSummary').innerHTML=`<strong>Radar ${escapeHtml(time.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}))}</strong><small>Recent observed precipitation · frame ${state.radarFrameIndex+1} of ${state.radarFrames.length}</small>`;
+}
+function stopRadarLoop() {if(state.radarTimer){clearInterval(state.radarTimer);state.radarTimer=null;}if($('radarPlayButton'))$('radarPlayButton').textContent='Play loop';}
+function toggleRadarLoop() {
+  if(state.radarTimer)return stopRadarLoop();if(state.radarFrames.length<2)return;
+  $('radarPlayButton').textContent='Pause loop';state.radarFrameIndex=0;renderRadarFrame();
+  state.radarTimer=setInterval(()=>{state.radarFrameIndex=(state.radarFrameIndex+1)%state.radarFrames.length;renderRadarFrame();},850);
+}
+function hideRadar(save=true) {
+  stopRadarLoop();if(state.radarLayer&&state.map)state.map.removeLayer(state.radarLayer);state.radarLayer=null;state.radarFrames=[];state.radarFrameIndex=-1;
+  if($('radarToggleButton'))$('radarToggleButton').textContent='Show radar';if($('radarPlayButton'))$('radarPlayButton').disabled=true;
+  if($('radarSummary')){$('radarSummary').className='intel-card empty';$('radarSummary').textContent='Weather radar is off.';}
+  if(save)saveProject(false);
+}
+function toggleRadar() {if(state.radarLayer)hideRadar();else showRadar();}
+function setRadarOpacity() {state.settings.radarOpacity=Number($('radarOpacity').value)||65;state.radarLayer?.setOpacity(state.settings.radarOpacity/100);saveProject(false);}
+function activeWeatherLine() {
+  const selected=state.project.features.find(feature=>feature.id===state.selectedId&&feature.geometry?.kind==='line');if(selected)return selected;
+  const day=Number(state.settings.dayFilter);const candidates=state.project.features.filter(feature=>feature.geometry?.kind==='line'&&feature.visible!==false&&(!day||day===Number(feature.day)));
+  return candidates.find(feature=>feature.type==='track')||candidates.find(feature=>feature.type==='route')||candidates[0]||null;
+}
+function routeSamples(feature,maxSamples=10) {
+  const points=feature?.geometry?.coordinates?.filter(validPoint)||[];if(!points.length)return [];
+  let start=0;if(state.lastGpsPosition){let best=Infinity;points.forEach((point,index)=>{const distance=haversine(point,state.lastGpsPosition);if(distance<best){best=distance;start=index;}});}
+  const ahead=points.slice(start);if(ahead.length<=maxSamples)return ahead;
+  return Array.from({length:maxSamples},(_,index)=>ahead[Math.round(index*(ahead.length-1)/(maxSamples-1))]);
+}
+async function loadRouteWeather() {
+  const feature=activeWeatherLine();if(!feature)return setRouteWeatherError('Select a route/track or choose an active day first.');
+  const samples=routeSamples(feature);if(samples.length<2)return setRouteWeatherError('The selected route/track does not contain enough points.');
+  const speed=Number($('routeWeatherSpeed').value)||45;state.settings.routeWeatherSpeed=speed;saveProject(false);
+  $('routeWeatherSummary').className='intel-card loading';$('routeWeatherSummary').textContent='Checking rain along the track…';
+  try{
+    const coordinates={latitude:samples.map(p=>p.lat.toFixed(5)).join(','),longitude:samples.map(p=>p.lon.toFixed(5)).join(',')};
+    const params=new URLSearchParams({...coordinates,minutely_15:'temperature_2m,precipitation,rain,snowfall,weather_code,wind_gusts_10m,visibility',forecast_minutely_15:'48',temperature_unit:'fahrenheit',wind_speed_unit:'mph',precipitation_unit:'inch',timezone:'GMT'});
+    const airParams=new URLSearchParams({...coordinates,hourly:'dust,pm2_5,us_aqi,uv_index',forecast_hours:'12',timezone:'GMT'});
+    const [weatherResponse,airResponse]=await Promise.all([fetchWithTimeout(`https://api.open-meteo.com/v1/forecast?${params}`),fetchWithTimeout(`https://air-quality-api.open-meteo.com/v1/air-quality?${airParams}`).catch(()=>null)]);
+    if(!weatherResponse.ok)throw new Error(`Open-Meteo HTTP ${weatherResponse.status}`);
+    const payload=await weatherResponse.json();const airPayload=airResponse?.ok?await airResponse.json():[];const rows=Array.isArray(payload)?payload:[payload];const airRows=Array.isArray(airPayload)?airPayload:[airPayload];let miles=0,wet=null,totalRain=0;const hazards=[];
+    for(let i=0;i<Math.min(samples.length,rows.length);i++){
+      if(i)miles+=haversine(samples[i-1],samples[i])/1609.344;
+      const arrivalMinutes=Math.round(miles/speed*60);const data=rows[i]?.minutely_15||{};const times=data.time||[];
+      let weatherIndex=times.findIndex(time=>Date.parse(`${time}Z`)>=Date.now()+arrivalMinutes*60000);if(weatherIndex<0)weatherIndex=times.length-1;
+      const precipitation=Number(data.precipitation?.[weatherIndex])||0;const rain=Number(data.rain?.[weatherIndex])||0;const snow=Number(data.snowfall?.[weatherIndex])||0;const code=Number(data.weather_code?.[weatherIndex])||0;const gust=Number(data.wind_gusts_10m?.[weatherIndex])||0;const visibility=Number(data.visibility?.[weatherIndex]);const temperature=Number(data.temperature_2m?.[weatherIndex]);
+      const rainCode=(code>=51&&code<=67)||(code>=80&&code<=82)||(code>=95&&code<=99);
+      totalRain+=precipitation;if(!wet&&(precipitation>=0.01||rain>=0.01||rainCode))wet={miles,arrivalMinutes,precipitation,code};
+      const air=airRows[i]?.hourly||{};let airIndex=(air.time||[]).findIndex(time=>Date.parse(`${time}Z`)>=Date.now()+arrivalMinutes*60000);if(airIndex<0)airIndex=(air.time||[]).length-1;const dust=Number(air.dust?.[airIndex])||0;const pm25=Number(air.pm2_5?.[airIndex])||0;const aqi=Number(air.us_aqi?.[airIndex])||0;const uv=Number(air.uv_index?.[airIndex])||0;
+      const labels=[];if(gust>=35)labels.push(`gusts ${Math.round(gust)} mph`);if(precipitation>=0.15)labels.push(`heavy precipitation ${precipitation.toFixed(2)} in/15 min`);if(snow>0)labels.push(`snow ${snow.toFixed(2)} in/15 min`);if(Number.isFinite(temperature)&&temperature<=32&&precipitation>0)labels.push('freezing precipitation risk');else if(Number.isFinite(temperature)&&temperature<=20)labels.push(`extreme cold ${Math.round(temperature)}°F`);if(Number.isFinite(temperature)&&temperature>=95)labels.push(`high heat ${Math.round(temperature)}°F`);if(code>=95)labels.push(code>=96?'thunderstorm/hail':'thunderstorm');if(Number.isFinite(visibility)&&visibility<3219)labels.push(`low visibility ${Math.max(.1,visibility/1609.344).toFixed(1)} mi`);if(dust>=25)labels.push(`elevated dust ${Math.round(dust)} µg/m³`);if(pm25>=35||aqi>=101)labels.push(`poor air quality AQI ${Math.round(aqi)}`);if(uv>=8)labels.push(`very high UV ${uv.toFixed(0)}`);
+      if(labels.length)hazards.push({miles,arrivalMinutes,labels});
+    }
+    $('routeWeatherSummary').className=`intel-card${wet?' warning':''}`;
+    const firstHazard=hazards[0];const hazardText=firstHazard?hazards.slice(0,3).map(item=>`<em>${item.arrivalMinutes} min / ${item.miles.toFixed(0)} mi ahead: ${escapeHtml(item.labels.join(', '))}.</em>`).join(''):'<small>No unusual wind, precipitation, temperature, snow, storm, visibility, dust, air-quality, or UV hazard detected at sampled points.</small>';
+    $('routeWeatherSummary').className=`intel-card${wet||firstHazard?' warning':''}`;
+    $('routeWeatherSummary').innerHTML=(wet?`<strong>Rain likely in about ${wet.arrivalMinutes} minutes</strong><small>Approximately ${wet.miles.toFixed(0)} miles ahead on ${escapeHtml(feature.name)} at ${speed} mph. First wet sample: ${wet.precipitation.toFixed(2)} in/15 min. Estimated rainfall exposure across sampled track: ${totalRain.toFixed(2)} in.</small>`:`<strong>No rain indicated along the sampled track</strong><small>${escapeHtml(feature.name)} · next ${Math.round(miles)} miles sampled at ${speed} mph · estimated rainfall exposure ${totalRain.toFixed(2)} in.</small>`)+hazardText+'<small>Forecast estimate only—check radar, alerts, and current conditions.</small>';
+    setStatus(`Route rain outlook checked for ${feature.name}.`);
+  }catch(error){setRouteWeatherError(`Route weather failed: ${error.message}`);}
+}
+function setRouteWeatherError(message) {$('routeWeatherSummary').className='intel-card error';$('routeWeatherSummary').textContent=message;setStatus(message,true);}
 function bboxAreaKm2(bounds) {
   const south=bounds.getSouth(),north=bounds.getNorth(),west=bounds.getWest(),east=bounds.getEast();
   const height=Math.abs(north-south)*111.32;const width=Math.abs(east-west)*111.32*Math.cos(((north+south)/2)*Math.PI/180);return height*width;
@@ -1020,6 +1099,7 @@ function wireUi() {
   $('showCompetitorMarkers').addEventListener('change',()=>{state.settings.showCompetitorMarkers=$('showCompetitorMarkers').checked;saveProject(false);renderCompetitors();});
   $('competitorFreshMinutes').addEventListener('change',()=>{state.settings.competitorFreshMinutes=Number($('competitorFreshMinutes').value)||15;saveProject(false);renderCompetitors();renderCompetitorSummary();renderIntelSummary();});
   $('weatherHereButton').addEventListener('click',loadWeatherHere);$('clearWeatherButton').addEventListener('click',clearWeather);
+  $('radarToggleButton').addEventListener('click',toggleRadar);$('radarPlayButton').addEventListener('click',toggleRadarLoop);$('radarOpacity').addEventListener('input',setRadarOpacity);$('routeWeatherButton').addEventListener('click',loadRouteWeather);$('routeWeatherSpeed').addEventListener('change',()=>{state.settings.routeWeatherSpeed=Number($('routeWeatherSpeed').value)||45;saveProject(false);});
   $('trafficHereButton').addEventListener('click',loadTrafficHere);$('openWazeButton').addEventListener('click',openWazeAtMapCenter);$('clearTrafficButton').addEventListener('click',clearTraffic);
   $('trafficProvider').addEventListener('change',()=>{state.settings.trafficProvider=$('trafficProvider').value;saveProject(false);});
   $('competitorInput').addEventListener('change',e=>{if(e.target.files[0])importCompetitorJson(e.target.files[0]);e.target.value='';});
@@ -1044,9 +1124,9 @@ async function init() {
   await loadProject();
   state.project.features.forEach(f=>{f.assignmentMethod ||= '';f.favorite ||= false;});
   state.settings.typeVisibility=Object.assign({track:true,route:true,backbone:true,waypoint:true,checkpoint:true,fuel:true,hotel:true},state.settings.typeVisibility||{});
-  state.settings=Object.assign({leaderboardUrl:'https://gpscheckpoints.com/admin/leaderboard.html?id_event=15',rallyEndpointUrl:'',rallyEventId:'15',rallyPollSeconds:30,showCompetitorTrails:true,showCompetitorMarkers:true,competitorFreshMinutes:15,trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:''},state.settings);
+  state.settings=Object.assign({leaderboardUrl:'https://gpscheckpoints.com/admin/leaderboard.html?id_event=15',rallyEndpointUrl:'',rallyEventId:'15',rallyPollSeconds:30,showCompetitorTrails:true,showCompetitorMarkers:true,competitorFreshMinutes:15,trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:'',radarOpacity:65,routeWeatherSpeed:45},state.settings);
   state.project.competitors ||= [];
-  initMap();wireUi();
+  initMap();wireUi();$('radarOpacity').value=state.settings.radarOpacity||65;$('routeWeatherSpeed').value=String(state.settings.routeWeatherSpeed||45);
   $('buildLabel').textContent=`Beta ${APP_VERSION}`;
   $('appVersion').textContent=`v${APP_VERSION} · ${BUILD_ID}`;
   renderAll();setTimeout(()=>{if(state.project.features.length)fitMap();},200);
