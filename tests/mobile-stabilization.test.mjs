@@ -22,6 +22,11 @@ test('mobile drawer blocks map interaction and honors bottom safe area', () => {
   assert.match(css, /\.intel-sheet\{[^}]*bottom:max\(8px,env\(safe-area-inset-bottom\)\)/);
 });
 
+test('mobile layer manager uses one readable column', () => {
+  assert.match(css, /\.type-layer-controls\{grid-template-columns:1fr\}/);
+  assert.match(css, /\.type-toggle\{min-width:0;font-size:\.88rem\}/);
+});
+
 test('compact and detailed weather use the same maximum gust calculation', () => {
   const helper = js.match(/function weatherMaxGustMph\(data\) \{[\s\S]*?\n\}/)?.[0];
   assert.ok(helper, 'weatherMaxGustMph helper should exist');
