@@ -880,13 +880,18 @@ function renderWeather() {
   const data=state.weatherData,point=state.weatherPoint;if(!data||!point)return;
   const current=data.current||{};const hourly=data.hourly||{};
   const precip=Array.isArray(hourly.precipitation_probability)?Math.max(...hourly.precipitation_probability.filter(Number.isFinite),0):0;
-  const gusts=Array.isArray(hourly.wind_gusts_10m)?Math.max(...hourly.wind_gusts_10m.filter(Number.isFinite),Number(current.wind_gusts_10m)||0):Number(current.wind_gusts_10m)||0;
+  const gusts=weatherMaxGustMph(data);
   const condition=WEATHER_CODES[current.weather_code]||`Code ${current.weather_code??'—'}`;
   const warning=(current.weather_code>=95||precip>=60||gusts>=35);
   const html=`<strong>${Math.round(current.temperature_2m??0)}°F · ${escapeHtml(condition)}</strong><small>Feels ${Math.round(current.apparent_temperature??current.temperature_2m??0)}°F · Wind ${Math.round(current.wind_speed_10m??0)} mph · Gusts up to ${Math.round(gusts)} mph · Rain chance ${Math.round(precip)}%</small>${warning?'<em>Weather could affect the next decision.</em>':''}`;
   $('weatherSummary').className=`intel-card${warning?' warning':''}`;$('weatherSummary').innerHTML=html;
   const marker=L.circleMarker([point.lat,point.lon],{radius:9,color:'#fff',weight:2,fillColor:COLORS.weather,fillOpacity:.95});
   marker.bindPopup(`<strong>${escapeHtml(point.label)}</strong><br>${Math.round(current.temperature_2m??0)}°F · ${escapeHtml(condition)}<br>Gusts ${Math.round(gusts)} mph · Rain ${Math.round(precip)}%`);state.weatherGroup.addLayer(marker);
+}
+function weatherMaxGustMph(data) {
+  const current=Number(data?.current?.wind_gusts_10m)||0;
+  const hourly=Array.isArray(data?.hourly?.wind_gusts_10m)?data.hourly.wind_gusts_10m.filter(Number.isFinite):[];
+  return Math.max(...hourly,current);
 }
 function clearWeather() {state.weatherData=null;state.weatherPoint=null;state.weatherGroup?.clearLayers();$('weatherSummary').className='intel-card empty';$('weatherSummary').textContent='No weather loaded.';renderIntelSummary();}
 function bboxAreaKm2(bounds) {
@@ -973,7 +978,7 @@ function renderIntelSummary() {
   if($('rallyFeedNotice')){$('rallyFeedNotice').textContent=state.rallySync.lastError?state.rallySync.lastError:state.settings.rallyEndpointUrl?`${running?'Polling':'Connector ready'} · ${riders.length} riders · ${points} breadcrumbs`:'The public leaderboard URL is saved. Live trail polling needs the JSON/location endpoint captured from a live event. Polling runs only while CannonMap is open and active.';}
   if($('mobileRiderCount'))$('mobileRiderCount').textContent=riders.length;if($('mobileFreshCount'))$('mobileFreshCount').textContent=fresh;if($('mobileTrafficCount'))$('mobileTrafficCount').textContent=state.trafficIncidents.length;
   if($('mobileIntelStatus'))$('mobileIntelStatus').textContent=running?`Live · last ${formatClock(state.rallySync.lastSync)}`:state.rallySync.lastSync?`Last sync ${formatClock(state.rallySync.lastSync)}`:'No live feed';
-  if($('mobileWeatherSummary')){if(state.weatherData){const c=state.weatherData.current||{};$('mobileWeatherSummary').textContent=`${Math.round(c.temperature_2m??0)}°F · ${WEATHER_CODES[c.weather_code]||'Weather'} · Gusts ${Math.round(c.wind_gusts_10m??0)} mph`;}else $('mobileWeatherSummary').textContent='Weather not loaded';}
+  if($('mobileWeatherSummary')){if(state.weatherData){const c=state.weatherData.current||{};$('mobileWeatherSummary').textContent=`${Math.round(c.temperature_2m??0)}°F · ${WEATHER_CODES[c.weather_code]||'Weather'} · Gusts ${Math.round(weatherMaxGustMph(state.weatherData))} mph`;}else $('mobileWeatherSummary').textContent='Weather not loaded';}
 }
 function setIntelSheetOpen(open) {
   const sheet=$('intelSheet');sheet.classList.toggle('open',open);sheet.setAttribute('aria-hidden',String(!open));$('intelButton').setAttribute('aria-expanded',String(open));

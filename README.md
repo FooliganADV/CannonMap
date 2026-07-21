@@ -26,6 +26,14 @@ CannonMap is a rally decision system. The primary live-rally function is display
 
 Extract the ZIP and upload every file to the GitHub repository root. Replace the existing files.
 
+## Tests
+
+Run the dependency-free regression suite with Node.js:
+
+```text
+node --test tests/*.test.mjs
+```
+
 ## First test
 
 1. Confirm the status shows `v0.6.0 · 2026.07.18.01`.
