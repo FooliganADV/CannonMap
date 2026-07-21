@@ -18,7 +18,7 @@
       <span class="brand-mark">CM</span>
       <div>
         <h1>CannonMap</h1>
-        <p>America 250 Planner · <span id="buildLabel">Beta 0.6.1</span></p>
+        <p>America 250 Planner · <span id="buildLabel">Beta 0.6.2</span></p>
       </div>
     </div>
     <div class="top-actions">
@@ -234,6 +234,7 @@
               <button id="radarToggleButton" class="button secondary">Show radar</button>
               <button id="radarPlayButton" class="button secondary" disabled>Play loop</button>
             </div>
+            <label class="field"><span>Radar coverage</span><select id="radarCoverage"><option value="active-day" selected>Active day (30-mile buffer)</option><option value="selected">Selected route/track (30-mile buffer)</option><option value="map">Current map view</option></select></label>
             <label class="field"><span>Radar opacity</span><input id="radarOpacity" type="range" min="20" max="100" step="5" value="65" /></label>
             <label class="field"><span>Planning speed for route rain estimate</span><select id="routeWeatherSpeed"><option value="30">30 mph</option><option value="40">40 mph</option><option value="45" selected>45 mph</option><option value="55">55 mph</option><option value="65">65 mph</option></select></label>
             <button id="routeWeatherButton" class="button secondary wide">Check rain along track</button>
@@ -274,7 +275,7 @@
       <div class="map-status">
         <span id="cursorCoordinates">—</span>
         <span id="gpsStatus">GPS off</span>
-        <span id="appVersion">v0.6.1</span>
+        <span id="appVersion">v0.6.2</span>
       </div>
       <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open planner" aria-expanded="false">Planner</button>
       <button id="intelButton" class="intel-toggle" aria-label="Open live intelligence" aria-expanded="false">Intel</button>

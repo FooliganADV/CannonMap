@@ -17,9 +17,21 @@ test('radar uses the public RainViewer frame API with attribution and safe sourc
 
 test('radar animation can be stopped and opacity is configurable', () => {
   assert.match(app, /function stopRadarLoop\(\)/);
-  assert.match(app, /clearInterval\(state\.radarTimer\)/);
+  assert.match(app, /clearTimeout\(state\.radarTimer\)/);
+  assert.match(app, /next\.once\('load',reveal\)/);
+  assert.match(app, /previous\?\.setOpacity\(0\)/);
+  assert.match(css, /\.cannon-radar-layer\{transition:opacity/);
   assert.match(app, /setOpacity\(state\.settings\.radarOpacity\/100\)/);
   assert.match(html, /id="radarOpacity"[^>]*type="range"/);
+});
+
+test('radar can be limited to a buffered active-day or selected-route corridor', () => {
+  assert.match(html, /id="radarCoverage"/);
+  assert.match(html, /Active day \(30-mile buffer\)/);
+  assert.match(html, /Selected route\/track \(30-mile buffer\)/);
+  assert.match(app, /function radarCoverageBounds\(\)/);
+  assert.match(app, /const latPad=30\/69/);
+  assert.match(app, /options\.bounds=bounds/);
 });
 
 test('track-ahead scan requests rain, wind, snow, visibility, dust and air quality', () => {

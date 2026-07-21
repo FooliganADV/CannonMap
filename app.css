@@ -134,6 +134,7 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
 .intel-card{padding:11px;border:1px solid var(--border);border-radius:10px;background:#0f172a;margin:8px 0 12px;line-height:1.35}.intel-card strong,.intel-card small,.intel-card em{display:block}.intel-card small{color:var(--muted);margin-top:4px}.intel-card em{color:#fde68a;font-style:normal;font-weight:800;margin-top:7px}.intel-card.empty{color:var(--muted)}.intel-card.loading{border-color:#0369a1;color:#bae6fd}.intel-card.warning{border-color:#b45309;background:#451a03}.intel-card.error{border-color:#991b1b;background:#450a0a;color:#fecaca}
 .helper-text{display:block;color:var(--muted);line-height:1.4}.fresh-dot{width:9px;height:9px;border-radius:50%;background:#64748b}.fresh-dot.is-fresh{background:#22c55e;box-shadow:0 0 8px #22c55e}
 .weather-radar-controls{margin-top:14px;padding-top:12px;border-top:1px solid var(--border)}.weather-attribution{margin-top:8px}.weather-attribution a{color:#7dd3fc}.weather-radar-controls input[type="range"]{width:100%}
+.cannon-radar-layer{transition:opacity .32s linear}
 .intel-toggle{display:none}.intel-sheet{display:none}
 
 @media (max-width:840px){
