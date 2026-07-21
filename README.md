@@ -1,6 +1,6 @@
-# CannonMap Planner — Beta 0.6.1 Weather Intelligence
+# CannonMap Planner — Beta 0.6.2 Weather Intelligence
 
-Build: `2026.07.21.01`
+Build: `2026.07.21.02`
 
 ## Purpose
 
@@ -8,6 +8,9 @@ CannonMap is a rally decision system. The primary live-rally function is display
 
 ## New in this release
 
+- Buffered radar frame loading and crossfading remove the blank strobe between animation frames
+- Radar can be restricted to the active day, selected route/track, or current map view
+- Route/day radar uses a 30-mile buffer so approaching weather remains visible
 - Optional animated recent-weather radar overlay with opacity control and timestamps
 - Track-ahead weather scan with an estimated rain start time, distance, and rainfall exposure
 - Route hazard warnings for wind gusts, snow, freezing precipitation, thunderstorms/hail, low visibility, dust, and poor air quality
@@ -40,7 +43,7 @@ node --test tests/*.test.mjs
 
 ## First test
 
-1. Confirm the status shows `v0.6.1 · 2026.07.21.01`.
+1. Confirm the status shows `v0.6.2 · 2026.07.21.02`.
 2. Import `competitor-test.json`; verify the red trail appears and Rider 27 is listed.
 3. Open **Trail Intel** and select **Weather here**. No key is required.
 4. On a phone, select **Intel** and verify the compact bottom sheet opens without covering the entire map.

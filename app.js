@@ -1,7 +1,7 @@
 'use strict';
 
-const APP_VERSION = '0.6.1';
-const BUILD_ID = '2026.07.21.01';
+const APP_VERSION = '0.6.2';
+const BUILD_ID = '2026.07.21.02';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
@@ -18,7 +18,7 @@ const state = {
   pendingLayer: null, pendingImport: null, selectedId: null, editingLayer: null, history: [],
   rallyPollTimer: null, rallySync: { running:false, lastSync:null, lastError:'', pointsAdded:0 },
   weatherData: null, weatherPoint: null, trafficIncidents: [],
-  radarLayer: null, radarFrames: [], radarFrameIndex: -1, radarTimer: null,
+  radarLayer: null, radarNextLayer: null, radarFrames: [], radarFrameIndex: -1, radarTimer: null, radarLoadTimer: null, radarPlaying:false, radarAnimationToken:0,
   project: {
     version: APP_VERSION, name: 'America 250 – 2026', createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(), features: [], competitors: []
@@ -28,7 +28,7 @@ const state = {
     typeVisibility:{track:true,route:true,backbone:true,waypoint:true,checkpoint:true,fuel:true,hotel:true},
     leaderboardUrl:'https://gpscheckpoints.com/admin/leaderboard.html?id_event=15', rallyEndpointUrl:'', rallyEventId:'15', rallyPollSeconds:30,
     showCompetitorTrails:true, showCompetitorMarkers:true, competitorFreshMinutes:15,
-    trafficProvider:'none', tomtomApiKey:'', wazeFeedUrl:'', radarOpacity:65, routeWeatherSpeed:45
+    trafficProvider:'none', tomtomApiKey:'', wazeFeedUrl:'', radarOpacity:65, radarCoverage:'active-day', routeWeatherSpeed:45
   }
 };
 
@@ -911,17 +911,51 @@ async function showRadar() {
     $('radarPlayButton').disabled=frames.length<2;$('radarToggleButton').textContent='Hide radar';setStatus('Weather radar loaded.');
   }catch(error){hideRadar(false);$('radarSummary').className='intel-card error';$('radarSummary').textContent=`Radar failed: ${error.message}`;setStatus(`Radar failed: ${error.message}`,true);}
 }
-function renderRadarFrame() {
-  const frame=state.radarFrames[state.radarFrameIndex];if(!frame)return;
-  if(state.radarLayer)state.map.removeLayer(state.radarLayer);
-  state.radarLayer=L.tileLayer(radarTileUrl(frame),{opacity:Number(state.settings.radarOpacity||65)/100,maxNativeZoom:7,maxZoom:19,zIndex:450,attribution:'Radar data © <a href="https://www.rainviewer.com/">RainViewer</a>'}).addTo(state.map);
-  const time=radarFrameTime(frame);$('radarSummary').className='intel-card';$('radarSummary').innerHTML=`<strong>Radar ${escapeHtml(time.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}))}</strong><small>Recent observed precipitation · frame ${state.radarFrameIndex+1} of ${state.radarFrames.length}</small>`;
+function radarCoverageFeatures() {
+  const scope=state.settings.radarCoverage||'active-day';if(scope==='map')return [];
+  const selected=state.project.features.find(feature=>feature.id===state.selectedId&&feature.geometry?.kind==='line');
+  if(scope==='selected')return selected?[selected]:[];
+  const day=Number(state.settings.dayFilter);
+  if(day>=1&&day<=8)return state.project.features.filter(feature=>feature.geometry?.kind==='line'&&Number(feature.day)===day);
+  return selected?[selected]:[];
 }
-function stopRadarLoop() {if(state.radarTimer){clearInterval(state.radarTimer);state.radarTimer=null;}if($('radarPlayButton'))$('radarPlayButton').textContent='Play loop';}
+function radarCoverageBounds() {
+  const features=radarCoverageFeatures();if(!features.length)return null;
+  const points=features.flatMap(feature=>feature.geometry.coordinates||[]).filter(validPoint);if(!points.length)return null;
+  const bounds=L.latLngBounds(points.map(point=>[point.lat,point.lon]));const center=bounds.getCenter();const latPad=30/69;const lonPad=30/(69*Math.max(.2,Math.cos(center.lat*Math.PI/180)));
+  bounds.extend([bounds.getSouth()-latPad,bounds.getWest()-lonPad]);bounds.extend([bounds.getNorth()+latPad,bounds.getEast()+lonPad]);return bounds;
+}
+function radarCoverageLabel() {
+  const scope=state.settings.radarCoverage||'active-day';if(scope==='map')return 'current map view';
+  const features=radarCoverageFeatures();if(!features.length)return 'current map view (no matching route selected)';
+  if(scope==='selected')return `${features[0].name} corridor`;
+  return `Day ${state.settings.dayFilter} corridor`;
+}
+function createRadarLayer(frame,opacity=0) {
+  const options={opacity,maxNativeZoom:7,maxZoom:19,zIndex:450,className:'cannon-radar-layer',attribution:'Radar data © <a href="https://www.rainviewer.com/">RainViewer</a>'};
+  const bounds=radarCoverageBounds();if(bounds)options.bounds=bounds;return L.tileLayer(radarTileUrl(frame),options);
+}
+function updateRadarSummary() {
+  const frame=state.radarFrames[state.radarFrameIndex];if(!frame)return;const time=radarFrameTime(frame);
+  $('radarSummary').className='intel-card';$('radarSummary').innerHTML=`<strong>Radar ${escapeHtml(time.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}))}</strong><small>Recent observed precipitation · frame ${state.radarFrameIndex+1} of ${state.radarFrames.length} · ${escapeHtml(radarCoverageLabel())}</small>`;
+}
+function renderRadarFrame() {
+  const frame=state.radarFrames[state.radarFrameIndex];if(!frame)return;if(state.radarLayer)state.map.removeLayer(state.radarLayer);
+  state.radarLayer=createRadarLayer(frame,Number(state.settings.radarOpacity||65)/100).addTo(state.map);updateRadarSummary();
+}
+function scheduleRadarNext() {
+  if(!state.radarPlaying)return;state.radarTimer=setTimeout(()=>{state.radarTimer=null;transitionRadarFrame((state.radarFrameIndex+1)%state.radarFrames.length);},1050);
+}
+function transitionRadarFrame(index) {
+  if(!state.radarPlaying)return;const frame=state.radarFrames[index];if(!frame)return;const token=++state.radarAnimationToken;const next=createRadarLayer(frame,0);state.radarNextLayer=next;let revealed=false;
+  const reveal=()=>{if(revealed||token!==state.radarAnimationToken)return;revealed=true;if(state.radarLoadTimer){clearTimeout(state.radarLoadTimer);state.radarLoadTimer=null;}const previous=state.radarLayer;next.setOpacity(Number(state.settings.radarOpacity||65)/100);previous?.setOpacity(0);state.radarLayer=next;state.radarNextLayer=null;state.radarFrameIndex=index;updateRadarSummary();setTimeout(()=>{if(previous&&state.map.hasLayer(previous))state.map.removeLayer(previous);},360);scheduleRadarNext();};
+  next.once('load',reveal).addTo(state.map);state.radarLoadTimer=setTimeout(reveal,2800);
+}
+function stopRadarLoop() {
+  state.radarPlaying=false;state.radarAnimationToken++;if(state.radarTimer){clearTimeout(state.radarTimer);state.radarTimer=null;}if(state.radarLoadTimer){clearTimeout(state.radarLoadTimer);state.radarLoadTimer=null;}if(state.radarNextLayer&&state.map.hasLayer(state.radarNextLayer))state.map.removeLayer(state.radarNextLayer);state.radarNextLayer=null;if($('radarPlayButton'))$('radarPlayButton').textContent='Play loop';
+}
 function toggleRadarLoop() {
-  if(state.radarTimer)return stopRadarLoop();if(state.radarFrames.length<2)return;
-  $('radarPlayButton').textContent='Pause loop';state.radarFrameIndex=0;renderRadarFrame();
-  state.radarTimer=setInterval(()=>{state.radarFrameIndex=(state.radarFrameIndex+1)%state.radarFrames.length;renderRadarFrame();},850);
+  if(state.radarPlaying)return stopRadarLoop();if(state.radarFrames.length<2)return;state.radarPlaying=true;$('radarPlayButton').textContent='Pause loop';transitionRadarFrame(0);
 }
 function hideRadar(save=true) {
   stopRadarLoop();if(state.radarLayer&&state.map)state.map.removeLayer(state.radarLayer);state.radarLayer=null;state.radarFrames=[];state.radarFrameIndex=-1;
@@ -931,6 +965,7 @@ function hideRadar(save=true) {
 }
 function toggleRadar() {if(state.radarLayer)hideRadar();else showRadar();}
 function setRadarOpacity() {state.settings.radarOpacity=Number($('radarOpacity').value)||65;state.radarLayer?.setOpacity(state.settings.radarOpacity/100);saveProject(false);}
+function setRadarCoverage() {state.settings.radarCoverage=$('radarCoverage').value;saveProject(false);if(state.radarLayer){stopRadarLoop();renderRadarFrame();setStatus(`Radar limited to ${radarCoverageLabel()}.`);}}
 function activeWeatherLine() {
   const selected=state.project.features.find(feature=>feature.id===state.selectedId&&feature.geometry?.kind==='line');if(selected)return selected;
   const day=Number(state.settings.dayFilter);const candidates=state.project.features.filter(feature=>feature.geometry?.kind==='line'&&feature.visible!==false&&(!day||day===Number(feature.day)));
@@ -1099,7 +1134,7 @@ function wireUi() {
   $('showCompetitorMarkers').addEventListener('change',()=>{state.settings.showCompetitorMarkers=$('showCompetitorMarkers').checked;saveProject(false);renderCompetitors();});
   $('competitorFreshMinutes').addEventListener('change',()=>{state.settings.competitorFreshMinutes=Number($('competitorFreshMinutes').value)||15;saveProject(false);renderCompetitors();renderCompetitorSummary();renderIntelSummary();});
   $('weatherHereButton').addEventListener('click',loadWeatherHere);$('clearWeatherButton').addEventListener('click',clearWeather);
-  $('radarToggleButton').addEventListener('click',toggleRadar);$('radarPlayButton').addEventListener('click',toggleRadarLoop);$('radarOpacity').addEventListener('input',setRadarOpacity);$('routeWeatherButton').addEventListener('click',loadRouteWeather);$('routeWeatherSpeed').addEventListener('change',()=>{state.settings.routeWeatherSpeed=Number($('routeWeatherSpeed').value)||45;saveProject(false);});
+  $('radarToggleButton').addEventListener('click',toggleRadar);$('radarPlayButton').addEventListener('click',toggleRadarLoop);$('radarOpacity').addEventListener('input',setRadarOpacity);$('radarCoverage').addEventListener('change',setRadarCoverage);$('routeWeatherButton').addEventListener('click',loadRouteWeather);$('routeWeatherSpeed').addEventListener('change',()=>{state.settings.routeWeatherSpeed=Number($('routeWeatherSpeed').value)||45;saveProject(false);});
   $('trafficHereButton').addEventListener('click',loadTrafficHere);$('openWazeButton').addEventListener('click',openWazeAtMapCenter);$('clearTrafficButton').addEventListener('click',clearTraffic);
   $('trafficProvider').addEventListener('change',()=>{state.settings.trafficProvider=$('trafficProvider').value;saveProject(false);});
   $('competitorInput').addEventListener('change',e=>{if(e.target.files[0])importCompetitorJson(e.target.files[0]);e.target.value='';});
@@ -1124,9 +1159,9 @@ async function init() {
   await loadProject();
   state.project.features.forEach(f=>{f.assignmentMethod ||= '';f.favorite ||= false;});
   state.settings.typeVisibility=Object.assign({track:true,route:true,backbone:true,waypoint:true,checkpoint:true,fuel:true,hotel:true},state.settings.typeVisibility||{});
-  state.settings=Object.assign({leaderboardUrl:'https://gpscheckpoints.com/admin/leaderboard.html?id_event=15',rallyEndpointUrl:'',rallyEventId:'15',rallyPollSeconds:30,showCompetitorTrails:true,showCompetitorMarkers:true,competitorFreshMinutes:15,trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:'',radarOpacity:65,routeWeatherSpeed:45},state.settings);
+  state.settings=Object.assign({leaderboardUrl:'https://gpscheckpoints.com/admin/leaderboard.html?id_event=15',rallyEndpointUrl:'',rallyEventId:'15',rallyPollSeconds:30,showCompetitorTrails:true,showCompetitorMarkers:true,competitorFreshMinutes:15,trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:'',radarOpacity:65,radarCoverage:'active-day',routeWeatherSpeed:45},state.settings);
   state.project.competitors ||= [];
-  initMap();wireUi();$('radarOpacity').value=state.settings.radarOpacity||65;$('routeWeatherSpeed').value=String(state.settings.routeWeatherSpeed||45);
+  initMap();wireUi();$('radarOpacity').value=state.settings.radarOpacity||65;$('radarCoverage').value=state.settings.radarCoverage||'active-day';$('routeWeatherSpeed').value=String(state.settings.routeWeatherSpeed||45);
   $('buildLabel').textContent=`Beta ${APP_VERSION}`;
   $('appVersion').textContent=`v${APP_VERSION} · ${BUILD_ID}`;
   renderAll();setTimeout(()=>{if(state.project.features.length)fitMap();},200);
