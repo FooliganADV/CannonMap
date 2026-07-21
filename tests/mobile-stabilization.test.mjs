@@ -25,6 +25,8 @@ test('mobile drawer blocks map interaction and honors bottom safe area', () => {
 test('mobile layer manager uses one readable column', () => {
   assert.match(css, /\.type-layer-controls\{grid-template-columns:1fr\}/);
   assert.match(css, /\.type-toggle\{min-width:0;font-size:\.88rem\}/);
+  assert.match(css, /\.type-toggle input\[type="checkbox"\]\{width:24px;height:24px;flex:0 0 24px;margin:0\}/);
+  assert.match(css, /\.type-toggle \.swatch\{flex:0 0 14px\}/);
 });
 
 test('compact and detailed weather use the same maximum gust calculation', () => {
