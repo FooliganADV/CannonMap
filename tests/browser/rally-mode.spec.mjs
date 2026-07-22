@@ -8,7 +8,7 @@ async function loadProject(page){
   await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
   await page.locator('#projectInput').setInputFiles(fixture);
   await expect(page.locator('#status')).toContainText('Opened rally-project.cmap');
-  await page.evaluate(()=>{const select=document.getElementById('dayFilter');select.value='1';select.dispatchEvent(new Event('change',{bubbles:true}));});
+  await page.evaluate(()=>{const select=document.getElementById('dayFilter');select.value='1';select.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('[data-tab="project"]').click();});
 }
 
 test('project import filters Old Coast Road and preserves nearby features',async({page})=>{
@@ -47,12 +47,15 @@ test('checkpoint defer, restore, complete, scoring, hotel bailout and undo',asyn
   await expect(page.locator('#rallyNextName')).toContainText('Checkpoint One');
   await page.locator('#rallyDeferButton').click();
   await expect(page.locator('#rallyNextName')).toContainText('Extreme Checkpoint Two');
+  await page.locator('#rallyMoreButton').click();
   await page.locator('#rallyRestoreButton').click();
+  await page.locator('#rallyMoreButton').click();
   await page.locator('#rallyCompleteButton').click();
   await expect(page.locator('#rallyScore')).toHaveText('10');
   await expect(page.locator('#rallyNextName')).toContainText('Extreme Checkpoint Two');
   await page.locator('#rallyCompleteButton').click();
   await expect(page.locator('#rallyScore')).toHaveText('31');
+  await page.locator('#rallyMoreButton').click();
   page.once('dialog',dialog=>dialog.accept());
   await page.locator('#goHotelButton').click();
   await expect(page.locator('#goHotelButton')).toHaveText('UNDO HOTEL BAILOUT');
@@ -91,4 +94,57 @@ test('GPX import and export remain available',async({page})=>{
 test('application shell starts offline after installation',async({page,context})=>{
   await page.goto('/?offline-install=1');await page.waitForTimeout(1200);await page.reload();
   await context.setOffline(true);await page.reload();await expect(page.locator('h1')).toHaveText('CannonMap');await context.setOffline(false);
+});
+
+test('desktop checkpoint sequence reorders and builds a route',async({page},testInfo)=>{
+  test.skip(testInfo.project.name!=='desktop');
+  await loadProject(page);
+  await expect(page.locator('#plannerBuilder')).toBeVisible();
+  const first=page.locator('.sequence-row').filter({hasText:'Checkpoint One'});
+  const second=page.locator('.sequence-row').filter({hasText:'Extreme Checkpoint Two'});
+  await second.dragTo(first);
+  await expect(page.locator('.sequence-row').first()).toContainText('Extreme Checkpoint Two');
+  await page.locator('#buildSequenceRouteButton').click();
+  await expect(page.locator('#routePairList')).toContainText('Day 1 Primary Route');
+  const features=await page.evaluate(()=>window.CannonMapPlannerTest.projectFeatures());
+  const route=features.find(f=>f.name==='Day 1 Primary Route');
+  expect(route.geometry.coordinates).toHaveLength(4);
+  expect(route.planRole).toBe('primary');
+  expect(features.find(f=>f.id==='cp2').sequence).toBe(1);
+  expect(features.find(f=>f.id==='cp1').sequence).toBe(2);
+  await page.screenshot({path:testInfo.outputPath('desktop-route-builder.png'),fullPage:true});
+});
+
+test('desktop route tools split join reverse duplicate and convert',async({page},testInfo)=>{
+  test.skip(testInfo.project.name!=='desktop');
+  await loadProject(page);
+  await page.locator('#buildSequenceRouteButton').click();
+  const initial=await page.evaluate(()=>window.CannonMapPlannerTest.projectFeatures().find(f=>f.name==='Day 1 Primary Route').geometry.coordinates);
+  await page.locator('#reversePlannerLineButton').click();
+  let current=await page.evaluate(()=>window.CannonMapPlannerTest.projectFeatures().find(f=>f.name==='Day 1 Primary Route').geometry.coordinates);
+  expect(current[0]).toEqual(initial.at(-1));
+  await page.selectOption('#plannerAlternativeName','Paved');
+  await page.locator('#duplicateAlternativeButton').click();
+  await expect(page.locator('#routePairList')).toContainText('Paved');
+  await page.locator('#convertRouteTrackButton').click();
+  expect((await page.evaluate(()=>window.CannonMapPlannerTest.projectFeatures())).some(f=>f.type==='track'&&f.pairId)).toBeTruthy();
+  await page.locator('#splitPointIndex').fill('2');
+  await page.locator('#splitPlannerLineButton').click();
+  const split=await page.evaluate(()=>window.CannonMapPlannerTest.projectFeatures().filter(f=>/ A$| B$/.test(f.name)));
+  expect(split.length).toBeGreaterThanOrEqual(2);
+  await page.locator('#routePairList [data-planner-select]').filter({has:page.locator('strong').filter({hasText:/ A$/})}).click();
+  await page.selectOption('#joinLineSelect',split.find(f=>/ B$/.test(f.name)).id);
+  await page.locator('#joinPlannerLineButton').click();
+  await expect(page.locator('#status')).toContainText('Joined lines');
+});
+
+test('planner validation, active-day and master GPX exports remain scoped',async({page},testInfo)=>{
+  test.skip(testInfo.project.name!=='desktop');
+  await loadProject(page);
+  await page.locator('#buildSequenceRouteButton').click();
+  const qa=await page.evaluate(()=>window.CannonMapPlannerTest.validateDayPlan(1));
+  expect(qa.points).toBe(31);
+  expect(qa.issues.some(i=>/Old Coast Road/i.test(i.message))).toBeFalsy();
+  const dayDownload=page.waitForEvent('download');await page.locator('#exportActiveDayButton').click();const day=await dayDownload;expect(day.suggestedFilename()).toContain('day-1.gpx');
+  const masterDownload=page.waitForEvent('download');await page.locator('#exportMasterPlannerButton').click();const master=await masterDownload;expect(master.suggestedFilename()).toContain('master.gpx');
 });
