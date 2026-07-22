@@ -21,7 +21,7 @@ test('mobile drawer blocks map interaction and honors bottom safe area', () => {
   assert.match(css, /\.sidebar\.open \{[^}]*pointer-events: auto/);
   assert.match(css, /\.sidebar-backdrop \{[^}]*z-index: 1100;[^}]*pointer-events: none/);
   assert.match(css, /\.sidebar-backdrop\.visible \{[^}]*pointer-events: auto/);
-  assert.match(css, /\.intel-sheet\{[^}]*bottom:max\(8px,env\(safe-area-inset-bottom\)\)/);
+  assert.match(css, /\.intel-sheet\{[^}]*position:fixed;[^}]*bottom:calc\(72px \+ env\(safe-area-inset-bottom\)\)/);
 });
 
 test('mobile layer manager uses one readable column', () => {

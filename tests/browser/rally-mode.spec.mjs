@@ -17,6 +17,8 @@ test('project import filters Old Coast Road and preserves nearby features',async
   await expect(page.locator('#layerList')).toContainText('Nearby Legal Road');
   const names=await page.evaluate(()=>window.CannonMapTest.sanitizeProjectData({features:[{name:'Old Coast Road'},{name:'Nearby Legal Road'}]}).features.map(f=>f.name));
   expect(names).toEqual(['Nearby Legal Road']);
+  const numbered=await page.evaluate(()=>window.CannonMapTest.sanitizeProjectData({features:[{name:'1.03 Scenic Stop',type:'waypoint',geometry:{kind:'point',coordinates:[{lat:40,lon:-75}]}}]}).features[0]);
+  expect(numbered).toMatchObject({type:'checkpoint',day:1,sequence:3,status:'planned',points:10});
   await page.evaluate(()=>{localStorage.setItem('cannonmap.snapshots.v1',JSON.stringify([{id:'blocked-restore',createdAt:new Date().toISOString(),project:{features:[{name:'Old Coast Road',type:'route',day:1,visible:true,geometry:{kind:'line',coordinates:[{lat:38,lon:-105},{lat:38.1,lon:-105.1}]}},{name:'Nearby Legal Road',type:'route',day:1,visible:true,geometry:{kind:'line',coordinates:[{lat:38,lon:-105.01},{lat:38.1,lon:-105.11}]}}],competitors:[]}}]));window.CannonMapTest.restoreSnapshot('blocked-restore');});
   await expect(page.locator('#layerList')).not.toContainText('Old Coast Road');
   await expect(page.locator('#layerList')).toContainText('Nearby Legal Road');
@@ -69,6 +71,10 @@ test('mobile Rally Mode controls do not overlap and meet 48px targets',async({pa
   const viewport=page.viewportSize();for(const box of boxes){expect(box.w,`${box.id} width`).toBeGreaterThanOrEqual(48);expect(box.h,`${box.id} height`).toBeGreaterThanOrEqual(48);expect(box.x,`${box.id} left edge`).toBeGreaterThanOrEqual(0);expect(box.x+box.w,`${box.id} right edge`).toBeLessThanOrEqual(viewport.width);expect(box.y+box.h,`${box.id} bottom edge`).toBeLessThanOrEqual(viewport.height);}
   for(let i=0;i<boxes.length;i++)for(let j=i+1;j<boxes.length;j++){const a=boxes[i],b=boxes[j],overlap=a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;expect(overlap,`${a.id} overlaps ${b.id}`).toBeFalsy();}
   expect(await page.locator('#rallyPrimaryCard, .rally-primary-card').first().evaluate(element=>element.getBoundingClientRect().height)).toBeLessThan(100);
+  await page.evaluate(()=>document.getElementById('intelSheet').classList.add('open'));
+  const intelBox=await page.locator('#intelSheet').evaluate(element=>{const r=element.getBoundingClientRect();return {bottom:r.bottom};});
+  const dockBox=await page.locator('.rally-actions').evaluate(element=>{const r=element.getBoundingClientRect();return {top:r.top};});
+  expect(intelBox.bottom,'Intel sheet must stay above the action dock').toBeLessThanOrEqual(dockBox.top);
   await page.screenshot({path:testInfo.outputPath('rally-mode.png')});
 });
 

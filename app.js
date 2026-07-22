@@ -1,7 +1,7 @@
 'use strict';
 
 const APP_VERSION = '0.7.0';
-const BUILD_ID = '2026.07.21.06';
+const BUILD_ID = '2026.07.21.07';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
@@ -17,6 +17,7 @@ const COLORS = {
 const state = {
   map: null, baseLayers: {}, featureGroup: null, competitorGroup: null, trafficGroup: null, weatherGroup: null,
   gpsLayer: null, gpsAccuracyLayer: null, gpsWatchId: null, lastGpsPosition: null,
+  arrivalCandidateId:null, arrivalEnteredAt:0,
   pendingLayer: null, pendingImport: null, selectedId: null, editingLayer: null, history: [],
   rallyPollTimer: null, rallySync: { running:false, lastSync:null, lastError:'', pointsAdded:0 },
   weatherData: null, weatherPoint: null, trafficIncidents: [],
@@ -59,9 +60,10 @@ function normalizeCheckpoint(feature,index=0){
   for(const key of ['completedAt','deferredAt','deferReason','restoredAt'])feature[key]=feature[key]??null;
   return feature;
 }
+function rallyCheckpointNumber(value){const match=String(value||'').trim().match(/^(?:day\s*)?([1-8])\s*[.\-_]\s*(\d{1,3})\b/i);return match?{day:Number(match[1]),sequence:Number(match[2])}:null;}
 function sanitizeProjectData(project,source='project import'){
   const safe=project&&typeof project==='object'?project:{};
-  safe.features=filterProhibitedFeatures(safe.features,source).map((feature,index)=>normalizeCheckpoint(feature,index));
+  safe.features=filterProhibitedFeatures(safe.features,source).map((feature,index)=>{const numbered=feature?.geometry?.kind==='point'&&feature.type==='waypoint'?rallyCheckpointNumber(feature.name):null;if(numbered){feature.type='checkpoint';feature.day=Number(feature.day)||numbered.day;feature.sequence=Number(feature.sequence)||numbered.sequence;console.info(`[CannonMap] Recognized numbered rally checkpoint: ${feature.name}`);}return normalizeCheckpoint(feature,index);});
   safe.competitors=Array.isArray(safe.competitors)?safe.competitors:[];
   return safe;
 }
@@ -198,7 +200,7 @@ function renderMapFeatures() {
   state.featureGroup.clearLayers();
   state.project.features.forEach(feature => {
     delete feature._layer;
-    if (!feature.visible || !featureMatchesDay(feature) || state.settings.typeVisibility?.[feature.type]===false) return;
+    if (!feature.visible || !featureMatchesDay(feature) || state.settings.typeVisibility?.[feature.type]===false || (matchMedia('(max-width:900px)').matches&&state.settings.hideCompletedCheckpoints!==false&&feature.type==='checkpoint'&&feature.status==='completed')) return;
     const layer = createLeafletLayer(feature);
     state.featureGroup.addLayer(layer);
     feature._layer = layer;
@@ -427,6 +429,7 @@ function classifyPoint(name,notes,sym='') {
   if(/\bfuel\b|\bgas\b|gasoline|service station/.test(lc))return 'fuel';
   if(/\bhotel\b|\bmotel\b|\blodging\b|\binn\b/.test(lc))return 'hotel';
   if(/checkpoint|\bcp\s*\d*\b|\bstart\b|\bfinish\b|\bdirt\b|\bextreme\b|type\s+(standard|dirt|extreme|finish)/.test(lc))return 'checkpoint';
+  if(rallyCheckpointNumber(name))return 'checkpoint';
   return 'waypoint';
 }
 function parseGpx(xmlText,filename) {
@@ -741,10 +744,10 @@ function startGps() {
   if(!navigator.geolocation)return setStatus('This browser does not support GPS.',true);
   if(state.gpsWatchId!==null){navigator.geolocation.clearWatch(state.gpsWatchId);state.gpsWatchId=null;$('gpsButton').textContent='Start GPS';$('gpsStatus').textContent='GPS off';return;}
   state.gpsWatchId=navigator.geolocation.watchPosition(position=>{
-    const ll=[position.coords.latitude,position.coords.longitude];state.lastGpsPosition={lat:ll[0],lon:ll[1],time:new Date(position.timestamp||Date.now()).toISOString()};state.gpsLayer?.remove();state.gpsAccuracyLayer?.remove();
+    const ll=[position.coords.latitude,position.coords.longitude],accuracyFeet=position.coords.accuracy*3.28084;state.lastGpsPosition={lat:ll[0],lon:ll[1],accuracyFeet,time:new Date(position.timestamp||Date.now()).toISOString()};state.gpsLayer?.remove();state.gpsAccuracyLayer?.remove();
     state.gpsAccuracyLayer=L.circle(ll,{radius:position.coords.accuracy,color:'#38bdf8',weight:1,fillOpacity:.08}).addTo(state.map);
     state.gpsLayer=L.circleMarker(ll,{radius:8,color:'#fff',weight:3,fillColor:'#38bdf8',fillOpacity:1}).addTo(state.map);
-    $('gpsStatus').textContent=`GPS ±${Math.round(position.coords.accuracy*3.28084)} ft`;
+    $('gpsStatus').textContent=`GPS ±${Math.round(accuracyFeet)} ft`;ensureNextCheckpoint();evaluateCheckpointArrival(accuracyFeet);renderRallyMode();
   },error=>setStatus(`GPS error: ${error.message}`,true),{enableHighAccuracy:true,maximumAge:2000,timeout:15000});
   $('gpsButton').textContent='Stop GPS';
 }
@@ -1178,11 +1181,14 @@ function renderRallyMode(){
   $('rallyNextName').textContent=next?.name||'No checkpoint selected';const distance=distanceFromCurrent(next);$('rallyNextDistance').textContent=distance===null?'Distance unavailable':`${distance.toFixed(1)} mi away`;$('rallyNextPoints').textContent=next?`${next.extreme?'EXTREME · ':''}${next.points} points · ${next.status}`:'—';
   $('rallyHotelEta').textContent=hotel.label;$('rallyFuelStatus').textContent=fuel.label;$('rallyFuelStatus').classList.toggle('warning',fuel.warning);$('rallyFeedAge').textContent=last?`Feed ${formatClock(last)}`:'Feed never updated';
   const hasDeferred=dayCheckpoints().some(feature=>feature.status==='deferred');$('rallyDeferButton').disabled=!next;$('rallyCompleteButton').disabled=!next;$('rallySkipButton').disabled=!next;$('rallyRestoreButton').hidden=!hasDeferred;$('rallyRestoreButton').disabled=!hasDeferred;$('goHotelButton').disabled=!hotel.hotel&&!state.hotelBailoutActive;$('goHotelButton').textContent=state.hotelBailoutActive?'UNDO HOTEL BAILOUT':'GO TO HOTEL';
+  if($('autoCompleteCheckpoints'))$('autoCompleteCheckpoints').checked=state.settings.autoCompleteCheckpoints!==false;if($('checkpointArrivalRadius'))$('checkpointArrivalRadius').value=state.settings.checkpointArrivalRadius||500;if($('checkpointMaxAccuracy'))$('checkpointMaxAccuracy').value=state.settings.checkpointMaxAccuracy||200;
 }
 function setRallyMoreOpen(open){$('rallyMode').classList.toggle('more-open',open);$('rallyMoreSheet').setAttribute('aria-hidden',String(!open));$('rallyMoreButton').setAttribute('aria-expanded',String(open));$('rallyMoreButton').textContent=open?'Close':'More';}
 function activateNextPlannedCheckpoint(){const next=dayCheckpoints().find(feature=>feature.status==='planned');if(!next)return null;next.status='next';state.selectedId=next.id;return next;}
+function ensureNextCheckpoint(){if(dayCheckpoints().some(feature=>feature.status==='next'))return currentCheckpoint();const next=activateNextPlannedCheckpoint();if(next)saveProject(false);return next;}
+function evaluateCheckpointArrival(accuracyFeet){if(state.settings.autoCompleteCheckpoints===false)return;const checkpoint=ensureNextCheckpoint();if(!checkpoint)return;const radius=Math.max(100,Number(state.settings.checkpointArrivalRadius)||500),maxAccuracy=Math.max(25,Number(state.settings.checkpointMaxAccuracy)||200);const distance=distanceFromCurrent(checkpoint);if(distance===null||accuracyFeet>maxAccuracy||distance*5280>radius){state.arrivalCandidateId=null;state.arrivalEnteredAt=0;return;}const now=Date.now();if(state.arrivalCandidateId!==checkpoint.id){state.arrivalCandidateId=checkpoint.id;state.arrivalEnteredAt=now;return;}if(now-state.arrivalEnteredAt<2000)return;state.arrivalCandidateId=null;state.arrivalEnteredAt=0;completeCurrentCheckpoint(true);}
 function selectNextCheckpoint(){const rows=dayCheckpoints(),current=rows.find(feature=>feature.status==='next');snapshot();if(current)current.status='planned';const next=rows.find(feature=>feature.status==='planned');if(next){next.status='next';state.selectedId=next.id;const point=next.geometry.coordinates[0];state.map.setView([point.lat,point.lon],14);setStatus(`${next.name} is the next checkpoint.`);}else setStatus('No planned checkpoints remain for the active day.');saveProject(false);renderAll();}
-function completeCurrentCheckpoint(){const checkpoint=currentCheckpoint();if(!checkpoint)return setStatus('No active checkpoint.',true);snapshot();checkpoint.status='completed';checkpoint.completedAt=new Date().toISOString();checkpoint.deferredAt=null;checkpoint.deferReason=null;const next=activateNextPlannedCheckpoint();saveProject(false);renderAll();setStatus(`Completed ${checkpoint.name} for ${checkpoint.points} points.${next?` Next: ${next.name}.`:''}`);}
+function completeCurrentCheckpoint(automatic=false){const checkpoint=currentCheckpoint();if(!checkpoint)return setStatus('No active checkpoint.',true);snapshot();checkpoint.status='completed';checkpoint.completedAt=new Date().toISOString();checkpoint.deferredAt=null;checkpoint.deferReason=null;const next=activateNextPlannedCheckpoint();saveProject(false);renderAll();setStatus(`${automatic?'Arrival detected. ':''}Completed ${checkpoint.name} for ${checkpoint.points} points.${next?` Next: ${next.name}.`:''}`);}
 function deferCurrentCheckpoint(reason='Rider deferred'){const checkpoint=currentCheckpoint();if(!checkpoint)return setStatus('No active checkpoint.',true);snapshot();checkpoint.status='deferred';checkpoint.deferredAt=new Date().toISOString();checkpoint.deferReason=reason;const next=activateNextPlannedCheckpoint();saveProject(false);renderAll();setStatus(`Deferred ${checkpoint.name}; it remains in the daily sequence.${next?` Next: ${next.name}.`:''}`);}
 function restoreDeferredCheckpoint(){const checkpoint=dayCheckpoints().find(feature=>feature.status==='deferred');if(!checkpoint)return setStatus('No deferred checkpoint to restore.',true);snapshot();const current=dayCheckpoints().find(feature=>feature.status==='next');if(current)current.status='planned';checkpoint.status='next';checkpoint.restoredAt=new Date().toISOString();state.selectedId=checkpoint.id;saveProject(false);renderAll();setStatus(`Restored ${checkpoint.name} as the next checkpoint.`);}
 function skipCurrentCheckpoint(){const checkpoint=currentCheckpoint();if(!checkpoint)return setStatus('No active checkpoint.',true);if(!confirm(`Skip ${checkpoint.name}? It will remain in the project as skipped.`))return;snapshot();checkpoint.status='skipped';const next=activateNextPlannedCheckpoint();saveProject(false);renderAll();setStatus(`Skipped ${checkpoint.name}.${next?` Next: ${next.name}.`:''}`);}
@@ -1238,7 +1244,8 @@ function wireUi() {
   $('intelButton').addEventListener('click',()=>setIntelSheetOpen(!$('intelSheet').classList.contains('open')));$('intelCloseButton').addEventListener('click',()=>setIntelSheetOpen(false));
   $('mobileSyncButton').addEventListener('click',syncRallyFeed);$('mobileWeatherButton').addEventListener('click',loadWeatherHere);$('mobileTrafficButton').addEventListener('click',loadTrafficHere);
   $('rallyNextButton').addEventListener('click',selectNextCheckpoint);$('rallyIntelButton').addEventListener('click',()=>setIntelSheetOpen(true));$('rallyDeferButton').addEventListener('click',()=>deferCurrentCheckpoint());$('rallyFuelButton').addEventListener('click',openFuelSettings);$('rallyWeatherButton').addEventListener('click',()=>setIntelSheetOpen(true));$('rallyHotelButton').addEventListener('click',()=>{const hotel=currentHotel();if(hotel){const point=hotel.geometry.coordinates[0];state.map.setView([point.lat,point.lon],14);setRallyMoreOpen(false);}else setStatus('No hotel is assigned to the active day.',true);});$('rallyCenterButton').addEventListener('click',()=>{if(state.lastGpsPosition)state.map.setView([state.lastGpsPosition.lat,state.lastGpsPosition.lon],15);else fitMap();});$('rallyMoreButton').addEventListener('click',()=>setRallyMoreOpen(!$('rallyMode').classList.contains('more-open')));$('rallyPlannerButton').addEventListener('click',()=>{setRallyMoreOpen(false);setSidebarOpen(true);});$('goHotelButton').addEventListener('click',toggleHotelBailout);$('fuelForm').addEventListener('submit',saveFuelSettings);
-  $('rallyCompleteButton').addEventListener('click',completeCurrentCheckpoint);$('rallyRestoreButton').addEventListener('click',restoreDeferredCheckpoint);$('rallySkipButton').addEventListener('click',skipCurrentCheckpoint);
+  $('rallyCompleteButton').addEventListener('click',()=>completeCurrentCheckpoint(false));$('rallyRestoreButton').addEventListener('click',restoreDeferredCheckpoint);$('rallySkipButton').addEventListener('click',skipCurrentCheckpoint);
+  for(const id of ['autoCompleteCheckpoints','checkpointArrivalRadius','checkpointMaxAccuracy'])$(id).addEventListener('change',()=>{state.settings.autoCompleteCheckpoints=$('autoCompleteCheckpoints').checked;state.settings.checkpointArrivalRadius=Math.max(100,Number($('checkpointArrivalRadius').value)||500);state.settings.checkpointMaxAccuracy=Math.max(25,Number($('checkpointMaxAccuracy').value)||200);saveProject(false);renderRallyMode();});
   window.addEventListener('online',renderRallyMode);window.addEventListener('offline',renderRallyMode);
   $('importForm').addEventListener('submit',event=>{
     event.preventDefault();
@@ -1259,7 +1266,7 @@ async function init() {
   await loadProject();
   state.project.features.forEach(f=>{f.assignmentMethod ||= '';f.favorite ||= false;});
   state.settings.typeVisibility=Object.assign({track:true,route:true,backbone:true,waypoint:true,checkpoint:true,fuel:true,hotel:true},state.settings.typeVisibility||{});
-  state.settings=Object.assign({leaderboardUrl:'https://gpscheckpoints.com/admin/leaderboard.html?id_event=15',rallyEndpointUrl:'',rallyEventId:'15',rallyPollSeconds:30,showCompetitorTrails:true,showCompetitorMarkers:true,competitorFreshMinutes:15,trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:'',radarOpacity:65,radarCoverage:'active-day',routeWeatherSpeed:45,usableFuelCapacity:0,expectedPavedRange:0,expectedMixedRange:0,reserveDistance:25,fuelProfile:'mixed'},state.settings);
+  state.settings=Object.assign({leaderboardUrl:'https://gpscheckpoints.com/admin/leaderboard.html?id_event=15',rallyEndpointUrl:'',rallyEventId:'15',rallyPollSeconds:30,showCompetitorTrails:true,showCompetitorMarkers:true,competitorFreshMinutes:15,trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:'',radarOpacity:65,radarCoverage:'active-day',routeWeatherSpeed:45,usableFuelCapacity:0,expectedPavedRange:0,expectedMixedRange:0,reserveDistance:25,fuelProfile:'mixed',autoCompleteCheckpoints:true,checkpointArrivalRadius:500,checkpointMaxAccuracy:200,hideCompletedCheckpoints:true},state.settings);
   state.project.competitors ||= [];
   initMap();wireUi();$('radarOpacity').value=state.settings.radarOpacity||65;$('radarCoverage').value=state.settings.radarCoverage||'active-day';$('routeWeatherSpeed').value=String(state.settings.routeWeatherSpeed||45);
   $('buildLabel').textContent=`Beta ${APP_VERSION}`;
@@ -1267,5 +1274,5 @@ async function init() {
   renderAll();document.documentElement.dataset.cannonmapReady='true';setTimeout(()=>{if(state.project.features.length)fitMap();},200);
   if('serviceWorker'in navigator){let refreshing=false;navigator.serviceWorker.addEventListener('controllerchange',()=>{if(refreshing)return;refreshing=true;location.reload();});navigator.serviceWorker.register('./sw.js').then(registration=>registration.update()).catch(()=>{});}
 }
-window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,restoreDeferredCheckpoint,skipCurrentCheckpoint,goToHotel,rallyScore,restoreSnapshot};
+window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,restoreDeferredCheckpoint,skipCurrentCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival};
 init();

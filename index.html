@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <link rel="stylesheet" href="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.18.3/dist/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260721-06" />
+  <link rel="stylesheet" href="app.css?v=20260721-07" />
 </head>
 <body>
   <header class="topbar">
@@ -298,7 +298,13 @@
             <button id="goHotelButton" class="rally-hotel-action" type="button">GO TO HOTEL</button>
             <button id="rallyPlannerButton" type="button">Open Planner</button>
           </div>
-        </div>
+          <details class="rally-arrival-settings">
+            <summary>Automatic checkpoint arrival</summary>
+            <label><input id="autoCompleteCheckpoints" type="checkbox" /> Complete and advance automatically</label>
+            <label>Arrival radius <input id="checkpointArrivalRadius" type="number" min="100" max="2000" step="50" inputmode="numeric" /> ft</label>
+            <label>Maximum GPS uncertainty <input id="checkpointMaxAccuracy" type="number" min="25" max="1000" step="25" inputmode="numeric" /> ft</label>
+          </details>
+        </section>
         <nav class="rally-actions" aria-label="Rally actions">
           <button id="rallyNextButton" type="button">Next</button>
           <button id="rallyCompleteButton" type="button">Complete</button>
@@ -406,6 +412,6 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.18.3/dist/leaflet-geoman.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260721-06"></script>
+  <script src="app.js?v=20260721-07"></script>
 </body>
 </html>
