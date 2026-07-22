@@ -1,6 +1,6 @@
-# CannonMap Planner — Beta 0.7.0 Rally Mode Reset
+# CannonMap Planner — Beta 0.7.1 Rally Mode Reset
 
-Build: `2026.07.21.07`
+Build: `2026.07.21.08`
 
 ## Purpose
 

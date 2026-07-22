@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <link rel="stylesheet" href="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.18.3/dist/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260721-07" />
+  <link rel="stylesheet" href="app.css?v=20260721-08" />
 </head>
 <body>
   <header class="topbar">
@@ -18,7 +18,7 @@
       <span class="brand-mark">CM</span>
       <div>
         <h1>CannonMap</h1>
-          <p>America 250 Planner · <span id="buildLabel">Beta 0.7.0</span></p>
+          <p>America 250 Planner · <span id="buildLabel">Beta 0.7.1</span></p>
       </div>
     </div>
     <div class="top-actions">
@@ -304,6 +304,12 @@
             <label>Arrival radius <input id="checkpointArrivalRadius" type="number" min="100" max="2000" step="50" inputmode="numeric" /> ft</label>
             <label>Maximum GPS uncertainty <input id="checkpointMaxAccuracy" type="number" min="25" max="1000" step="25" inputmode="numeric" /> ft</label>
           </details>
+          <details id="checkpointOrderPanel" class="checkpoint-order-panel">
+            <summary>Checkpoint order</summary>
+            <p>Use the arrows to arrange today's checkpoints. Names and original rally data are unchanged.</p>
+            <div id="checkpointOrderList" class="checkpoint-order-list"></div>
+            <button id="resetCheckpointOrder" type="button">Restore imported order</button>
+          </details>
         </section>
         <nav class="rally-actions" aria-label="Rally actions">
           <button id="rallyNextButton" type="button">Next</button>
@@ -317,7 +323,7 @@
       <div class="map-status">
         <span id="cursorCoordinates">—</span>
         <span id="gpsStatus">GPS off</span>
-        <span id="appVersion">v0.7.0</span>
+        <span id="appVersion">v0.7.1</span>
       </div>
       <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open planner" aria-expanded="false">Planner</button>
       <button id="intelButton" class="intel-toggle" aria-label="Open live intelligence" aria-expanded="false">Intel</button>
@@ -412,6 +418,6 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.18.3/dist/leaflet-geoman.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260721-07"></script>
+  <script src="app.js?v=20260721-08"></script>
 </body>
 </html>

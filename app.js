@@ -1,7 +1,7 @@
 'use strict';
 
-const APP_VERSION = '0.7.0';
-const BUILD_ID = '2026.07.21.07';
+const APP_VERSION = '0.7.1';
+const BUILD_ID = '2026.07.21.08';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
@@ -57,6 +57,7 @@ function normalizeCheckpoint(feature,index=0){
   feature.points=Number.isFinite(Number(feature.points))?Number(feature.points):(feature.extreme?21:10);
   feature.status=CHECKPOINT_STATUSES.has(feature.status)?feature.status:'planned';
   feature.sequence=Number.isFinite(Number(feature.sequence))?Number(feature.sequence):(Number(feature.sourceOrder)||index)+1;
+  feature.originalSequence=Number.isFinite(Number(feature.originalSequence))?Number(feature.originalSequence):feature.sequence;
   for(const key of ['completedAt','deferredAt','deferReason','restoredAt'])feature[key]=feature[key]??null;
   return feature;
 }
@@ -1169,6 +1170,10 @@ function renderIntelSummary() {
 }
 function activeRallyDay(){const value=Number(state.settings.dayFilter);return value>=1&&value<=8?value:0;}
 function dayCheckpoints(){const day=activeRallyDay();return state.project.features.filter(feature=>feature.type==='checkpoint'&&(!day||Number(feature.day)===day)).map(normalizeCheckpoint).sort((a,b)=>(Number(a.sequence)||9999)-(Number(b.sequence)||9999));}
+function renderCheckpointOrder(){const container=$('checkpointOrderList');if(!container)return;const rows=dayCheckpoints();container.innerHTML=rows.length?rows.map((feature,index)=>`<article data-checkpoint-id="${escapeHtml(feature.id)}"><span><b>${index+1}</b><strong>${escapeHtml(feature.name)}</strong><small>${feature.extreme?'21-point extreme':'10 points'} · ${escapeHtml(feature.status)}</small></span><div><button type="button" data-order-action="up" aria-label="Move ${escapeHtml(feature.name)} earlier" ${index===0?'disabled':''}>↑</button><button type="button" data-order-action="down" aria-label="Move ${escapeHtml(feature.name)} later" ${index===rows.length-1?'disabled':''}>↓</button><button type="button" data-order-action="next" aria-label="Make ${escapeHtml(feature.name)} next" ${['completed','skipped','unreachable'].includes(feature.status)?'disabled':''}>Next</button></div></article>`).join(''):'<p>No checkpoints are assigned to this day.</p>';}
+function moveCheckpointInOrder(id,direction){const rows=dayCheckpoints(),index=rows.findIndex(feature=>feature.id===id),target=index+direction;if(index<0||target<0||target>=rows.length)return;snapshot();[rows[index],rows[target]]=[rows[target],rows[index]];rows.forEach((feature,position)=>{feature.sequence=position+1;});saveProject(false);renderAll();setStatus(`Moved ${rows[target].name} ${direction<0?'earlier':'later'} in the checkpoint order.`);}
+function makeCheckpointNext(id){const target=dayCheckpoints().find(feature=>feature.id===id);if(!target||['completed','skipped','unreachable'].includes(target.status))return;snapshot();dayCheckpoints().forEach(feature=>{if(feature.status==='next')feature.status='planned';});target.status='next';if(target.deferredAt){target.restoredAt=new Date().toISOString();target.deferredAt=null;target.deferReason=null;}state.selectedId=target.id;saveProject(false);renderAll();setStatus(`${target.name} is now the next checkpoint.`);}
+function restoreImportedCheckpointOrder(){const rows=dayCheckpoints();if(!rows.length)return;snapshot();rows.forEach(feature=>{feature.sequence=Number(feature.originalSequence)||feature.sequence;});saveProject(false);renderAll();setStatus('Restored the imported checkpoint order for this day.');}
 function currentCheckpoint(){const rows=dayCheckpoints();return rows.find(feature=>feature.status==='next')||rows.find(feature=>feature.status==='planned')||null;}
 function currentHotel(){const day=activeRallyDay();return state.project.features.find(feature=>feature.type==='hotel'&&(!day||Number(feature.day)===day))||null;}
 function distanceFromCurrent(feature){const point=feature?.geometry?.coordinates?.[0];const from=state.lastGpsPosition;if(!point||!from)return null;return haversine(from,point)/1609.344;}
@@ -1182,6 +1187,7 @@ function renderRallyMode(){
   $('rallyHotelEta').textContent=hotel.label;$('rallyFuelStatus').textContent=fuel.label;$('rallyFuelStatus').classList.toggle('warning',fuel.warning);$('rallyFeedAge').textContent=last?`Feed ${formatClock(last)}`:'Feed never updated';
   const hasDeferred=dayCheckpoints().some(feature=>feature.status==='deferred');$('rallyDeferButton').disabled=!next;$('rallyCompleteButton').disabled=!next;$('rallySkipButton').disabled=!next;$('rallyRestoreButton').hidden=!hasDeferred;$('rallyRestoreButton').disabled=!hasDeferred;$('goHotelButton').disabled=!hotel.hotel&&!state.hotelBailoutActive;$('goHotelButton').textContent=state.hotelBailoutActive?'UNDO HOTEL BAILOUT':'GO TO HOTEL';
   if($('autoCompleteCheckpoints'))$('autoCompleteCheckpoints').checked=state.settings.autoCompleteCheckpoints!==false;if($('checkpointArrivalRadius'))$('checkpointArrivalRadius').value=state.settings.checkpointArrivalRadius||500;if($('checkpointMaxAccuracy'))$('checkpointMaxAccuracy').value=state.settings.checkpointMaxAccuracy||200;
+  renderCheckpointOrder();
 }
 function setRallyMoreOpen(open){$('rallyMode').classList.toggle('more-open',open);$('rallyMoreSheet').setAttribute('aria-hidden',String(!open));$('rallyMoreButton').setAttribute('aria-expanded',String(open));$('rallyMoreButton').textContent=open?'Close':'More';}
 function activateNextPlannedCheckpoint(){const next=dayCheckpoints().find(feature=>feature.status==='planned');if(!next)return null;next.status='next';state.selectedId=next.id;return next;}
@@ -1246,6 +1252,8 @@ function wireUi() {
   $('rallyNextButton').addEventListener('click',selectNextCheckpoint);$('rallyIntelButton').addEventListener('click',()=>setIntelSheetOpen(true));$('rallyDeferButton').addEventListener('click',()=>deferCurrentCheckpoint());$('rallyFuelButton').addEventListener('click',openFuelSettings);$('rallyWeatherButton').addEventListener('click',()=>setIntelSheetOpen(true));$('rallyHotelButton').addEventListener('click',()=>{const hotel=currentHotel();if(hotel){const point=hotel.geometry.coordinates[0];state.map.setView([point.lat,point.lon],14);setRallyMoreOpen(false);}else setStatus('No hotel is assigned to the active day.',true);});$('rallyCenterButton').addEventListener('click',()=>{if(state.lastGpsPosition)state.map.setView([state.lastGpsPosition.lat,state.lastGpsPosition.lon],15);else fitMap();});$('rallyMoreButton').addEventListener('click',()=>setRallyMoreOpen(!$('rallyMode').classList.contains('more-open')));$('rallyPlannerButton').addEventListener('click',()=>{setRallyMoreOpen(false);setSidebarOpen(true);});$('goHotelButton').addEventListener('click',toggleHotelBailout);$('fuelForm').addEventListener('submit',saveFuelSettings);
   $('rallyCompleteButton').addEventListener('click',()=>completeCurrentCheckpoint(false));$('rallyRestoreButton').addEventListener('click',restoreDeferredCheckpoint);$('rallySkipButton').addEventListener('click',skipCurrentCheckpoint);
   for(const id of ['autoCompleteCheckpoints','checkpointArrivalRadius','checkpointMaxAccuracy'])$(id).addEventListener('change',()=>{state.settings.autoCompleteCheckpoints=$('autoCompleteCheckpoints').checked;state.settings.checkpointArrivalRadius=Math.max(100,Number($('checkpointArrivalRadius').value)||500);state.settings.checkpointMaxAccuracy=Math.max(25,Number($('checkpointMaxAccuracy').value)||200);saveProject(false);renderRallyMode();});
+  $('checkpointOrderList').addEventListener('click',event=>{const button=event.target.closest('button[data-order-action]'),row=event.target.closest('[data-checkpoint-id]');if(!button||!row)return;const id=row.dataset.checkpointId,action=button.dataset.orderAction;if(action==='up')moveCheckpointInOrder(id,-1);else if(action==='down')moveCheckpointInOrder(id,1);else if(action==='next')makeCheckpointNext(id);});
+  $('resetCheckpointOrder').addEventListener('click',restoreImportedCheckpointOrder);
   window.addEventListener('online',renderRallyMode);window.addEventListener('offline',renderRallyMode);
   $('importForm').addEventListener('submit',event=>{
     event.preventDefault();
@@ -1274,5 +1282,5 @@ async function init() {
   renderAll();document.documentElement.dataset.cannonmapReady='true';setTimeout(()=>{if(state.project.features.length)fitMap();},200);
   if('serviceWorker'in navigator){let refreshing=false;navigator.serviceWorker.addEventListener('controllerchange',()=>{if(refreshing)return;refreshing=true;location.reload();});navigator.serviceWorker.register('./sw.js').then(registration=>registration.update()).catch(()=>{});}
 }
-window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,restoreDeferredCheckpoint,skipCurrentCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival};
+window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,restoreDeferredCheckpoint,skipCurrentCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival,moveCheckpointInOrder,makeCheckpointNext,restoreImportedCheckpointOrder};
 init();
