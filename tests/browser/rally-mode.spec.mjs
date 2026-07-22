@@ -5,7 +5,7 @@ const fixture=path.resolve('tests/fixtures/rally-project.cmap');
 
 async function loadProject(page){
   await page.goto('/?e2e=1');
-  await page.waitForFunction(()=>Boolean(window.CannonMapTest));
+  await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
   await page.locator('#projectInput').setInputFiles(fixture);
   await expect(page.locator('#status')).toContainText('Opened rally-project.cmap');
   await page.evaluate(()=>{const select=document.getElementById('dayFilter');select.value='1';select.dispatchEvent(new Event('change',{bubbles:true}));});
@@ -48,7 +48,8 @@ test('checkpoint defer, restore, complete, scoring, hotel bailout and undo',asyn
   await page.locator('#rallyRestoreButton').click();
   await page.locator('#rallyCompleteButton').click();
   await expect(page.locator('#rallyScore')).toHaveText('10');
-  await page.locator('#rallyNextButton').click();await page.locator('#rallyCompleteButton').click();
+  await expect(page.locator('#rallyNextName')).toContainText('Extreme Checkpoint Two');
+  await page.locator('#rallyCompleteButton').click();
   await expect(page.locator('#rallyScore')).toHaveText('31');
   page.once('dialog',dialog=>dialog.accept());
   await page.locator('#goHotelButton').click();
@@ -59,13 +60,14 @@ test('checkpoint defer, restore, complete, scoring, hotel bailout and undo',asyn
 
 test('mobile Rally Mode controls do not overlap and meet 48px targets',async({page},testInfo)=>{
   test.skip(testInfo.project.name==='desktop');
-  await loadProject(page);
+  await page.goto('/?e2e=layout');
+  await page.waitForFunction(()=>Boolean(window.CannonMapTest));
   await expect(page.locator('#rallyMode')).toBeVisible();
-  const controls=page.locator('.rally-actions button, .rally-checkpoint-actions button, #goHotelButton');
+  const controls=page.locator('.rally-actions button, .rally-checkpoint-actions button:visible, #goHotelButton');
   const boxes=await controls.evaluateAll(elements=>elements.map(element=>{const r=element.getBoundingClientRect();return {id:element.id,x:r.x,y:r.y,w:r.width,h:r.height};}));
-  for(const box of boxes){expect(box.w,`${box.id} width`).toBeGreaterThanOrEqual(48);expect(box.h,`${box.id} height`).toBeGreaterThanOrEqual(48);}
+  const viewport=page.viewportSize();for(const box of boxes){expect(box.w,`${box.id} width`).toBeGreaterThanOrEqual(48);expect(box.h,`${box.id} height`).toBeGreaterThanOrEqual(48);expect(box.x,`${box.id} left edge`).toBeGreaterThanOrEqual(0);expect(box.x+box.w,`${box.id} right edge`).toBeLessThanOrEqual(viewport.width);expect(box.y+box.h,`${box.id} bottom edge`).toBeLessThanOrEqual(viewport.height);}
   for(let i=0;i<boxes.length;i++)for(let j=i+1;j<boxes.length;j++){const a=boxes[i],b=boxes[j],overlap=a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;expect(overlap,`${a.id} overlaps ${b.id}`).toBeFalsy();}
-  await page.screenshot({path:`test-results/${testInfo.project.name.replaceAll(' ','-')}-rally-mode.png`});
+  await page.screenshot({path:testInfo.outputPath('rally-mode.png')});
 });
 
 test('GPX import and export remain available',async({page})=>{
