@@ -2,6 +2,7 @@ import {test,expect} from '@playwright/test';
 import path from 'node:path';
 
 const fixture=path.resolve('tests/fixtures/rally-project.cmap');
+async function mockRouting(page){await page.route('https://router.project-osrm.org/**',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({code:'Ok',routes:[{distance:160934.4,duration:10800,geometry:{coordinates:[[-105,38],[-104.8,38.2],[-104.5,38.5],[-104.2,38.8],[-104,39]]}}]})}));}
 
 async function loadProject(page){
   await page.goto('/?e2e=1');
@@ -98,6 +99,7 @@ test('application shell starts offline after installation',async({page,context})
 
 test('desktop checkpoint sequence reorders and builds a route',async({page},testInfo)=>{
   test.skip(testInfo.project.name!=='desktop');
+  await mockRouting(page);
   await loadProject(page);
   await expect(page.locator('#plannerBuilder')).toBeVisible();
   const first=page.locator('.sequence-row').filter({hasText:'Checkpoint One'});
@@ -108,8 +110,10 @@ test('desktop checkpoint sequence reorders and builds a route',async({page},test
   await expect(page.locator('#routePairList')).toContainText('Day 1 Primary Route');
   const features=await page.evaluate(()=>window.CannonMapPlannerTest.projectFeatures());
   const route=features.find(f=>f.name==='Day 1 Primary Route');
-  expect(route.geometry.coordinates).toHaveLength(4);
+  expect(route.geometry.coordinates).toHaveLength(5);
   expect(route.planRole).toBe('primary');
+  expect(route.routingKind).toBe('calculated');
+  expect(route.routingProvider).toBe('OSRM public demo');
   expect(features.find(f=>f.id==='cp2').sequence).toBe(1);
   expect(features.find(f=>f.id==='cp1').sequence).toBe(2);
   await page.screenshot({path:testInfo.outputPath('desktop-route-builder.png'),fullPage:true});
@@ -117,6 +121,7 @@ test('desktop checkpoint sequence reorders and builds a route',async({page},test
 
 test('desktop route tools split join reverse duplicate and convert',async({page},testInfo)=>{
   test.skip(testInfo.project.name!=='desktop');
+  await mockRouting(page);
   await loadProject(page);
   await page.locator('#buildSequenceRouteButton').click();
   const initial=await page.evaluate(()=>window.CannonMapPlannerTest.projectFeatures().find(f=>f.name==='Day 1 Primary Route').geometry.coordinates);
@@ -140,6 +145,7 @@ test('desktop route tools split join reverse duplicate and convert',async({page}
 
 test('planner validation, active-day and master GPX exports remain scoped',async({page},testInfo)=>{
   test.skip(testInfo.project.name!=='desktop');
+  await mockRouting(page);
   await loadProject(page);
   await page.locator('#buildSequenceRouteButton').click();
   const qa=await page.evaluate(()=>window.CannonMapPlannerTest.validateDayPlan(1));
@@ -147,4 +153,12 @@ test('planner validation, active-day and master GPX exports remain scoped',async
   expect(qa.issues.some(i=>/Old Coast Road/i.test(i.message))).toBeFalsy();
   const dayDownload=page.waitForEvent('download');await page.locator('#exportActiveDayButton').click();const day=await dayDownload;expect(day.suggestedFilename()).toContain('day-1.gpx');
   const masterDownload=page.waitForEvent('download');await page.locator('#exportMasterPlannerButton').click();const master=await masterDownload;expect(master.suggestedFilename()).toContain('master.gpx');
+});
+
+test('planner labels a straight connection as provisional',async({page},testInfo)=>{
+  test.skip(testInfo.project.name!=='desktop');await loadProject(page);await page.locator('#buildProvisionalRouteButton').click();
+  const route=await page.evaluate(()=>window.CannonMapPlannerTest.projectFeatures().find(f=>f.routingKind==='provisional'));
+  expect(route.name).toContain('Provisional Connection');expect(route.geometry.coordinates).toHaveLength(4);
+  await expect(page.locator('#plannerRoutingStatus')).toContainText('not a navigable road route');
+  const qa=await page.evaluate(()=>window.CannonMapPlannerTest.validateDayPlan(1));expect(qa.issues.some(issue=>/provisional connection/i.test(issue.message))).toBeTruthy();
 });

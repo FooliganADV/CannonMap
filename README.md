@@ -1,8 +1,10 @@
-# CannonMap Planner — Beta 0.8.0 Desktop Route Builder
+# CannonMap Planner — Beta 0.8.1 Desktop Route Builder
 
-Build: `2026.07.21.08`
+Build: `2026.07.21.09`
 
 The desktop planner now includes ordered checkpoint sequencing, primary route/track pairs, named alternatives, daily validation and leg analysis, and day/master GPX exports. The phone Rally Mode remains unchanged on this branch.
+
+The route builder uses a provider adapter. The current beta provider is the online OSRM public demo using its driving profile. Failed calculations remain failed; CannonMap does not silently replace them with straight lines. See `ROUTING_PROVIDER.md` for limitations and the manual-track workflow.
 
 ## Purpose
 

@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260721-08" />
+  <link rel="stylesheet" href="app.css?v=20260721-09" />
 </head>
 <body>
   <header class="topbar">
@@ -106,9 +106,15 @@
             <p class="helper-text">Drag checkpoints into your preferred order. Unchecking Plan keeps a checkpoint in the project but excludes it from this day's route.</p>
           </details>
           <details open><summary>Route-building toolbar</summary>
+            <div class="planner-routing-setup">
+              <label class="field"><span>Routing provider</span><select id="plannerRoutingProvider"><option value="osrm-demo">OSRM public demo (online)</option><option value="provisional">No provider — straight provisional connection</option></select></label>
+              <label class="field"><span>Routing profile</span><select id="plannerRoutingProfile"><option value="driving">Driving / road</option></select></label>
+              <div id="plannerRoutingStatus" class="notice muted">Provider ready. Calculated routes require an internet connection.</div>
+            </div>
             <label class="field"><span>Alternative name</span><select id="plannerAlternativeName"><option>Primary</option><option>Paved</option><option>Dirt</option><option>Weather</option><option>Fuel bailout</option><option>Hotel bailout</option></select></label>
             <div class="planner-toolbar">
-              <button id="buildSequenceRouteButton" class="button primary" type="button">Build route from sequence</button>
+              <button id="buildSequenceRouteButton" class="button primary" type="button">Calculate road route</button>
+              <button id="buildProvisionalRouteButton" class="button secondary" type="button">Create provisional connection</button>
               <button id="editPlannerLineButton" class="button secondary" type="button">Edit shaping points</button>
               <button id="reversePlannerLineButton" class="button secondary" type="button">Reverse</button>
               <button id="duplicateAlternativeButton" class="button secondary" type="button">Duplicate alternative</button>
@@ -456,7 +462,7 @@
   <script src="vendor/leaflet.js"></script>
   <script src="vendor/leaflet-geoman.min.js"></script>
   <script src="vendor/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260721-08"></script>
-  <script src="planner.js?v=20260721-08"></script>
+  <script src="app.js?v=20260721-09"></script>
+  <script src="planner.js?v=20260721-09"></script>
 </body>
 </html>

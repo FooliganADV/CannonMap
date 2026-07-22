@@ -1,7 +1,7 @@
 'use strict';
 
-const APP_VERSION = '0.8.0';
-const BUILD_ID = '2026.07.21.08';
+const APP_VERSION = '0.8.1';
+const BUILD_ID = '2026.07.21.09';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
@@ -156,12 +156,13 @@ function layerToGeometry(layer) {
 }
 function featureMatchesDay(feature) { return state.settings.dayFilter === 'all' || String(feature.day ?? 0) === String(state.settings.dayFilter); }
 function featureStyle(feature) {
-  const color = COLORS[feature.type] || COLORS.track;
+  const provisional = feature.routingKind === 'provisional';
+  const color = provisional ? '#facc15' : (COLORS[feature.type] || COLORS.track);
   const isBackbone = feature.type === 'backbone';
   return {
     color, fillColor:color, weight:feature.type === 'route' ? 5 : isBackbone ? 3 : 4,
-    opacity:isBackbone ? Math.min(.65,(state.settings.lineOpacity||90)/100) : (state.settings.lineOpacity||90)/100,
-    fillOpacity:.9, dashArray:isBackbone ? '10 8' : null
+    opacity:isBackbone ? Math.min(.65,(state.settings.lineOpacity||90)/100) : provisional ? .8 : (state.settings.lineOpacity||90)/100,
+    fillOpacity:.9, dashArray:isBackbone ? '10 8' : provisional ? '4 8' : null
   };
 }
 function markerIcon(feature) {
@@ -178,7 +179,7 @@ function createLeafletLayer(feature) {
     layer = L.polyline(feature.geometry.coordinates.map(p => [p.lat,p.lon]), featureStyle(feature));
   }
   layer._cannonId = feature.id;
-  layer.bindTooltip(feature.name || feature.type, {sticky:true});
+  layer.bindTooltip(`${feature.routingKind==='provisional'?'PROVISIONAL — ':''}${feature.name || feature.type}`, {sticky:true});
   layer.on('click', () => selectFeature(feature.id));
   layer.on('contextmenu', e => { L.DomEvent.preventDefault(e); openContextMenu(feature.id, e.originalEvent.clientX, e.originalEvent.clientY); });
   layer.on('pm:edit', () => syncGeometryFromLayer(layer));
@@ -191,6 +192,7 @@ function syncGeometryFromLayer(layer) {
   if (!feature) return;
   snapshot();
   feature.geometry = layerToGeometry(layer);
+  if(feature.geometry.kind==='line'&&feature.routingKind==='calculated')feature.routingKind='manual';
   feature.updatedAt = new Date().toISOString();
   state.project.updatedAt = feature.updatedAt;
   saveProject(false); renderStats(); populateFeatureForm(feature);

@@ -1,5 +1,5 @@
-const CACHE = 'cannonmap-v0.8.0-20260721-08';
-const APP_SHELL = ['./', './index.html', './app.css?v=20260721-08', './app.js?v=20260721-08', './planner.js?v=20260721-08', './manifest.webmanifest', './vendor/leaflet.css', './vendor/leaflet.js', './vendor/leaflet-geoman.css', './vendor/leaflet-geoman.min.js', './vendor/xlsx.full.min.js', './vendor/images/layers.png', './vendor/images/layers-2x.png', './vendor/images/marker-icon.png', './vendor/images/marker-icon-2x.png', './vendor/images/marker-shadow.png'];
+const CACHE = 'cannonmap-v0.8.1-20260721-09';
+const APP_SHELL = ['./', './index.html', './app.css?v=20260721-09', './app.js?v=20260721-09', './planner.js?v=20260721-09', './manifest.webmanifest', './vendor/leaflet.css', './vendor/leaflet.js', './vendor/leaflet-geoman.css', './vendor/leaflet-geoman.min.js', './vendor/xlsx.full.min.js', './vendor/images/layers.png', './vendor/images/layers-2x.png', './vendor/images/marker-icon.png', './vendor/images/marker-icon-2x.png', './vendor/images/marker-shadow.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP_SHELL)));
   self.skipWaiting();
