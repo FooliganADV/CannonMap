@@ -1,6 +1,7 @@
 {
   "format":"CannonMap Project",
   "project":{"name":"America 250 Test","features":[
+    {"id":"start","name":"Day 1 Start","type":"waypoint","day":1,"plannerRole":"start","visible":true,"geometry":{"kind":"point","coordinates":[{"lat":37.9500,"lon":-104.9500}]}},
     {"id":"cp1","name":"Checkpoint One","type":"checkpoint","day":1,"sequence":1,"status":"planned","points":10,"extreme":false,"visible":true,"geometry":{"kind":"point","coordinates":[{"lat":38.0000,"lon":-105.0000}]}},
     {"id":"cp2","name":"Extreme Checkpoint Two","type":"checkpoint","day":1,"sequence":2,"status":"planned","points":21,"extreme":true,"visible":true,"geometry":{"kind":"point","coordinates":[{"lat":38.0500,"lon":-105.0500}]}},
     {"id":"old","name":"Old Coast Road","type":"route","day":1,"visible":true,"geometry":{"kind":"line","coordinates":[{"lat":38,"lon":-105},{"lat":38.1,"lon":-105.1}]}},

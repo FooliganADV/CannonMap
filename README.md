@@ -1,6 +1,8 @@
-# CannonMap Planner — Beta 0.7.0 Rally Mode Reset
+# CannonMap Planner — Beta 0.8.0 Desktop Route Builder
 
-Build: `2026.07.21.07`
+Build: `2026.07.21.08`
+
+The desktop planner now includes ordered checkpoint sequencing, primary route/track pairs, named alternatives, daily validation and leg analysis, and day/master GPX exports. The phone Rally Mode remains unchanged on this branch.
 
 ## Purpose
 

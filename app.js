@@ -1,7 +1,7 @@
 'use strict';
 
-const APP_VERSION = '0.7.0';
-const BUILD_ID = '2026.07.21.07';
+const APP_VERSION = '0.8.0';
+const BUILD_ID = '2026.07.21.08';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
@@ -166,7 +166,7 @@ function featureStyle(feature) {
 }
 function markerIcon(feature) {
   const color = COLORS[feature.type] || COLORS.waypoint;
-  const label = feature.type === 'fuel' ? 'F' : feature.type === 'hotel' ? 'H' : feature.type === 'checkpoint' ? 'C' : '•';
+  const label = feature.type === 'fuel' ? 'F' : feature.type === 'hotel' ? 'H' : feature.type === 'checkpoint' ? String(Number(feature.sequence)||'C') : '•';
   return L.divIcon({ className:'', html:`<div style="width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:${color};color:#07111f;border:2px solid white;font-weight:900;font-size:12px;box-shadow:0 2px 8px #0008">${label}</div>`, iconSize:[24,24], iconAnchor:[12,12] });
 }
 function createLeafletLayer(feature) {
@@ -285,6 +285,7 @@ function renderAll() {
   if($('showCompetitorTrails'))$('showCompetitorTrails').checked=state.settings.showCompetitorTrails!==false;
   if($('showCompetitorMarkers'))$('showCompetitorMarkers').checked=state.settings.showCompetitorMarkers!==false;
   renderMapFeatures(); renderLayerList(); renderStats(); renderCompetitorSummary(); renderMissionControl(); renderTypeLayerControls(); renderSearch(); renderIntelSummary(); renderRallyMode();
+  if(typeof renderPlannerRouteBuilder==='function')renderPlannerRouteBuilder();
 }
 function lineDistanceMiles(points) {
   let meters=0; for(let i=1;i<points.length;i++) meters += haversine(points[i-1],points[i]);
@@ -441,14 +442,14 @@ function parseGpx(xmlText,filename) {
     const name=textOf(rte,'name')||`${filename} route ${index+1}`;
     const notes=textOf(rte,'desc')||textOf(rte,'cmt');
     const coordinates=[...rte.getElementsByTagName('rtept')].map(p=>({lat:Number(p.getAttribute('lat')),lon:Number(p.getAttribute('lon'))})).filter(validPoint);
-    if(coordinates.length)features.push({id:uid(),name,type:'route',day:inferDay(`${name} ${notes} ${filename}`),assignmentMethod:'',notes,visible:true,source:filename,sourceOrder:sourceOrder++,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),geometry:{kind:'line',coordinates}});
+    if(coordinates.length)features.push({id:uid(),name,type:'route',day:Number(textOf(rte,'day'))||inferDay(`${name} ${notes} ${filename}`),assignmentMethod:'',notes,visible:true,source:filename,sourceOrder:sourceOrder++,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),geometry:{kind:'line',coordinates},planRole:textOf(rte,'planRole')||'',alternativeName:textOf(rte,'alternative')||'',pairId:textOf(rte,'pairId')||'',exportEnabled:textOf(rte,'exportEnabled')!=='false'});
   });
   [...doc.getElementsByTagName('trk')].forEach((trk,index)=>{
     const baseName=textOf(trk,'name')||`${filename} track ${index+1}`,notes=textOf(trk,'desc')||textOf(trk,'cmt');
     const segments=[...trk.getElementsByTagName('trkseg')];
     segments.forEach((segment,segIndex)=>{
       const coordinates=[...segment.getElementsByTagName('trkpt')].map(p=>({lat:Number(p.getAttribute('lat')),lon:Number(p.getAttribute('lon'))})).filter(validPoint);
-      if(coordinates.length)features.push({id:uid(),name:segments.length>1?`${baseName} segment ${segIndex+1}`:baseName,type:'track',day:inferDay(`${baseName} ${notes} ${filename}`),assignmentMethod:'',notes,visible:true,source:filename,sourceOrder:sourceOrder++,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),geometry:{kind:'line',coordinates}});
+      if(coordinates.length)features.push({id:uid(),name:segments.length>1?`${baseName} segment ${segIndex+1}`:baseName,type:'track',day:Number(textOf(trk,'day'))||inferDay(`${baseName} ${notes} ${filename}`),assignmentMethod:'',notes,visible:true,source:filename,sourceOrder:sourceOrder++,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),geometry:{kind:'line',coordinates},planRole:textOf(trk,'planRole')||'',alternativeName:textOf(trk,'alternative')||'',pairId:textOf(trk,'pairId')||'',exportEnabled:textOf(trk,'exportEnabled')!=='false'});
     });
   });
   [...doc.getElementsByTagName('wpt')].forEach((wpt,index)=>{
@@ -459,7 +460,7 @@ function parseGpx(xmlText,filename) {
     if(validPoint(p)){
       const type=classifyPoint(name,notes,sym);
       const read=tag=>textOf(wpt,tag);
-      const feature={id:uid(),name,type,day:inferDay(`${name} ${notes} ${filename}`),assignmentMethod:'',notes,visible:true,source:filename,sourceOrder:sourceOrder++,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),geometry:{kind:'point',coordinates:[p]}};
+      const feature={id:uid(),name,type,day:Number(read('day'))||inferDay(`${name} ${notes} ${filename}`),assignmentMethod:'',notes,visible:true,source:filename,sourceOrder:sourceOrder++,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),geometry:{kind:'point',coordinates:[p]},planIncluded:read('planned')?read('planned')!=='false':undefined,planOrder:read('planOrder')?Number(read('planOrder')):undefined,plannerRole:read('plannerRole')||''};
       if(type==='checkpoint')Object.assign(feature,{status:read('status')||'planned',points:read('points')?Number(read('points')):undefined,extreme:/^(true|1|yes)$/i.test(read('extreme')),sequence:read('sequence')?Number(read('sequence')):undefined,completedAt:read('completedAt')||null,deferredAt:read('deferredAt')||null,deferReason:read('deferReason')||null,restoredAt:read('restoredAt')||null});
       features.push(feature);
     }
@@ -718,7 +719,7 @@ function manifestRows() {
       'Point Count':f.geometry.coordinates.length, 'Distance (mi)':Number(distance.toFixed(2)),
       Status:f.type==='checkpoint'?(f.status||'planned'):'', Points:f.type==='checkpoint'?(Number(f.points)||(f.extreme?21:10)):'', Extreme:f.type==='checkpoint'?(f.extreme?'Yes':'No'):'',
       'Completed At':f.completedAt||'', 'Deferred At':f.deferredAt||'', 'Defer Reason':f.deferReason||'', 'Restored At':f.restoredAt||'', Notes:f.notes||'', 'Source GPX':f.source||'', Visible:f.visible?'Yes':'No',
-      'Assignment Method':f.assignmentMethod||'', 'Updated At':f.updatedAt||''
+      'Assignment Method':f.assignmentMethod||'', 'Updated At':f.updatedAt||'', 'Planned':f.planIncluded===false?'No':'Yes', 'Plan Order':f.planOrder||'', 'Plan Role':f.planRole||'', 'Alternative':f.alternativeName||'', 'Pair ID':f.pairId||''
     };
   }).sort((a,b)=>(Number(a.Day)||99)-(Number(b.Day)||99)||(typeOrder[a.Type]||99)-(typeOrder[b.Type]||99)||a.Sequence-b.Sequence);
 }
@@ -1268,11 +1269,11 @@ async function init() {
   state.settings.typeVisibility=Object.assign({track:true,route:true,backbone:true,waypoint:true,checkpoint:true,fuel:true,hotel:true},state.settings.typeVisibility||{});
   state.settings=Object.assign({leaderboardUrl:'https://gpscheckpoints.com/admin/leaderboard.html?id_event=15',rallyEndpointUrl:'',rallyEventId:'15',rallyPollSeconds:30,showCompetitorTrails:true,showCompetitorMarkers:true,competitorFreshMinutes:15,trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:'',radarOpacity:65,radarCoverage:'active-day',routeWeatherSpeed:45,usableFuelCapacity:0,expectedPavedRange:0,expectedMixedRange:0,reserveDistance:25,fuelProfile:'mixed',autoCompleteCheckpoints:true,checkpointArrivalRadius:500,checkpointMaxAccuracy:200,hideCompletedCheckpoints:true},state.settings);
   state.project.competitors ||= [];
-  initMap();wireUi();$('radarOpacity').value=state.settings.radarOpacity||65;$('radarCoverage').value=state.settings.radarCoverage||'active-day';$('routeWeatherSpeed').value=String(state.settings.routeWeatherSpeed||45);
+  initMap();wireUi();if(typeof wirePlannerRouteBuilder==='function')wirePlannerRouteBuilder();$('radarOpacity').value=state.settings.radarOpacity||65;$('radarCoverage').value=state.settings.radarCoverage||'active-day';$('routeWeatherSpeed').value=String(state.settings.routeWeatherSpeed||45);
   $('buildLabel').textContent=`Beta ${APP_VERSION}`;
   $('appVersion').textContent=`v${APP_VERSION} · ${BUILD_ID}`;
   renderAll();document.documentElement.dataset.cannonmapReady='true';setTimeout(()=>{if(state.project.features.length)fitMap();},200);
-  if('serviceWorker'in navigator){let refreshing=false;navigator.serviceWorker.addEventListener('controllerchange',()=>{if(refreshing)return;refreshing=true;location.reload();});navigator.serviceWorker.register('./sw.js').then(registration=>registration.update()).catch(()=>{});}
+  if('serviceWorker'in navigator&&!new URLSearchParams(location.search).has('e2e')){let refreshing=false;navigator.serviceWorker.addEventListener('controllerchange',()=>{if(refreshing)return;refreshing=true;location.reload();});navigator.serviceWorker.register('./sw.js').then(registration=>registration.update()).catch(()=>{});}
 }
 window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,restoreDeferredCheckpoint,skipCurrentCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival};
 init();

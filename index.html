@@ -8,9 +8,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>CannonMap Planner</title>
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-  <link rel="stylesheet" href="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.18.3/dist/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260721-07" />
+  <link rel="stylesheet" href="vendor/leaflet.css" />
+  <link rel="stylesheet" href="vendor/leaflet-geoman.css" />
+  <link rel="stylesheet" href="app.css?v=20260721-08" />
 </head>
 <body>
   <header class="topbar">
@@ -96,6 +96,45 @@
             <option value="0">Unassigned</option>
           </select>
         </label>
+
+        <section class="planner-builder" id="plannerBuilder">
+          <div class="section-heading"><div><h2>Daily route planner</h2><p>Order checkpoints, build the primary navigation pair, and validate the active day.</p></div><span id="plannerDayBadge" class="badge neutral">Choose a day</span></div>
+          <div id="plannerDaySummary" class="planner-summary empty">Choose Day 1–8 to begin planning.</div>
+          <details open><summary>Checkpoint sequence</summary>
+            <div class="planner-endpoints" id="plannerEndpoints"></div>
+            <div id="checkpointSequence" class="checkpoint-sequence empty">No checkpoints assigned to this day.</div>
+            <p class="helper-text">Drag checkpoints into your preferred order. Unchecking Plan keeps a checkpoint in the project but excludes it from this day's route.</p>
+          </details>
+          <details open><summary>Route-building toolbar</summary>
+            <label class="field"><span>Alternative name</span><select id="plannerAlternativeName"><option>Primary</option><option>Paved</option><option>Dirt</option><option>Weather</option><option>Fuel bailout</option><option>Hotel bailout</option></select></label>
+            <div class="planner-toolbar">
+              <button id="buildSequenceRouteButton" class="button primary" type="button">Build route from sequence</button>
+              <button id="editPlannerLineButton" class="button secondary" type="button">Edit shaping points</button>
+              <button id="reversePlannerLineButton" class="button secondary" type="button">Reverse</button>
+              <button id="duplicateAlternativeButton" class="button secondary" type="button">Duplicate alternative</button>
+              <button id="convertRouteTrackButton" class="button secondary" type="button">Route ⇄ Track copy</button>
+              <button id="trimLineStartButton" class="button secondary" type="button">Trim first point</button>
+              <button id="trimLineEndButton" class="button secondary" type="button">Trim last point</button>
+            </div>
+            <div class="planner-line-tools">
+              <label class="field"><span>Split before point</span><input id="splitPointIndex" type="number" min="2" value="2" /></label>
+              <button id="splitPlannerLineButton" class="button secondary" type="button">Split selected line</button>
+              <label class="field"><span>Join selected line with</span><select id="joinLineSelect"><option value="">Choose compatible line</option></select></label>
+              <button id="joinPlannerLineButton" class="button secondary" type="button">Join lines</button>
+            </div>
+            <div id="routePairList" class="route-pair-list empty">No route/track plans for this day.</div>
+          </details>
+          <details open><summary>Daily QA and leg analysis</summary>
+            <div id="dailyQaSummary" class="daily-qa empty">Choose a day to run validation.</div>
+            <div id="dailyLegTable" class="daily-leg-table"></div>
+            <div class="planner-toolbar">
+              <button id="exportActiveDayButton" class="button secondary" type="button">Export active day GPX</button>
+              <button id="exportEightDaysButton" class="button secondary" type="button">Export all 8 days separately</button>
+              <button id="exportMasterPlannerButton" class="button secondary" type="button">Export master GPX</button>
+              <button id="exportQaButton" class="button secondary" type="button">Export QA report</button>
+            </div>
+          </details>
+        </section>
 
         <div class="stats-grid">
           <article><span>Tracks</span><strong id="trackCount">0</strong></article>
@@ -409,9 +448,10 @@
     </form>
   </dialog>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.18.3/dist/leaflet-geoman.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="app.js?v=20260721-07"></script>
+  <script src="vendor/leaflet.js"></script>
+  <script src="vendor/leaflet-geoman.min.js"></script>
+  <script src="vendor/xlsx.full.min.js"></script>
+  <script src="app.js?v=20260721-08"></script>
+  <script src="planner.js?v=20260721-08"></script>
 </body>
 </html>
