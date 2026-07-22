@@ -1,7 +1,7 @@
 'use strict';
 
-const APP_VERSION = '0.8.1';
-const BUILD_ID = '2026.07.21.09';
+const APP_VERSION = '0.8.2';
+const BUILD_ID = '2026.07.22.10';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
@@ -54,7 +54,7 @@ function filterProhibitedFeatures(features,source='event import'){
 function normalizeCheckpoint(feature,index=0){
   if(feature?.type!=='checkpoint')return feature;
   feature.extreme=feature.extreme===true||/\bextreme\b/i.test(`${feature.name||''} ${feature.notes||''}`);
-  feature.points=Number.isFinite(Number(feature.points))?Number(feature.points):(feature.extreme?21:10);
+  feature.points=feature.extreme?21:10;
   feature.status=CHECKPOINT_STATUSES.has(feature.status)?feature.status:'planned';
   feature.sequence=Number.isFinite(Number(feature.sequence))?Number(feature.sequence):(Number(feature.sourceOrder)||index)+1;
   for(const key of ['completedAt','deferredAt','deferReason','restoredAt'])feature[key]=feature[key]??null;
@@ -63,7 +63,7 @@ function normalizeCheckpoint(feature,index=0){
 function rallyCheckpointNumber(value){const match=String(value||'').trim().match(/^(?:day\s*)?([1-8])\s*[.\-_]\s*(\d{1,3})\b/i);return match?{day:Number(match[1]),sequence:Number(match[2])}:null;}
 function sanitizeProjectData(project,source='project import'){
   const safe=project&&typeof project==='object'?project:{};
-  safe.features=filterProhibitedFeatures(safe.features,source).map((feature,index)=>{const numbered=feature?.geometry?.kind==='point'&&feature.type==='waypoint'?rallyCheckpointNumber(feature.name):null;if(numbered){feature.type='checkpoint';feature.day=Number(feature.day)||numbered.day;feature.sequence=Number(feature.sequence)||numbered.sequence;console.info(`[CannonMap] Recognized numbered rally checkpoint: ${feature.name}`);}return normalizeCheckpoint(feature,index);});
+  safe.features=filterProhibitedFeatures(safe.features,source).map((feature,index)=>{const point=feature?.geometry?.kind==='point',numbered=point?rallyCheckpointNumber(feature.name):null,checkpointMetadata=/\btype\s+(standard|dirt|extreme|finish)\b|\bcp\s*\d+\b/i.test(feature.notes||'');if(point&&(numbered||checkpointMetadata)){feature.type='checkpoint';if(numbered){feature.day=numbered.day;feature.sequence=numbered.sequence;feature.planOrder=numbered.sequence;}if(/\btype\s+finish\b/i.test(feature.notes||''))feature.plannerRole='finish';console.info(`[CannonMap] Recognized rally checkpoint: ${feature.name}`);}return normalizeCheckpoint(feature,index);});
   safe.competitors=Array.isArray(safe.competitors)?safe.competitors:[];
   return safe;
 }
@@ -263,7 +263,7 @@ function planningMileage(features) {
   const lines = features.filter(f => f.geometry?.kind==='line' && f.type !== 'backbone');
   return lines.reduce((miles,line,index)=>{
     if(line.type==='route'){
-      const duplicate=lines.some((candidate,candidateIndex)=>candidateIndex!==index&&candidate.type==='track'&&String(candidate.day||0)===String(line.day||0)&&lineGeometriesMatch(line.geometry.coordinates,candidate.geometry.coordinates));
+      const duplicate=lines.some((candidate,candidateIndex)=>candidateIndex!==index&&candidate.type==='track'&&String(candidate.day||0)===String(line.day||0)&&((line.pairId&&candidate.pairId===line.pairId)||lineGeometriesMatch(line.geometry.coordinates,candidate.geometry.coordinates)));
       if(duplicate)return miles;
     }
     return miles+lineDistanceMiles(line.geometry.coordinates);
@@ -429,10 +429,10 @@ function assignWaypointDays(features,onlyUnassigned=true) {
 }
 function classifyPoint(name,notes,sym='') {
   const lc=`${name} ${notes} ${sym}`.toLowerCase();
-  if(/\bfuel\b|\bgas\b|gasoline|service station/.test(lc))return 'fuel';
-  if(/\bhotel\b|\bmotel\b|\blodging\b|\binn\b/.test(lc))return 'hotel';
   if(/checkpoint|\bcp\s*\d*\b|\bstart\b|\bfinish\b|\bdirt\b|\bextreme\b|type\s+(standard|dirt|extreme|finish)/.test(lc))return 'checkpoint';
   if(rallyCheckpointNumber(name))return 'checkpoint';
+  if(/\bfuel\b|\bgas\b|gasoline|service station/.test(lc))return 'fuel';
+  if(/\bhotel\b|\bmotel\b|\blodging\b|\binn\b/.test(lc))return 'hotel';
   return 'waypoint';
 }
 function parseGpx(xmlText,filename) {

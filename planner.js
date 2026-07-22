@@ -7,7 +7,7 @@ const plannerPoint=f=>f?.geometry?.kind==='point'?f.geometry.coordinates[0]:null
 const activePlannerDay=()=>{const day=Number(state.settings.dayFilter);return day>=1&&day<=8?day:0;};
 const dayFeatures=day=>state.project.features.filter(f=>Number(f.day)===Number(day));
 const isDayStart=f=>f?.plannerRole==='start'||(f?.geometry?.kind==='point'&&/\b(day\s*[1-8]\s*)?start\b/i.test(f.name||''));
-const isDayFinish=f=>f?.plannerRole==='finish'||f?.type==='hotel'||(f?.geometry?.kind==='point'&&/\b(hotel|finish|overnight|lodging)\b/i.test(f.name||''));
+const isDayFinish=f=>{if(f?.plannerRole==='start')return false;if(f?.plannerRole==='finish')return true;if(f?.type==='checkpoint')return /\btype\s+finish\b/i.test(f.notes||'');return f?.type==='hotel'||(f?.geometry?.kind==='point'&&/\b(hotel|finish|overnight|lodging)\b/i.test(f.name||''));};
 const plannedCheckpoint=f=>f.type==='checkpoint'&&!isDayStart(f)&&!isDayFinish(f)&&f.planIncluded!==false&&!['skipped','unreachable'].includes(f.status);
 const plannedFuel=f=>f.type==='fuel'&&f.planIncluded===true;
 const orderedDayStops=day=>{
@@ -19,14 +19,17 @@ const plannerLine=f=>f?.geometry?.kind==='line'&&['route','track'].includes(f.ty
 function keepPlannerSelection(id){state.selectedId=id;const feature=state.project.features.find(f=>f.id===id);if(feature)populateFeatureForm(feature);}
 const primaryLines=day=>dayFeatures(day).filter(f=>plannerLine(f)&&(f.planRole==='primary'||f.primaryForDay===true));
 const alternativeLines=day=>dayFeatures(day).filter(f=>plannerLine(f)&&f.planRole==='alternative');
+function likelySamePlan(route,track){const a=route?.geometry?.coordinates||[],b=track?.geometry?.coordinates||[];if(a.length<2||b.length<2)return false;const direct=haversine(a[0],b[0])+haversine(a.at(-1),b.at(-1)),reverse=haversine(a[0],b.at(-1))+haversine(a.at(-1),b[0]),routeMiles=lineDistanceMiles(a),trackMiles=lineDistanceMiles(b),ratio=Math.max(routeMiles,trackMiles)/Math.max(1,Math.min(routeMiles,trackMiles));return Math.min(direct,reverse)/1609.344<=4&&ratio<=1.25;}
 function ensurePlannerMetadata(){
   for(let day=1;day<=8;day++){
     const fs=dayFeatures(day);
     fs.filter(f=>f.type==='checkpoint'&&!isDayStart(f)&&!isDayFinish(f)).sort((a,b)=>(Number(a.sequence)||9999)-(Number(b.sequence)||9999)).forEach((f,index)=>{f.planIncluded=f.planIncluded!==false;f.planOrder=Number(f.planOrder)||Number(f.sequence)||index+1;f.sequence=Number(f.sequence)||index+1;normalizeCheckpoint(f,index);});
     fs.filter(f=>f.type==='fuel').forEach(f=>{f.planIncluded=f.planIncluded===true;});
     const routes=fs.filter(f=>f.type==='route'&&f.geometry?.kind==='line'),tracks=fs.filter(f=>f.type==='track'&&f.geometry?.kind==='line');
+    if(!fs.some(isDayStart)){const origin=(routes[0]||tracks[0])?.geometry?.coordinates?.[0],candidates=fs.filter(f=>f.geometry?.kind==='point'&&!/\btype\s+finish\b/i.test(f.notes||''));if(origin&&candidates.length){const nearest=candidates.map(f=>({f,d:haversine(origin,plannerPoint(f))/1609.344})).sort((a,b)=>a.d-b.d)[0];if(nearest?.d<=2)nearest.f.plannerRole='start';}}
     if(!routes.some(f=>f.planRole==='primary')&&routes.length){routes[0].planRole='primary';routes[0].primaryForDay=true;routes[0].alternativeName='Primary';routes[0].pairId||=uid();}
     if(!tracks.some(f=>f.planRole==='primary')&&tracks.length){const matching=routes.find(r=>r.planRole==='primary'&&lineGeometriesMatch(r.geometry.coordinates,tracks[0].geometry.coordinates));tracks[0].planRole='primary';tracks[0].primaryForDay=true;tracks[0].alternativeName='Primary';tracks[0].pairId=matching?.pairId||tracks[0].pairId||uid();}
+    const primaryRoute=routes.find(f=>f.planRole==='primary'),primaryTrack=tracks.find(f=>f.planRole==='primary');if(primaryRoute&&primaryTrack&&likelySamePlan(primaryRoute,primaryTrack)){const pairId=primaryRoute.pairId||primaryTrack.pairId||uid();primaryRoute.pairId=pairId;primaryTrack.pairId=pairId;}
   }
 }
 function checkpointPoints(day){return dayFeatures(day).filter(f=>f.type==='checkpoint'&&!isDayStart(f)&&!isDayFinish(f)).sort((a,b)=>(Number(a.planOrder)||Number(a.sequence)||9999)-(Number(b.planOrder)||Number(b.sequence)||9999));}
