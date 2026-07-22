@@ -617,16 +617,17 @@ function toggleFavorite(){const f=state.project.features.find(x=>x.id===state.se
 function clearSelection() {
   stopEditing();
   state.selectedId=null; $('selectedFeatureId').value='';
-  ['featureName','featureType','featureDay','featureNotes','featureLatitude','featureLongitude'].forEach(id=>$(id).disabled=true);
+  ['featureName','featureType','featureDay','featureNotes','featureLatitude','featureLongitude','featurePlannerRole','featureAlternativeName','featurePlanIncluded'].forEach(id=>$(id).disabled=true);
   ['updateFeatureButton','zoomFeatureButton','duplicateFeatureButton','deleteFeatureButton','editGeometryButton','stopEditButton'].forEach(id=>$(id).disabled=true);
 }
 function populateFeatureForm(feature) {
   $('selectedFeatureId').value=feature.id;$('featureName').value=feature.name;$('featureType').value=feature.type;
   $('featureDay').value=String(feature.day||0);$('featureNotes').value=feature.notes||'';
+  $('featurePlannerRole').value=feature.plannerRole||feature.planRole||'';$('featureAlternativeName').value=feature.alternativeName||'';$('featurePlanIncluded').checked=feature.planIncluded!==false;
   const isPoint=feature.geometry.kind==='point';
   $('pointCoordinates').classList.toggle('hidden',!isPoint);
   if(isPoint){$('featureLatitude').value=feature.geometry.coordinates[0].lat.toFixed(6);$('featureLongitude').value=feature.geometry.coordinates[0].lon.toFixed(6);}
-  ['featureName','featureType','featureDay','featureNotes'].forEach(id=>$(id).disabled=false);
+  ['featureName','featureType','featureDay','featureNotes','featurePlannerRole','featureAlternativeName','featurePlanIncluded'].forEach(id=>$(id).disabled=false);
   $('featureLatitude').disabled=!isPoint;$('featureLongitude').disabled=!isPoint;
   ['updateFeatureButton','zoomFeatureButton','duplicateFeatureButton','deleteFeatureButton','editGeometryButton'].forEach(id=>$(id).disabled=false);
 }
@@ -642,7 +643,8 @@ function updateSelectedFeature(event) {
   event.preventDefault();
   const feature=state.project.features.find(f=>f.id===state.selectedId);if(!feature)return;
   snapshot();
-  feature.name=$('featureName').value.trim()||feature.name;feature.type=$('featureType').value;feature.day=Number($('featureDay').value);feature.notes=$('featureNotes').value.trim();
+  feature.name=$('featureName').value.trim()||feature.name;feature.type=$('featureType').value;feature.day=Number($('featureDay').value);feature.notes=$('featureNotes').value.trim();feature.planIncluded=$('featurePlanIncluded').checked;feature.alternativeName=$('featureAlternativeName').value.trim();
+  const plannerRole=$('featurePlannerRole').value;if(feature.geometry.kind==='line'){feature.planRole=plannerRole==='primary'||plannerRole==='alternative'?plannerRole:(feature.planRole||'');feature.primaryForDay=feature.planRole==='primary';feature.plannerRole='';}else{feature.plannerRole=plannerRole==='start'||plannerRole==='finish'?plannerRole:'';}
   if(feature.geometry.kind==='point'){
     const lat=Number($('featureLatitude').value),lon=Number($('featureLongitude').value);
     if(validPoint({lat,lon}))feature.geometry.coordinates=[{lat,lon}];

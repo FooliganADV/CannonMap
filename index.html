@@ -185,6 +185,11 @@
             </label>
           </div>
           <label class="field"><span>Notes</span><textarea id="featureNotes" rows="4" disabled></textarea></label>
+          <div class="two-col">
+            <label class="field"><span>Planner role</span><select id="featurePlannerRole" disabled><option value="">Automatic</option><option value="start">Day start</option><option value="finish">Hotel / finish</option><option value="primary">Primary line</option><option value="alternative">Alternative line</option></select></label>
+            <label class="field"><span>Alternative name</span><input id="featureAlternativeName" placeholder="Primary, Paved, Dirt…" disabled /></label>
+          </div>
+          <label class="type-toggle"><input id="featurePlanIncluded" type="checkbox" disabled /> Include in planned sequence/export</label>
           <div class="two-col point-coordinates" id="pointCoordinates">
             <label class="field"><span>Latitude</span><input id="featureLatitude" type="number" step="0.000001" disabled /></label>
             <label class="field"><span>Longitude</span><input id="featureLongitude" type="number" step="0.000001" disabled /></label>
