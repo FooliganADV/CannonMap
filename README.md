@@ -1,6 +1,6 @@
-# CannonMap Planner — Beta 0.8.1 Desktop Route Builder
+# CannonMap Planner — Beta 0.8.2 Desktop Route Builder
 
-Build: `2026.07.21.09`
+Build: `2026.07.22.10`
 
 The desktop planner now includes ordered checkpoint sequencing, primary route/track pairs, named alternatives, daily validation and leg analysis, and day/master GPX exports. The phone Rally Mode remains unchanged on this branch.
 
@@ -56,7 +56,7 @@ node --test tests/*.test.mjs
 
 ## First test
 
-1. Confirm the status shows `v0.6.2 · 2026.07.21.02`.
+1. Confirm the status shows `v0.8.2 · 2026.07.22.10`.
 2. Import `competitor-test.json`; verify the red trail appears and Rider 27 is listed.
 3. Open **Trail Intel** and select **Weather here**. No key is required.
 4. On a phone, select **Intel** and verify the compact bottom sheet opens without covering the entire map.
