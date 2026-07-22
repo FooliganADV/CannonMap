@@ -11,8 +11,8 @@ test('mobile controls preserve planner targets and Rally Mode uses 48px primary 
   assert.match(css, /\.sidebar-toggle \{[^}]*min-height: 44px/);
   assert.match(css, /\.leaflet-bar a,[^{]+\{[^}]*width: 44px !important;[^}]*height: 44px !important/);
   assert.match(css, /\.rally-actions button\{[^}]*min-width:48px;[^}]*min-height:52px/);
-  assert.match(css, /\.rally-checkpoint-actions button\{[^}]*min-height:48px/);
-  assert.match(css, /\.rally-hotel-action\{[^}]*min-width:124px;[^}]*min-height:48px/);
+  assert.match(css, /\.rally-more-actions button\{[^}]*min-height:48px/);
+  assert.match(css, /\.rally-mode\.more-open \.rally-more-sheet\{display:block\}/);
   assert.match(css, /\.intel-sheet header button\{width:44px;height:44px/);
 });
 

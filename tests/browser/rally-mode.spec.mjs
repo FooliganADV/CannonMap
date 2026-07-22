@@ -63,10 +63,12 @@ test('mobile Rally Mode controls do not overlap and meet 48px targets',async({pa
   await page.goto('/?e2e=layout');
   await page.waitForFunction(()=>Boolean(window.CannonMapTest));
   await expect(page.locator('#rallyMode')).toBeVisible();
-  const controls=page.locator('.rally-actions button, .rally-checkpoint-actions button:visible, #goHotelButton');
+  await expect(page.locator('#rallyMoreSheet')).not.toBeVisible();
+  const controls=page.locator('.rally-actions button:visible');
   const boxes=await controls.evaluateAll(elements=>elements.map(element=>{const r=element.getBoundingClientRect();return {id:element.id,x:r.x,y:r.y,w:r.width,h:r.height};}));
   const viewport=page.viewportSize();for(const box of boxes){expect(box.w,`${box.id} width`).toBeGreaterThanOrEqual(48);expect(box.h,`${box.id} height`).toBeGreaterThanOrEqual(48);expect(box.x,`${box.id} left edge`).toBeGreaterThanOrEqual(0);expect(box.x+box.w,`${box.id} right edge`).toBeLessThanOrEqual(viewport.width);expect(box.y+box.h,`${box.id} bottom edge`).toBeLessThanOrEqual(viewport.height);}
   for(let i=0;i<boxes.length;i++)for(let j=i+1;j<boxes.length;j++){const a=boxes[i],b=boxes[j],overlap=a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;expect(overlap,`${a.id} overlaps ${b.id}`).toBeFalsy();}
+  expect(await page.locator('#rallyPrimaryCard, .rally-primary-card').first().evaluate(element=>element.getBoundingClientRect().height)).toBeLessThan(100);
   await page.screenshot({path:testInfo.outputPath('rally-mode.png')});
 });
 

@@ -282,22 +282,30 @@
           <strong id="rallyNextName">No checkpoint selected</strong>
           <span id="rallyNextDistance">Distance unavailable</span>
           <em id="rallyNextPoints">—</em>
-          <div class="rally-checkpoint-actions"><button id="rallyCompleteButton" type="button">Complete</button><button id="rallyRestoreButton" type="button">Restore</button><button id="rallySkipButton" type="button">Skip</button></div>
         </div>
-        <div class="rally-status-strip">
-          <span id="rallyHotelEta">Hotel ETA —</span>
-          <span id="rallyFuelStatus">Fuel range not configured</span>
-          <span id="rallyFeedAge">Feed never updated</span>
+        <section id="rallyMoreSheet" class="rally-more-sheet" aria-hidden="true">
+          <div class="rally-status-strip">
+            <span id="rallyHotelEta">Hotel ETA —</span>
+            <span id="rallyFuelStatus">Fuel range not configured</span>
+            <span id="rallyFeedAge">Feed never updated</span>
+          </div>
+          <div class="rally-more-actions">
+            <button id="rallyRestoreButton" type="button">Restore deferred</button>
+            <button id="rallySkipButton" type="button">Skip checkpoint</button>
+            <button id="rallyFuelButton" type="button">Fuel settings</button>
+            <button id="rallyWeatherButton" type="button">Weather</button>
+            <button id="rallyHotelButton" type="button">Show hotel</button>
+            <button id="goHotelButton" class="rally-hotel-action" type="button">GO TO HOTEL</button>
+            <button id="rallyPlannerButton" type="button">Open Planner</button>
+          </div>
         </div>
-        <button id="goHotelButton" class="rally-hotel-action" type="button">GO TO HOTEL</button>
         <nav class="rally-actions" aria-label="Rally actions">
           <button id="rallyNextButton" type="button">Next</button>
-          <button id="rallyIntelButton" type="button">Intel</button>
+          <button id="rallyCompleteButton" type="button">Complete</button>
           <button id="rallyDeferButton" type="button">Defer</button>
-          <button id="rallyFuelButton" type="button">Fuel</button>
-          <button id="rallyWeatherButton" type="button">Weather</button>
-          <button id="rallyHotelButton" type="button">Hotel</button>
+          <button id="rallyIntelButton" type="button">Intel</button>
           <button id="rallyCenterButton" type="button">Center</button>
+          <button id="rallyMoreButton" type="button" aria-expanded="false">More</button>
         </nav>
       </section>
       <div class="map-status">
