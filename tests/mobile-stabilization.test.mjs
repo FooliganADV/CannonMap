@@ -6,11 +6,13 @@ import vm from 'node:vm';
 const css = await readFile(new URL('../app.css', import.meta.url), 'utf8');
 const js = await readFile(new URL('../app.js', import.meta.url), 'utf8');
 
-test('mobile controls preserve 44px touch targets and separate Intel from Layers', () => {
+test('mobile controls preserve planner targets and Rally Mode uses 48px primary targets', () => {
   assert.match(css, /\.top-actions \.button \{[^}]*min-height: 44px/);
   assert.match(css, /\.sidebar-toggle \{[^}]*min-height: 44px/);
   assert.match(css, /\.leaflet-bar a,[^{]+\{[^}]*width: 44px !important;[^}]*height: 44px !important/);
-  assert.match(css, /\.intel-toggle\{[^}]*right:68px;[^}]*min-width:44px;[^}]*min-height:44px/);
+  assert.match(css, /\.rally-actions button\{[^}]*min-width:48px;[^}]*min-height:52px/);
+  assert.match(css, /\.rally-more-actions button\{[^}]*min-height:48px/);
+  assert.match(css, /\.rally-mode\.more-open \.rally-more-sheet\{display:block\}/);
   assert.match(css, /\.intel-sheet header button\{width:44px;height:44px/);
 });
 
@@ -19,7 +21,7 @@ test('mobile drawer blocks map interaction and honors bottom safe area', () => {
   assert.match(css, /\.sidebar\.open \{[^}]*pointer-events: auto/);
   assert.match(css, /\.sidebar-backdrop \{[^}]*z-index: 1100;[^}]*pointer-events: none/);
   assert.match(css, /\.sidebar-backdrop\.visible \{[^}]*pointer-events: auto/);
-  assert.match(css, /\.intel-sheet\{[^}]*bottom:max\(8px,env\(safe-area-inset-bottom\)\)/);
+  assert.match(css, /\.intel-sheet\{[^}]*position:fixed;[^}]*bottom:calc\(72px \+ env\(safe-area-inset-bottom\)\)/);
 });
 
 test('mobile layer manager uses one readable column', () => {
