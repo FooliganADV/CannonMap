@@ -18,7 +18,7 @@
       <span class="brand-mark">CM</span>
       <div>
         <h1>CannonMap</h1>
-        <p>America 250 Planner · <span id="buildLabel">Beta 0.6.2</span></p>
+          <p>America 250 Planner · <span id="buildLabel">Beta 0.7.0</span></p>
       </div>
     </div>
     <div class="top-actions">
@@ -272,10 +272,38 @@
 
     <main class="map-area">
       <div id="map"></div>
+      <section id="rallyMode" class="rally-mode" aria-label="Rally Mode">
+        <header class="rally-head">
+          <div><strong id="rallyDay">DAY —</strong><small id="rallyConnectivity">Checking connection</small></div>
+          <div><span>Score</span><strong id="rallyScore">0</strong></div>
+        </header>
+        <div class="rally-primary-card">
+          <small>NEXT CHECKPOINT</small>
+          <strong id="rallyNextName">No checkpoint selected</strong>
+          <span id="rallyNextDistance">Distance unavailable</span>
+          <em id="rallyNextPoints">—</em>
+          <div class="rally-checkpoint-actions"><button id="rallyCompleteButton" type="button">Complete</button><button id="rallyRestoreButton" type="button">Restore</button><button id="rallySkipButton" type="button">Skip</button></div>
+        </div>
+        <div class="rally-status-strip">
+          <span id="rallyHotelEta">Hotel ETA —</span>
+          <span id="rallyFuelStatus">Fuel range not configured</span>
+          <span id="rallyFeedAge">Feed never updated</span>
+        </div>
+        <button id="goHotelButton" class="rally-hotel-action" type="button">GO TO HOTEL</button>
+        <nav class="rally-actions" aria-label="Rally actions">
+          <button id="rallyNextButton" type="button">Next</button>
+          <button id="rallyIntelButton" type="button">Intel</button>
+          <button id="rallyDeferButton" type="button">Defer</button>
+          <button id="rallyFuelButton" type="button">Fuel</button>
+          <button id="rallyWeatherButton" type="button">Weather</button>
+          <button id="rallyHotelButton" type="button">Hotel</button>
+          <button id="rallyCenterButton" type="button">Center</button>
+        </nav>
+      </section>
       <div class="map-status">
         <span id="cursorCoordinates">—</span>
         <span id="gpsStatus">GPS off</span>
-        <span id="appVersion">v0.6.2</span>
+        <span id="appVersion">v0.7.0</span>
       </div>
       <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open planner" aria-expanded="false">Planner</button>
       <button id="intelButton" class="intel-toggle" aria-label="Open live intelligence" aria-expanded="false">Intel</button>
@@ -351,6 +379,19 @@
         <button id="importReplaceButton" value="replace" class="button danger-outline">Replace</button>
         <button id="importMergeButton" value="merge" class="button primary">Merge</button>
       </div>
+    </form>
+  </dialog>
+
+  <dialog id="fuelDialog">
+    <form method="dialog" id="fuelForm" class="dialog-form">
+      <h2>Fuel foundation</h2>
+      <p class="notice muted">Planning estimate only. Calibrate against actual ride data before relying on it.</p>
+      <label class="field"><span>Usable fuel capacity (gal)</span><input id="usableFuelCapacity" type="number" min="0" step="0.1"></label>
+      <label class="field"><span>Expected paved range (mi)</span><input id="expectedPavedRange" type="number" min="0" step="1"></label>
+      <label class="field"><span>Expected mixed/off-road range (mi)</span><input id="expectedMixedRange" type="number" min="0" step="1"></label>
+      <label class="field"><span>Reserve distance (mi)</span><input id="reserveDistance" type="number" min="0" step="1"></label>
+      <label class="field"><span>Current riding profile</span><select id="fuelProfile"><option value="paved">Paved</option><option value="mixed">Mixed/off-road</option></select></label>
+      <div class="dialog-actions"><button value="cancel" class="button secondary">Cancel</button><button id="saveFuelButton" value="default" class="button primary">Save estimates</button></div>
     </form>
   </dialog>
 

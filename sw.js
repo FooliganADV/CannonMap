@@ -1,4 +1,4 @@
-const CACHE = 'cannonmap-v0.6.2-20260721-02';
+const CACHE = 'cannonmap-v0.7.0-20260721-03';
 const APP_SHELL = ['./', './index.html', './app.css', './app.js', './manifest.webmanifest'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP_SHELL)));

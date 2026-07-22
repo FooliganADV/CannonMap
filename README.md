@@ -1,12 +1,21 @@
-# CannonMap Planner — Beta 0.6.2 Weather Intelligence
+# CannonMap Planner — Beta 0.7.0 Rally Mode Reset
 
-Build: `2026.07.21.02`
+Build: `2026.07.21.03`
 
 ## Purpose
 
 CannonMap is a rally decision system. The primary live-rally function is displaying and preserving competitor trails from the official GPS Checkpoint leaderboard feed. The backbone is only an optional sightseeing/reference layer; it is not an official route.
 
 ## New in this release
+
+- Dedicated phone-first Rally Mode while preserving the desktop Planner
+- Checkpoint states, 10/21 point scoring, completion, defer, restore, skip, and sequence preservation
+- One-action hotel bailout that defers unfinished checkpoints and offers an immediate undo
+- Fuel planning foundation with explicitly conservative, configurable estimates
+- Central event-data protection that removes and logs `Old Coast Road` at every import/restore boundary
+- Geometry-based route/track mileage deduplication, including reversed and differently spaced representations
+- Real Playwright browser tests across requested phone and desktop layouts
+- Deployment parity audit in `DEPLOYMENT_AUDIT.md`
 
 - Buffered radar frame loading and crossfading remove the blank strobe between animation frames
 - Radar can be restricted to the active day, selected route/track, or current map view
