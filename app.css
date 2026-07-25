@@ -79,6 +79,9 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
 .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: #111827; color: white; }
 .leaflet-bar a { background: #111827; color: white; border-color: var(--border); }
 .leaflet-bar a:hover { background: #1f2937; color: white; }
+.stationary-event-signature{background:transparent;border:0}
+.stationary-signature-face{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;border:3px solid #fff;color:#fff;font-weight:950;font-size:14px;box-shadow:0 3px 12px #000b;cursor:pointer}
+.stationary-event-popup dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:10px 0}.stationary-event-popup dt{color:#94a3b8}.stationary-event-popup dd{margin:0;font-weight:700}.stationary-event-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px}.stationary-event-actions button{min-height:44px;border:1px solid #475569;border-radius:8px;background:#1f2937;color:#fff;font-weight:800}.stationary-event-popup small{display:block;margin-top:9px;color:#94a3b8}
 .pm-toolbar .button-container a { background: #111827 !important; color: white !important; }
 
 @media (max-width: 900px) {
