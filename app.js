@@ -19,7 +19,7 @@ const state = {
   gpsLayer: null, gpsAccuracyLayer: null, gpsWatchId: null, lastGpsPosition: null,
   arrivalCandidateId:null, arrivalEnteredAt:0,
   pendingLayer: null, pendingImport: null, selectedId: null, editingLayer: null, history: [],
-  rallyPollTimer: null, rallySync: { running:false, lastSync:null, lastError:'', pointsAdded:0 },
+  rallyPollTimer: null, rallyLiveFeed: null, rallySync: { running:false, lastSync:null, lastError:'', pointsAdded:0 },
   weatherData: null, weatherPoint: null, trafficIncidents: [],
   radarLayer: null, radarNextLayer: null, radarFrames: [], radarFrameIndex: -1, radarTimer: null, radarLoadTimer: null, radarPlaying:false, radarAnimationToken:0,
   hotelBailoutActive:false,
@@ -874,12 +874,27 @@ async function syncRallyFeed() {
   }finally{state.rallySync.running=false;renderIntelSummary();}
 }
 function stopRallyPolling() {
+  if(state.rallyLiveFeed){state.rallyLiveFeed.stop();state.rallyLiveFeed=null;}
   if(state.rallyPollTimer){clearInterval(state.rallyPollTimer);state.rallyPollTimer=null;}
   if($('toggleRallyPollingButton'))$('toggleRallyPollingButton').textContent='Start live polling';
   renderIntelSummary();
 }
 async function toggleRallyPolling() {
-  if(state.rallyPollTimer){stopRallyPolling();setStatus('Live trail polling stopped.');return;}
+  if(state.rallyLiveFeed||state.rallyPollTimer){stopRallyPolling();setStatus('Live trail sync stopped.');return;}
+  if(!state.settings.rallyEndpointUrl&&window.GPSCheckpointsFeed&&state.settings.rallyEventId){
+    const feed=window.GPSCheckpointsFeed.createGPSCheckpointsFeed({eventId:state.settings.rallyEventId});
+    feed.on('snapshot',async payload=>{
+      const incoming=normalizeCompetitorPayload({locations:payload.locations});
+      const result=mergeCompetitorData(incoming);
+      state.rallySync.lastSync=new Date().toISOString();state.rallySync.pointsAdded=result.added;state.rallySync.lastError='';
+      await saveProject(false);renderMapFeatures();renderCompetitorSummary();renderIntelSummary();
+    });
+    feed.on('error',detail=>{state.rallySync.lastError=detail.error?.message||'Live feed error.';renderIntelSummary();});
+    state.rallyLiveFeed=feed;state.rallySync.running=true;renderIntelSummary();
+    await feed.start();
+    state.rallySync.running=false;$('toggleRallyPollingButton').textContent='Stop live sync';
+    setStatus('Official GPS Checkpoints live feed connected.');renderIntelSummary();return;
+  }
   if(!state.settings.rallyEndpointUrl)return syncRallyFeed();
   await syncRallyFeed();
   if(state.rallySync.lastError)return;
