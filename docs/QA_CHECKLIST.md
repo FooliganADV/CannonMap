@@ -62,3 +62,43 @@ This establishes a single primary cause for all 19 failures: **C. test-environme
 - [ ] Confirm service-worker installation is not prevented by an optional runtime initialization failure.
 - [ ] Rerun all 30 cases in the same restricted-network environment.
 - [ ] Require 28 passes and only the two documented desktop skips before release approval.
+
+## Local runtime dependency verification — 2026-07-25
+
+Exact versions: Leaflet 1.9.4, Leaflet-Geoman 2.18.3, SheetJS 0.18.5, and
+Firebase 8.10.0.
+
+Authoritative command: `playwright test --workers=1 --reporter=line`
+
+| Result | Count |
+| --- | ---: |
+| Total | 50 |
+| Passed | 48 |
+| Failed | 0 |
+| Skipped | 2 |
+| Timed out | 0 |
+
+- [x] Project import and prohibited-feature sanitization.
+- [x] Rally Mode checkpoint defer, restore, scoring, hotel bailout, and undo.
+- [x] GPX import and export.
+- [x] Offline startup after service-worker installation.
+- [x] Mobile Rally Mode layout and 48px targets.
+- [x] Mileage diagnostics.
+- [x] Firebase initialization and live-feed normalization unit coverage.
+- [x] Stationary-event detection, persistence, zoom, styling, and nearby markers.
+- [x] All runtime library resources originate from the local application origin.
+- [x] Missing Leaflet publishes explicit failed readiness without `L is not defined`.
+- [x] Missing optional Firebase does not block base startup or service-worker registration.
+- [x] Cached Leaflet, Geoman, SheetJS, and Firebase assets load offline.
+- [x] Node tests: 21 passed, 0 failed.
+- [x] Vendor validation: 12 assets present; no required runtime CDN references.
+
+The earlier checkpoint test directly clicked controls now housed in the mobile
+More sheet. Once startup was restored, this outdated test behavior became
+visible. The test now follows the existing UI by opening and closing the sheet;
+application checkpoint behavior was not changed.
+
+A five-worker diagnostic run produced three Chromium browser-process closures
+after otherwise reaching the full suite. Classification: test-environment
+capacity issue. The same cases and complete matrix passed with one worker, so
+there is no remaining product assertion failure.
