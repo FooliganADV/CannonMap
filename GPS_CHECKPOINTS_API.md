@@ -51,7 +51,12 @@ locations are push-driven with automatic reconnect, not polled. Its only related
 timer recolors location freshness every 30 seconds; its UTC clock ticks every
 second.
 
-`gps-checkpoints-feed.js` consumes Firebase REST streams with `EventSource`,
-applies `put` and `patch` messages, refreshes REST metadata every five minutes,
-times requests out after 15 seconds, and reconnects failed streams using
-exponential delays from one to 30 seconds. These intervals are configurable.
+`gps-checkpoints-feed.js` uses the Firebase Realtime Database SDK and the public
+project configuration published by `gpscheckpoints.com/admin/config.js`.
+Firebase owns WebSocket/long-poll selection and reconnect behavior. CannonMap
+keeps the last known location when `child_removed` fires, refreshes REST metadata
+every five minutes, and times REST requests out after 15 seconds.
+
+REST responses are allow-listed before entering CannonMap state. Event and
+competitor tokens, phone numbers, email addresses, social links, notes, and any
+admin Authorization values are discarded.
