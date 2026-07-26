@@ -1,0 +1,34 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "observationIngress": {
+      "$eventId": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": false
+        }
+      }
+    },
+    "private": {
+      "$uid": {
+        "observationReceipts": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": false
+        }
+      }
+    },
+    "validatedObservations": {
+      ".read": false,
+      ".write": false
+    },
+    "derivedIntelligence": {
+      ".read": false,
+      ".write": false
+    },
+    "ingestionQuota": {
+      ".read": false,
+      ".write": false
+    }
+  }
+}

@@ -102,3 +102,12 @@ A five-worker diagnostic run produced three Chromium browser-process closures
 after otherwise reaching the full suite. Classification: test-environment
 capacity issue. The same cases and complete matrix passed with one worker, so
 there is no remaining product assertion failure.
+# M6 Auth and Secure Ingestion
+
+- [x] Existing Node and architecture suites remain green.
+- [x] Secure upload defaults off and does not initialize Auth or touch local observations.
+- [x] Schema version, allowed keys, timestamps, identifiers, and numeric bounds are enforced.
+- [x] Authentication and App Check are required by the production ingress boundary.
+- [x] Deterministic receipts, replay handling, immutable writes, request limits, and per-user/event quotas are tested.
+- [x] Realtime Database Emulator confirms default deny, owner-only reads, direct-ingress denial, and server-only derived paths.
+- [x] Firebase Auth and App Check browser assets are local vendor dependencies.

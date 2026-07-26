@@ -1,0 +1,9 @@
+{
+  "name": "cannonmap-rules-tests",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@firebase/rules-unit-testing": "4.0.1",
+    "firebase": "11.10.0"
+  }
+}

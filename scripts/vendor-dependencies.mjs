@@ -20,5 +20,7 @@ await copy('@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css','leaflet-geo
 await copy('xlsx/dist/xlsx.full.min.js','xlsx/xlsx.full.min.js');
 await copy('firebase/firebase-app.js','firebase/firebase-app.js');
 await copy('firebase/firebase-database.js','firebase/firebase-database.js');
+await copy('firebase/firebase-auth.js','firebase/firebase-auth.js');
+await copy('firebase/firebase-app-check.js','firebase/firebase-app-check.js');
 
 console.log('Vendored Leaflet 1.9.4, Leaflet-Geoman 2.18.3, SheetJS 0.18.5, and Firebase 8.10.0.');

@@ -41,3 +41,6 @@ America 250 field checklist. The CDN startup blocker no longer gates feature QA.
 - [x] Full result is 48 passed, 0 failed, 2 documented skips, 0 timed out.
 - [ ] Verify the draft PR stack on the production-equivalent static host.
 - [ ] Complete representative live Firebase and field-network smoke tests.
+# M6 release gate
+
+Secure ingestion is deployable only after the CannonMap Firebase project, allowed origins, Authentication provider, App Check provider, Realtime Database rules, and `ingestObservation` function are configured together. The client flag must remain off until that deployment is verified. Offline/local observation capture does not depend on this release gate. Production monitoring must alert on authentication failures, rejected schemas, quota responses, and function errors without logging observation payloads or credentials.

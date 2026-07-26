@@ -39,3 +39,8 @@ Service-worker registration begins before optional integration checks. Readiness
 is successful only after required dependency validation and application
 initialization. A required failure is explicit and observable rather than a
 timeout or an unhandled `L is not defined` exception.
+# M6 — server-only ingress with local-first capture
+
+**Decision:** Keep the M5 IndexedDB/outbox path authoritative and make secure upload a separate, default-off application adapter. Require all remote writes to cross an authenticated, App-Check-protected Cloud Function; Realtime Database clients receive no direct write permission.
+
+**Reason:** This preserves offline Rally behavior, keeps Firebase state out of normalized evidence records, centralizes validation and abuse controls, and prevents a compromised client from writing validated or derived intelligence. Deterministic owner-scoped receipts provide idempotency without making observations mutable.

@@ -12,7 +12,9 @@ const assets=[
   'vendor/leaflet-geoman/leaflet-geoman.css',
   'vendor/xlsx/xlsx.full.min.js',
   'vendor/firebase/firebase-app.js',
-  'vendor/firebase/firebase-database.js'
+  'vendor/firebase/firebase-database.js',
+  'vendor/firebase/firebase-auth.js',
+  'vendor/firebase/firebase-app-check.js'
 ];
 
 await Promise.all(assets.map(asset=>access(asset)));

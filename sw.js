@@ -1,4 +1,4 @@
-const CACHE = 'cannonmap-v0.7.1-20260726-05';
+const CACHE = 'cannonmap-v0.7.1-20260726-06';
 const APP_SHELL = [
   './',
   './index.html',
@@ -14,6 +14,7 @@ const APP_SHELL = [
   './src/core/state-store.js',
   './src/core/feature-flags.js',
   './src/application/observation-capture.js',
+  './src/application/secure-observation-upload.js',
   './src/application/project-workflows.js',
   './src/domain/checkpoints/workflow.js',
   './src/domain/geo/geometry.js',
@@ -21,6 +22,9 @@ const APP_SHELL = [
   './src/domain/observations/quality.js',
   './src/domain/observations/sampling.js',
   './src/domain/observations/state-machine.js',
+  './src/domain/observations/ingestion-contract.js',
+  './src/infrastructure/firebase/authentication.js',
+  './src/infrastructure/firebase/observation-ingress-client.js',
   './src/infrastructure/indexeddb/index.js',
   './src/infrastructure/indexeddb/migration-runner.js',
   './src/infrastructure/indexeddb/observation-outbox.js',
@@ -45,7 +49,9 @@ const APP_SHELL = [
   './vendor/leaflet-geoman/leaflet-geoman.css',
   './vendor/xlsx/xlsx.full.min.js',
   './vendor/firebase/firebase-app.js',
-  './vendor/firebase/firebase-database.js'
+  './vendor/firebase/firebase-database.js',
+  './vendor/firebase/firebase-auth.js',
+  './vendor/firebase/firebase-app-check.js'
 ];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP_SHELL)));
