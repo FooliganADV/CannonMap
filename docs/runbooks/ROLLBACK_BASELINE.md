@@ -55,6 +55,7 @@ the entire new path.
 
 - Never downgrade an IndexedDB database version in place.
 - Disable new reads/writes and return to the legacy authoritative store.
+- For M2, disable `architecture.indexeddb.v2`; absence of the flag is also off.
 - Preserve new stores for investigation; do not delete them during incident
   response.
 - Resume from durable migration checkpoints only after the defect is fixed.

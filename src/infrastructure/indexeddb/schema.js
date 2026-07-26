@@ -1,0 +1,79 @@
+export const DATABASE_NAME='CannonMapDB';
+export const DATABASE_VERSION=2;
+export const V2_FEATURE_FLAG='architecture.indexeddb.v2';
+
+const stores=[
+  {name:'projects',legacy:true,indexes:[['updatedAt','updatedAt']]},
+  {name:'observations',keyPath:['eventId','observationId'],indexes:[
+    ['riderTime',['eventId','riderId','occurredAt']],
+    ['checkpointTime',['eventId','checkpointId','occurredAt']],
+    ['syncState',['syncState','nextAttemptAt']],
+    ['sessionSequence',['deviceSessionId','sequence']]
+  ]},
+  {name:'observationOutbox',keyPath:'idempotencyKey',indexes:[
+    ['nextAttemptAt','nextAttemptAt'],['eventId','eventId'],['state','state']
+  ]},
+  {name:'commitmentInferences',keyPath:['eventId','inferenceId'],indexes:[
+    ['competitorCheckpointTime',['competitorId','checkpointId','createdAt']],['active','active']
+  ]},
+  {name:'routeFamilies',keyPath:['eventId','familyId','revision'],indexes:[
+    ['checkpointPair',['fromCheckpointId','toCheckpointId']],['lifecycle','lifecycle'],['current','current']
+  ]},
+  {name:'routeVariants',keyPath:['eventId','variantId','revision'],indexes:[
+    ['familyId','familyId'],['checkpointPair',['fromCheckpointId','toCheckpointId']],['lifecycle','lifecycle']
+  ]},
+  {name:'confidenceVectors',keyPath:['eventId','subjectType','subjectId','revision'],indexes:[['updatedAt','updatedAt']]},
+  {name:'intelligenceItems',keyPath:['eventId','intelligenceId'],indexes:[
+    ['stage','stage'],['audience','audience'],['surfaceAfter','surfaceAfter']
+  ]},
+  {name:'recommendations',keyPath:['eventId','recommendationId'],indexes:[
+    ['status','status'],['createdAt','createdAt']
+  ]},
+  {name:'recommendationEvaluations',keyPath:['eventId','recommendationId','revision'],indexes:[
+    ['evaluatedAt','evaluatedAt'],['modelVersion','modelVersion']
+  ]},
+  {name:'intelligenceNetwork',keyPath:['uid','memberId'],indexes:[['updatedAt','updatedAt']]},
+  {name:'syncMeta',keyPath:'key'}
+];
+
+export const SCHEMA_REGISTRY=Object.freeze(stores.map(store=>Object.freeze({
+  ...store,
+  keyPath:Array.isArray(store.keyPath)?Object.freeze([...store.keyPath]):store.keyPath,
+  indexes:Object.freeze((store.indexes||[]).map(index=>Object.freeze([
+    index[0],Array.isArray(index[1])?Object.freeze([...index[1]]):index[1]
+  ])))
+})));
+
+function addIndexes(store,definition){
+  for(const [name,keyPath] of definition.indexes){
+    if(!store.indexNames.contains(name))store.createIndex(name,keyPath);
+  }
+}
+
+export function applySchemaUpgrade(database,transaction){
+  for(const definition of SCHEMA_REGISTRY){
+    if(!database.objectStoreNames.contains(definition.name)){
+      const options=definition.legacy?undefined:{keyPath:definition.keyPath};
+      addIndexes(database.createObjectStore(definition.name,options),definition);
+    }else{
+      addIndexes(transaction.objectStore(definition.name),definition);
+    }
+  }
+}
+
+export function readV2FeatureFlag(featureFlags){
+  if(!featureFlags||typeof featureFlags.isEnabled!=='function')return false;
+  return featureFlags.isEnabled(V2_FEATURE_FLAG)===true;
+}
+
+export function openIndexedDbV2({indexedDB,featureFlags,databaseName=DATABASE_NAME}={}){
+  if(!readV2FeatureFlag(featureFlags))return Promise.resolve(null);
+  if(!indexedDB||typeof indexedDB.open!=='function')return Promise.reject(new Error('IndexedDB is unavailable.'));
+  return new Promise((resolve,reject)=>{
+    const request=indexedDB.open(databaseName,DATABASE_VERSION);
+    request.onupgradeneeded=()=>applySchemaUpgrade(request.result,request.transaction);
+    request.onsuccess=()=>resolve(request.result);
+    request.onerror=()=>reject(request.error||new Error('IndexedDB v2 could not be opened.'));
+    request.onblocked=()=>reject(new Error('IndexedDB v2 upgrade is blocked by another connection.'));
+  });
+}
