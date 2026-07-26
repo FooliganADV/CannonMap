@@ -28,6 +28,7 @@ const state = {
   arrivalCandidateId:null, arrivalEnteredAt:0,
   pendingLayer: null, pendingImport: null, selectedId: null, editingLayer: null, history: [],
   rallyPollTimer: null, rallyLiveFeed: null, rallySync: { running:false, lastSync:null, lastError:'', pointsAdded:0 },
+  riderPreferences:null, competitorLayers:new Map(),
   weatherData: null, weatherPoint: null, trafficIncidents: [],
   radarLayer: null, radarNextLayer: null, radarFrames: [], radarFrameIndex: -1, radarTimer: null, radarLoadTimer: null, radarPlaying:false, radarAnimationToken:0,
   hotelBailoutActive:false,
@@ -252,26 +253,80 @@ function competitorFreshness(comp) {
   const ageMinutes = Math.max(0,(Date.now()-time)/60000);
   return { fresh:ageMinutes <= Number(state.settings.competitorFreshMinutes||15), ageMinutes };
 }
+function currentRiderEventId(){return String(state.settings.rallyEventId||'unassigned');}
+function currentRiderIds(){return state.project.competitors.map(comp=>String(comp.id));}
+function riderPreference(comp){
+  return state.riderPreferences?.get(currentRiderEventId(),String(comp.id))||{markerVisible:true,breadcrumbVisible:false,selected:false};
+}
 function renderCompetitors() {
   state.competitorGroup?.clearLayers();
+  state.competitorLayers=new Map();
+  state.riderPreferences?.ensure(currentRiderEventId(),currentRiderIds());
   state.project.competitors.forEach(comp => {
     if (!Array.isArray(comp.points) || !comp.points.length) return;
     const freshness = competitorFreshness(comp);
     const opacity = freshness.fresh ? .88 : .28;
     const points = comp.points.filter(validPoint);
-    if (state.settings.showCompetitorTrails !== false && comp.trailHidden!==true && points.length > 1) {
+    const preference=riderPreference(comp),layers={marker:null,breadcrumb:null};
+    if (state.settings.showCompetitorTrails !== false && preference.breadcrumbVisible && points.length > 1) {
       const line = L.polyline(points.map(p => [p.lat,p.lon]), {color:COLORS.competitor,weight:freshness.fresh?4:3,dashArray:freshness.fresh?null:'7 7',opacity});
       line.bindTooltip(`${comp.name || comp.id} · ${freshness.ageMinutes===null?'unknown age':`${Math.round(freshness.ageMinutes)} min old`}`);
       state.competitorGroup.addLayer(line);
+      layers.breadcrumb=line;
     }
-    if (state.settings.showCompetitorMarkers !== false) {
+    if (state.settings.showCompetitorMarkers !== false && preference.markerVisible) {
       const last = points.at(-1);
       const marker = L.circleMarker([last.lat,last.lon], {radius:freshness.fresh?7:5,color:'#fff',weight:2,fillColor:COLORS.competitor,fillOpacity:opacity});
       marker.bindPopup(`<strong>${escapeHtml(comp.name || comp.id)}</strong><br>${escapeHtml(last.time || 'Time unavailable')}<br>${freshness.fresh?'Fresh':'Stale or undated'} trail`);
       state.competitorGroup.addLayer(marker);
+      layers.marker=marker;
       if(String(state.followedCompetitorId)===String(comp.id))state.map.setView([last.lat,last.lon],Math.max(14,state.map.getZoom()));
     }
+    state.competitorLayers.set(String(comp.id),layers);
   });
+}
+function riderFreshnessLabel(comp){
+  const freshness=competitorFreshness(comp);
+  if(freshness.ageMinutes===null)return 'No recent position';
+  return freshness.fresh?`Fresh · ${Math.round(freshness.ageMinutes)} min`:`Stale · ${Math.round(freshness.ageMinutes)} min`;
+}
+function renderRiderManager(){
+  const list=$('riderManagerList');
+  if(!list)return;
+  state.riderPreferences?.ensure(currentRiderEventId(),currentRiderIds());
+  $('riderManagerCount').textContent=`${state.project.competitors.length} rider${state.project.competitors.length===1?'':'s'}`;
+  if(!state.project.competitors.length){list.innerHTML='<p class="rider-manager-empty">No competitors are available from the live feed yet.</p>';return;}
+  list.innerHTML=state.project.competitors.map(comp=>{
+    const preference=riderPreference(comp);
+    const identity=[comp.number?`#${escapeHtml(comp.number)}`:'',escapeHtml(comp.name||`Rider ${comp.id}`)].filter(Boolean).join(' · ');
+    const detail=escapeHtml(comp.team||comp.vehicle||'Team or vehicle unavailable');
+    const score=Number.isFinite(Number(comp.rank))?`Rank ${Number(comp.rank)}`:Number.isFinite(Number(comp.score))?`${Number(comp.score)} pts`:'Score unavailable';
+    return `<article class="rider-card" data-rider-id="${escapeHtml(comp.id)}">
+      <header><button type="button" class="rider-select ${preference.selected?'selected':''}" data-rider-select="${escapeHtml(comp.id)}" aria-pressed="${preference.selected}">${preference.selected?'Selected':'Select'}</button><div><strong>${identity}</strong><small>${detail}</small></div></header>
+      <div class="rider-card-status"><span>${escapeHtml(score)}</span><span>${escapeHtml(riderFreshnessLabel(comp))}</span></div>
+      <div class="rider-toggle-grid">
+        <label><input type="checkbox" data-rider-pref="markerVisible" data-rider-id="${escapeHtml(comp.id)}" ${preference.markerVisible?'checked':''}><span>Live marker</span></label>
+        <label><input type="checkbox" data-rider-pref="breadcrumbVisible" data-rider-id="${escapeHtml(comp.id)}" ${preference.breadcrumbVisible?'checked':''}><span>Breadcrumb</span></label>
+      </div>
+    </article>`;
+  }).join('');
+}
+function setRiderManagerOpen(open){
+  const manager=$('riderManager');
+  if(!manager)return;
+  manager.classList.toggle('open',open);
+  manager.setAttribute('aria-hidden',String(!open));
+  $('rallyRidersButton')?.setAttribute('aria-expanded',String(open));
+  if(open){setRallyMoreOpen(false);setIntelSheetOpen(false);renderRiderManager();}
+}
+function updateRiderPreference(competitorId,patch){
+  state.riderPreferences?.update(currentRiderEventId(),competitorId,patch);
+  renderCompetitors();renderRiderManager();
+}
+function applyRiderTrailAction(action){
+  if(action==='hide-all')state.riderPreferences?.hideAllTrails(currentRiderEventId(),currentRiderIds());
+  if(action==='selected-only')state.riderPreferences?.showSelectedTrailsOnly(currentRiderEventId(),currentRiderIds());
+  renderCompetitors();renderRiderManager();
 }
 function formatStationaryDuration(ms) {
   const minutes=Math.max(0,Math.floor(Number(ms||0)/60000)),hours=Math.floor(minutes/60);
@@ -300,8 +355,7 @@ function handleStationaryAction(action,event) {
   if(action==='zoom')window.CannonMapStationaryEvents.zoomToStationaryEvent(state.map,event);
   if(action==='follow')followCompetitor(event.competitorId);
   if(action==='hide-trail'){
-    const competitor=state.project.competitors.find(item=>String(item.id)===String(event.competitorId));
-    if(competitor){competitor.trailHidden=true;saveProject(false);renderCompetitors();}
+    updateRiderPreference(String(event.competitorId),{breadcrumbVisible:false});
   }
   if(action==='close')state.map.closePopup();
 }
@@ -378,7 +432,7 @@ function renderAll() {
   Object.entries(fields).forEach(([key,id])=>{if($(id))$(id).value=state.settings[key]??'';});
   if($('showCompetitorTrails'))$('showCompetitorTrails').checked=state.settings.showCompetitorTrails!==false;
   if($('showCompetitorMarkers'))$('showCompetitorMarkers').checked=state.settings.showCompetitorMarkers!==false;
-  renderMapFeatures(); renderLayerList(); renderStats(); renderCompetitorSummary(); renderMissionControl(); renderTypeLayerControls(); renderSearch(); renderIntelSummary(); renderRallyMode();
+  renderMapFeatures(); renderLayerList(); renderStats(); renderCompetitorSummary(); renderRiderManager(); renderMissionControl(); renderTypeLayerControls(); renderSearch(); renderIntelSummary(); renderRallyMode();
 }
 function lineDistanceMiles(points) {
   let meters=0; for(let i=1;i<points.length;i++) meters += haversine(points[i-1],points[i]);
@@ -926,6 +980,7 @@ function mergeCompetitorData(incoming) {
     if(next.name)current.name=next.name;
     if(next.number!==undefined&&next.number!==null)current.number=next.number;
     if(next.signature)current.signature=next.signature;
+    for(const key of ['team','vehicle','score','rank'])if(next[key]!==undefined&&next[key]!==null)current[key]=next[key];
     const keys=new Set(current.points.map(point=>`${point.lat.toFixed(6)}|${point.lon.toFixed(6)}|${point.time||''}`));
     next.points.forEach(point=>{const key=`${point.lat.toFixed(6)}|${point.lon.toFixed(6)}|${point.time||''}`;if(!keys.has(key)){current.points.push(point);keys.add(key);added++;}});
     current.points.sort((a,b)=>(pointTimestamp(a)||0)-(pointTimestamp(b)||0));
@@ -980,11 +1035,18 @@ async function toggleRallyPolling() {
   if(!state.settings.rallyEndpointUrl&&window.GPSCheckpointsFeed&&state.settings.rallyEventId){
     const feed=window.GPSCheckpointsFeed.createGPSCheckpointsFeed({eventId:state.settings.rallyEventId});
     feed.on('snapshot',async payload=>{
-      const standingById=new Map((payload.standings||[]).map(row=>[String(row.id),row]));
-      const incoming=normalizeCompetitorPayload({locations:payload.locations}).map(competitor=>{
+      const standings=payload.standings||[];
+      const standingById=new Map(standings.map((row,index)=>[String(row.id),{...row,rank:index+1}]));
+      const locationCompetitors=normalizeCompetitorPayload({locations:payload.locations});
+      const locationById=new Map(locationCompetitors.map(competitor=>[String(competitor.id),competitor]));
+      const incoming=standings.map((standing,index)=>{
+        const competitor=locationById.get(String(standing.id))||{id:String(standing.id),name:standing.name||`Rider ${standing.id}`,points:[]};
+        locationById.delete(String(standing.id));
+        return {...competitor,name:standing.name||competitor.name,number:standing.number,team:standing.team,vehicle:standing.vehicle,score:standing.points,rank:index+1,signature:window.CannonMapStationaryEvents?.competitorSignature({id:competitor.id,number:standing.number,name:standing.name||competitor.name})};
+      }).concat([...locationById.values()].map(competitor=>{
         const standing=standingById.get(String(competitor.id));
-        return {...competitor,number:standing?.number,signature:window.CannonMapStationaryEvents?.competitorSignature({id:competitor.id,number:standing?.number,name:competitor.name})};
-      });
+        return {...competitor,number:standing?.number,team:standing?.team,vehicle:standing?.vehicle,score:standing?.points,rank:standing?.rank,signature:window.CannonMapStationaryEvents?.competitorSignature({id:competitor.id,number:standing?.number,name:competitor.name})};
+      }));
       const result=mergeCompetitorData(incoming);
       updateStationaryDetection();
       state.rallySync.lastSync=new Date().toISOString();state.rallySync.pointsAdded=result.added;state.rallySync.lastError='';
@@ -1016,7 +1078,7 @@ function saveIntegrationSettings() {
   state.settings.trafficProvider=$('trafficProvider').value;
   state.settings.tomtomApiKey=$('tomtomApiKey').value.trim();
   state.settings.wazeFeedUrl=$('wazeFeedUrl').value.trim();
-  saveProject(true);renderMapFeatures();renderIntelSummary();
+  saveProject(true);renderMapFeatures();renderRiderManager();renderIntelSummary();
 }
 function openLeaderboard() {
   const url=(state.settings.leaderboardUrl||$('leaderboardUrl').value||'').trim();
@@ -1333,7 +1395,7 @@ function setSidebarOpen(open) {
 function wireUi() {
   document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>{document.querySelectorAll('.tab,.panel').forEach(el=>el.classList.remove('active'));tab.classList.add('active');$(`${tab.dataset.tab}Panel`).classList.add('active');}));
   $('sidebarToggle').addEventListener('click',()=>setSidebarOpen(!$('sidebar').classList.contains('open')));$('sidebarClose').addEventListener('click',()=>setSidebarOpen(false));$('sidebarBackdrop').addEventListener('click',()=>setSidebarOpen(false));
-  document.addEventListener('keydown',event=>{if(event.key==='Escape'){setSidebarOpen(false);setIntelSheetOpen(false);}});
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'){setSidebarOpen(false);setIntelSheetOpen(false);setRiderManagerOpen(false);}});
   $('gpxInput').addEventListener('change',event=>{importGpxFiles([...event.target.files]);event.target.value='';});
   $('projectInput').addEventListener('change',event=>{const file=event.target.files[0];if(file)openProjectFile(file);event.target.value='';});
   $('missionFitButton').addEventListener('click',fitMap);$('missionUnassignedButton').addEventListener('click',()=>{state.settings.dayFilter='0';$('dayFilter').value='0';document.querySelector('[data-tab="project"]').click();saveProject(false);renderAll();});$('missionSnapshotButton').addEventListener('click',()=>createNamedSnapshot('Manual snapshot'));
@@ -1364,6 +1426,19 @@ function wireUi() {
   $('trafficProvider').addEventListener('change',()=>{state.settings.trafficProvider=$('trafficProvider').value;saveProject(false);});
   $('competitorInput').addEventListener('change',e=>{if(e.target.files[0])importCompetitorJson(e.target.files[0]);e.target.value='';});
   $('intelButton').addEventListener('click',()=>setIntelSheetOpen(!$('intelSheet').classList.contains('open')));$('intelCloseButton').addEventListener('click',()=>setIntelSheetOpen(false));
+  $('rallyRidersButton').addEventListener('click',()=>setRiderManagerOpen(true));
+  $('openRiderManagerButton').addEventListener('click',()=>setRiderManagerOpen(true));
+  $('riderManagerClose').addEventListener('click',()=>setRiderManagerOpen(false));
+  $('riderHideAllTrails').addEventListener('click',()=>applyRiderTrailAction('hide-all'));
+  $('riderSelectedTrails').addEventListener('click',()=>applyRiderTrailAction('selected-only'));
+  $('riderManagerList').addEventListener('change',event=>{
+    const input=event.target.closest('input[data-rider-pref]');
+    if(input)updateRiderPreference(input.dataset.riderId,{[input.dataset.riderPref]:input.checked});
+  });
+  $('riderManagerList').addEventListener('click',event=>{
+    const button=event.target.closest('button[data-rider-select]');
+    if(button)updateRiderPreference(button.dataset.riderSelect,{selected:button.getAttribute('aria-pressed')!=='true'});
+  });
   $('mobileSyncButton').addEventListener('click',syncRallyFeed);$('mobileWeatherButton').addEventListener('click',loadWeatherHere);$('mobileTrafficButton').addEventListener('click',loadTrafficHere);
   $('rallyNextButton').addEventListener('click',selectNextCheckpoint);$('rallyIntelButton').addEventListener('click',()=>setIntelSheetOpen(true));$('rallyDeferButton').addEventListener('click',()=>deferCurrentCheckpoint());$('rallyFuelButton').addEventListener('click',openFuelSettings);$('rallyWeatherButton').addEventListener('click',()=>setIntelSheetOpen(true));$('rallyHotelButton').addEventListener('click',()=>{const hotel=currentHotel();if(hotel){const point=hotel.geometry.coordinates[0];state.map.setView([point.lat,point.lon],14);setRallyMoreOpen(false);}else setStatus('No hotel is assigned to the active day.',true);});$('rallyCenterButton').addEventListener('click',()=>{if(state.lastGpsPosition)state.map.setView([state.lastGpsPosition.lat,state.lastGpsPosition.lon],15);else fitMap();});$('rallyMoreButton').addEventListener('click',()=>setRallyMoreOpen(!$('rallyMode').classList.contains('more-open')));$('rallyPlannerButton').addEventListener('click',()=>{setRallyMoreOpen(false);setSidebarOpen(true);});$('goHotelButton').addEventListener('click',toggleHotelBailout);$('fuelForm').addEventListener('submit',saveFuelSettings);
   $('rallyCompleteButton').addEventListener('click',()=>completeCurrentCheckpoint(false));$('rallyRestoreButton').addEventListener('click',restoreDeferredCheckpoint);$('rallySkipButton').addEventListener('click',skipCurrentCheckpoint);
@@ -1393,6 +1468,7 @@ async function initializeApplication() {
   state.settings=Object.assign({leaderboardUrl:'https://gpscheckpoints.com/admin/leaderboard.html?id_event=15',rallyEndpointUrl:'',rallyEventId:'15',rallyPollSeconds:30,showCompetitorTrails:true,showCompetitorMarkers:true,competitorFreshMinutes:15,trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:'',radarOpacity:65,radarCoverage:'active-day',routeWeatherSpeed:45,usableFuelCapacity:0,expectedPavedRange:0,expectedMixedRange:0,reserveDistance:25,fuelProfile:'mixed',autoCompleteCheckpoints:true,checkpointArrivalRadius:500,checkpointMaxAccuracy:200,hideCompletedCheckpoints:true},state.settings);
   state.project.competitors ||= [];
   state.project.stationaryEvents ||= [];
+  state.riderPreferences=window.CannonMapRiderPreferences?.createRiderPreferenceStore();
   initMap();wireUi();$('radarOpacity').value=state.settings.radarOpacity||65;$('radarCoverage').value=state.settings.radarCoverage||'active-day';$('routeWeatherSpeed').value=String(state.settings.routeWeatherSpeed||45);
   $('buildLabel').textContent=`Beta ${APP_VERSION}`;
   $('appVersion').textContent=`v${APP_VERSION} · ${BUILD_ID}`;
@@ -1425,5 +1501,11 @@ async function startApplication(){
     return false;
   }
 }
-window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,restoreDeferredCheckpoint,skipCurrentCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival,moveCheckpointInOrder,makeCheckpointNext,restoreImportedCheckpointOrder,handleStationaryAction,renderStationaryEvents,updateStationaryDetection,runtimeDependencyReport,startApplication,registerServiceWorker};
+function setTestCompetitors(competitors,eventId=currentRiderEventId()){
+  state.settings.rallyEventId=String(eventId);state.project.competitors=deepClean(competitors);renderCompetitors();renderRiderManager();
+}
+function riderManagerTestState(){
+  return {eventId:currentRiderEventId(),preferences:state.riderPreferences?.snapshot(),layers:Object.fromEntries([...state.competitorLayers].map(([id,layers])=>[id,{marker:Boolean(layers.marker),breadcrumb:Boolean(layers.breadcrumb)}])),liveFeedActive:Boolean(state.rallyLiveFeed),stationaryLayerCount:state.stationaryEventGroup?.getLayers().length||0};
+}
+window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,restoreDeferredCheckpoint,skipCurrentCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival,moveCheckpointInOrder,makeCheckpointNext,restoreImportedCheckpointOrder,handleStationaryAction,renderStationaryEvents,updateStationaryDetection,runtimeDependencyReport,startApplication,registerServiceWorker,setTestCompetitors,riderManagerTestState,setRiderManagerOpen,renderRiderManager};
 startApplication();

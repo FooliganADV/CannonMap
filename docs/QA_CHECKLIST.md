@@ -102,3 +102,21 @@ A five-worker diagnostic run produced three Chromium browser-process closures
 after otherwise reaching the full suite. Classification: test-environment
 capacity issue. The same cases and complete matrix passed with one worker, so
 there is no remaining product assertion failure.
+
+## Rider Manager
+
+- [x] Marker default is on and breadcrumb default is off.
+- [x] Preferences are independently scoped by event and competitor.
+- [x] Saved preferences restore after store recreation and browser reload.
+- [x] New riders receive defaults; temporarily removed riders retain settings.
+- [x] Malformed or unsupported stored data resets safely.
+- [x] Hide-all and selected-only trail actions preserve marker visibility.
+- [x] Rider controls update Leaflet layers immediately.
+- [x] Panel controls are at least 48px and usable at 390×844 and 430×932.
+- [x] Repeated panel open/close does not touch Firebase listener state.
+- [x] Stationary-event rendering remains covered by browser and unit tests.
+
+Authoritative serial result on this branch: 85 Playwright cases, 83 passed,
+0 failed, and 2 intentional desktop skips. The focused Rider Manager matrix
+passed 35/35; startup passed 20/20; offline-shell startup passed 5/5. Node/unit
+tests passed 33/33 and vendor validation found all 12 assets.

@@ -39,3 +39,12 @@ Service-worker registration begins before optional integration checks. Readiness
 is successful only after required dependency validation and application
 initialization. A required failure is explicit and observable rather than a
 timeout or an unhandled `L is not defined` exception.
+
+## Rider UI state is not feed state
+
+Rider marker, breadcrumb, and selection preferences belong to CannonMap and are
+stored in a dedicated versioned local document keyed by rally event and
+competitor. They are never attached to normalized Firebase records or used to
+control subscription creation. Leaflet layer references remain ephemeral
+rendering state. This separation protects feed normalization, prevents panel
+interaction from duplicating listeners, and permits future storage migration.
