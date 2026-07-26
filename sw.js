@@ -1,4 +1,4 @@
-const CACHE = 'cannonmap-v0.7.1-20260726-03';
+const CACHE = 'cannonmap-v0.7.1-20260726-04';
 const APP_SHELL = [
   './',
   './index.html',
@@ -12,6 +12,8 @@ const APP_SHELL = [
   './src/core/event-bus.js',
   './src/core/ids.js',
   './src/core/state-store.js',
+  './src/application/project-workflows.js',
+  './src/domain/checkpoints/workflow.js',
   './src/domain/geo/geometry.js',
   './src/infrastructure/indexeddb/index.js',
   './src/infrastructure/indexeddb/migration-runner.js',
@@ -21,6 +23,9 @@ const APP_SHELL = [
   './src/infrastructure/indexeddb/schema.js',
   './src/ui/map/layer-registry.js',
   './src/ui/map/map-engine.js',
+  './src/ui/project/controller.js',
+  './src/ui/rally/controller.js',
+  './src/ui/rally/presenter.js',
   './manifest.webmanifest',
   './vendor/leaflet/leaflet.js',
   './vendor/leaflet/leaflet.css',
