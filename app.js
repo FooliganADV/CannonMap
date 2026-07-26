@@ -1,5 +1,6 @@
 import {createCoreCompatibility} from './src/core/compatibility.js';
 import * as geometry from './src/domain/geo/geometry.js';
+import {createMapEngine} from './src/ui/map/map-engine.js';
 
 const APP_VERSION = '0.7.1';
 const BUILD_ID = '2026.07.21.08';
@@ -25,6 +26,7 @@ const COLORS = {
 
 const core=createCoreCompatibility({appVersion:APP_VERSION});
 const state=core.state;
+let mapEngine=null;
 
 const $ = id => document.getElementById(id);
 const uid=core.ids.create;
@@ -116,28 +118,19 @@ function undo() {
 }
 
 function initMap() {
-  state.map = L.map('map', { zoomControl: true, preferCanvas: true }).setView([38.5, -98.5], 4);
-  const layers = {
-    Streets: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'© OpenStreetMap contributors' }),
-    Topographic: L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom:17, attribution:'© OpenStreetMap contributors, SRTM · OpenTopoMap' }),
-    Satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom:19, attribution:'Tiles © Esri' }),
-    CyclOSM: L.tileLayer('https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', { maxZoom:20, attribution:'© OpenStreetMap contributors · CyclOSM' }),
-    'USGS Topo': L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}', { maxZoom:16, attribution:'USGS The National Map' })
-  };
-  state.baseLayers = layers;
-  (layers[state.settings.baseLayer] || layers.Streets).addTo(state.map);
-  state.featureGroup = L.featureGroup().addTo(state.map);
-  state.competitorGroup = L.featureGroup().addTo(state.map);
-  state.stationaryEventGroup = L.featureGroup().addTo(state.map);
-  state.trafficGroup = L.featureGroup().addTo(state.map);
-  state.weatherGroup = L.featureGroup().addTo(state.map);
-  L.control.layers(layers, {
-    'Competitor trails': state.competitorGroup,
-    'Stationary events': state.stationaryEventGroup,
-    'Traffic incidents': state.trafficGroup,
-    'Weather': state.weatherGroup
-  }, { position:'topright', collapsed:true }).addTo(state.map);
-  state.map.on('baselayerchange', e => { state.settings.baseLayer = e.name; saveProject(false); });
+  mapEngine=createMapEngine({
+    L,
+    container:'map',
+    preferredBaseLayer:state.settings.baseLayer,
+    onBaseLayerChange:name=>{state.settings.baseLayer=name;saveProject(false);}
+  });
+  state.map=mapEngine.map;
+  state.baseLayers=mapEngine.baseLayers;
+  state.featureGroup=mapEngine.group('features');
+  state.competitorGroup=mapEngine.group('competitors');
+  state.stationaryEventGroup=mapEngine.group('stationaryEvents');
+  state.trafficGroup=mapEngine.group('traffic');
+  state.weatherGroup=mapEngine.group('weather');
   state.map.pm.addControls({
     position:'topleft', drawMarker:true, drawPolyline:true, drawPolygon:false, drawRectangle:false,
     drawCircle:false, drawCircleMarker:false, editMode:false, dragMode:false, cutPolygon:false,
@@ -214,14 +207,17 @@ function syncGeometryFromLayer(layer) {
 function renderMapFeatures() {
   stopEditing(false);
   updateStationaryDetection();
-  state.featureGroup.clearLayers();
-  state.project.features.forEach(feature => {
-    delete feature._layer;
-    if (!feature.visible || !featureMatchesDay(feature) || state.settings.typeVisibility?.[feature.type]===false || (matchMedia('(max-width:900px)').matches&&state.settings.hideCompletedCheckpoints!==false&&feature.type==='checkpoint'&&feature.status==='completed')) return;
-    const layer = createLeafletLayer(feature);
-    state.featureGroup.addLayer(layer);
-    feature._layer = layer;
+  state.project.features.forEach(feature=>delete feature._layer);
+  const visible=state.project.features.filter(feature=>
+    feature.visible&&featureMatchesDay(feature)&&state.settings.typeVisibility?.[feature.type]!==false&&
+    !(matchMedia('(max-width:900px)').matches&&state.settings.hideCompletedCheckpoints!==false&&feature.type==='checkpoint'&&feature.status==='completed')
+  ).map(feature=>({feature,key:feature.id||`legacy-index:${state.project.features.indexOf(feature)}`}));
+  const layers=mapEngine.layers.reconcile('features',visible,{
+    key:model=>model.key,
+    fingerprint:model=>JSON.stringify({feature:deepClean(model.feature),lineOpacity:state.settings.lineOpacity}),
+    create:model=>createLeafletLayer(model.feature)
   });
+  visible.forEach(model=>model.feature._layer=layers.get(String(model.key)));
   renderCompetitors();
   renderStationaryEvents();
 }
@@ -238,25 +234,41 @@ function competitorFreshness(comp) {
   return { fresh:ageMinutes <= Number(state.settings.competitorFreshMinutes||15), ageMinutes };
 }
 function renderCompetitors() {
-  state.competitorGroup?.clearLayers();
-  state.project.competitors.forEach(comp => {
+  const models=[];
+  state.project.competitors.forEach((comp,index) => {
     if (!Array.isArray(comp.points) || !comp.points.length) return;
+    const competitorKey=comp.id||comp.name||`legacy-index:${index}`;
     const freshness = competitorFreshness(comp);
     const opacity = freshness.fresh ? .88 : .28;
     const points = comp.points.filter(validPoint);
     if (state.settings.showCompetitorTrails !== false && comp.trailHidden!==true && points.length > 1) {
-      const line = L.polyline(points.map(p => [p.lat,p.lon]), {color:COLORS.competitor,weight:freshness.fresh?4:3,dashArray:freshness.fresh?null:'7 7',opacity});
-      line.bindTooltip(`${comp.name || comp.id} · ${freshness.ageMinutes===null?'unknown age':`${Math.round(freshness.ageMinutes)} min old`}`);
-      state.competitorGroup.addLayer(line);
+      models.push({key:`trail:${competitorKey}`,kind:'trail',comp,freshness,opacity,points});
     }
     if (state.settings.showCompetitorMarkers !== false) {
-      const last = points.at(-1);
-      const marker = L.circleMarker([last.lat,last.lon], {radius:freshness.fresh?7:5,color:'#fff',weight:2,fillColor:COLORS.competitor,fillOpacity:opacity});
-      marker.bindPopup(`<strong>${escapeHtml(comp.name || comp.id)}</strong><br>${escapeHtml(last.time || 'Time unavailable')}<br>${freshness.fresh?'Fresh':'Stale or undated'} trail`);
-      state.competitorGroup.addLayer(marker);
-      if(String(state.followedCompetitorId)===String(comp.id))state.map.setView([last.lat,last.lon],Math.max(14,state.map.getZoom()));
+      models.push({key:`marker:${competitorKey}`,kind:'marker',comp,freshness,opacity,points});
     }
   });
+  mapEngine.layers.reconcile('competitors',models,{
+    key:model=>model.key,
+    fingerprint:model=>JSON.stringify({
+      kind:model.kind,id:model.comp.id,name:model.comp.name,points:model.points,
+      fresh:model.freshness.fresh,age:model.freshness.ageMinutes===null?null:Math.round(model.freshness.ageMinutes)
+    }),
+    create:model=>{
+      if(model.kind==='trail'){
+        const line=L.polyline(model.points.map(p=>[p.lat,p.lon]),{color:COLORS.competitor,weight:model.freshness.fresh?4:3,dashArray:model.freshness.fresh?null:'7 7',opacity:model.opacity});
+        line.bindTooltip(`${model.comp.name||model.comp.id} · ${model.freshness.ageMinutes===null?'unknown age':`${Math.round(model.freshness.ageMinutes)} min old`}`);
+        return line;
+      }
+      const last=model.points.at(-1);
+      const marker=L.circleMarker([last.lat,last.lon],{radius:model.freshness.fresh?7:5,color:'#fff',weight:2,fillColor:COLORS.competitor,fillOpacity:model.opacity});
+      marker.bindPopup(`<strong>${escapeHtml(model.comp.name||model.comp.id)}</strong><br>${escapeHtml(last.time||'Time unavailable')}<br>${model.freshness.fresh?'Fresh':'Stale or undated'} trail`);
+      return marker;
+    }
+  });
+  const followed=state.project.competitors.find(comp=>String(state.followedCompetitorId)===String(comp.id));
+  const last=followed?.points?.filter(validPoint).at(-1);
+  if(last)state.map.setView([last.lat,last.lon],Math.max(14,state.map.getZoom()));
 }
 function formatStationaryDuration(ms) {
   const minutes=Math.max(0,Math.floor(Number(ms||0)/60000)),hours=Math.floor(minutes/60);
@@ -297,21 +309,24 @@ function followCompetitor(id) {
   setStatus(`Following ${competitor?.name||`Rider ${id}`}.`);
 }
 function renderStationaryEvents() {
-  state.stationaryEventGroup?.clearLayers();
-  if(!window.CannonMapStationaryEvents)return;
+  if(!window.CannonMapStationaryEvents){mapEngine.layers.clear('stationaryEvents');return;}
   const eventId=String(state.settings.rallyEventId||'');
   const events=window.CannonMapStationaryEvents.spreadNearbyEvents((state.project.stationaryEvents||[]).filter(event=>String(event.rallyEventId)===eventId&&!event.hidden));
-  events.forEach(event=>{
-    const spec=window.CannonMapStationaryEvents.signatureIconSpec(event);
-    const color=event.status==='active'?'#f59e0b':'#475569';
-    const icon=L.divIcon({className:spec.className,html:`<div class="stationary-signature-face" title="${escapeHtml(spec.title)}" style="background:${color}">${escapeHtml(spec.label)}</div>`,iconSize:[spec.size,spec.size],iconAnchor:[spec.size/2,spec.size/2],popupAnchor:[0,-spec.size/2]});
-    const marker=L.marker([event.displayCenter.lat,event.displayCenter.lon],{icon,riseOnHover:true,zIndexOffset:700});
-    marker.bindPopup(stationaryPopupHtml(event),{maxWidth:330,closeButton:false});
-    marker.on('popupopen',()=>{
-      const popup=marker.getPopup().getElement();
-      popup?.querySelectorAll('[data-stationary-action]').forEach(button=>button.addEventListener('click',()=>handleStationaryAction(button.dataset.stationaryAction,event)));
-    });
-    state.stationaryEventGroup.addLayer(marker);
+  mapEngine.layers.reconcile('stationaryEvents',events,{
+    key:event=>event.id,
+    fingerprint:event=>JSON.stringify(event),
+    create:event=>{
+      const spec=window.CannonMapStationaryEvents.signatureIconSpec(event);
+      const color=event.status==='active'?'#f59e0b':'#475569';
+      const icon=L.divIcon({className:spec.className,html:`<div class="stationary-signature-face" title="${escapeHtml(spec.title)}" style="background:${color}">${escapeHtml(spec.label)}</div>`,iconSize:[spec.size,spec.size],iconAnchor:[spec.size/2,spec.size/2],popupAnchor:[0,-spec.size/2]});
+      const marker=L.marker([event.displayCenter.lat,event.displayCenter.lon],{icon,riseOnHover:true,zIndexOffset:700});
+      marker.bindPopup(stationaryPopupHtml(event),{maxWidth:330,closeButton:false});
+      marker.on('popupopen',()=>{
+        const popup=marker.getPopup().getElement();
+        popup?.querySelectorAll('[data-stationary-action]').forEach(button=>button.addEventListener('click',()=>handleStationaryAction(button.dataset.stationaryAction,event)));
+      });
+      return marker;
+    }
   });
 }
 function updateStationaryDetection() {
@@ -755,8 +770,7 @@ function bulkAssign() {
   snapshot();targets.forEach(f=>{f.day=day;f.updatedAt=new Date().toISOString();});saveProject(false);renderAll();setStatus(`Assigned ${targets.length} unassigned point features to Day ${day}.`);
 }
 function fitMap() {
-  const layers=state.featureGroup.getLayers();if(!layers.length)return;
-  const bounds=state.featureGroup.getBounds();if(bounds.isValid())state.map.fitBounds(bounds,{padding:[25,25]});
+  mapEngine.fitLayerType('features');
 }
 
 function xmlEscape(value){return String(value??'').replace(/[<>&'"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;',"'":'&apos;','"':'&quot;'}[c]));}
@@ -1010,12 +1024,11 @@ function zoomCompetitor(id) {
   if(bounds.isValid())state.map.fitBounds(bounds,{padding:[35,35],maxZoom:14});
 }
 function fitIntelligence() {
-  const groups=[state.competitorGroup,state.stationaryEventGroup,state.trafficGroup,state.weatherGroup].filter(Boolean);
-  const bounds=L.latLngBounds([]);groups.forEach(group=>group.eachLayer(layer=>{if(layer.getBounds)bounds.extend(layer.getBounds());else if(layer.getLatLng)bounds.extend(layer.getLatLng());}));
-  if(bounds.isValid())state.map.fitBounds(bounds,{padding:[30,30],maxZoom:14});
+  mapEngine.fitLayerTypes(['competitors','stationaryEvents','traffic','weather']);
 }
 function clearIntelligenceLayers() {
-  state.competitorGroup?.clearLayers();state.stationaryEventGroup?.clearLayers();state.trafficGroup?.clearLayers();state.weatherGroup?.clearLayers();state.weatherData=null;state.weatherPoint=null;state.trafficIncidents=[];hideRadar();
+  for(const type of ['competitors','stationaryEvents','traffic','weather'])mapEngine.layers.clear(type);
+  state.weatherData=null;state.weatherPoint=null;state.trafficIncidents=[];hideRadar();
 }
 function currentIntelPoint() {
   if(state.lastGpsPosition)return {lat:state.lastGpsPosition.lat,lon:state.lastGpsPosition.lon,label:'GPS position'};
@@ -1036,8 +1049,8 @@ async function loadWeatherHere() {
   }catch(error){$('weatherSummary').className='intel-card error';$('weatherSummary').textContent=`Weather failed: ${error.message}`;setStatus(`Weather failed: ${error.message}`,true);}
 }
 function renderWeather() {
-  state.weatherGroup?.clearLayers();
-  const data=state.weatherData,point=state.weatherPoint;if(!data||!point)return;
+  const data=state.weatherData,point=state.weatherPoint;
+  if(!data||!point){mapEngine.layers.clear('weather');return;}
   const current=data.current||{};const hourly=data.hourly||{};
   const precip=Array.isArray(hourly.precipitation_probability)?Math.max(...hourly.precipitation_probability.filter(Number.isFinite),0):0;
   const gusts=weatherMaxGustMph(data);
@@ -1045,15 +1058,22 @@ function renderWeather() {
   const warning=(current.weather_code>=95||precip>=60||gusts>=35);
   const html=`<strong>${Math.round(current.temperature_2m??0)}°F · ${escapeHtml(condition)}</strong><small>Feels ${Math.round(current.apparent_temperature??current.temperature_2m??0)}°F · Wind ${Math.round(current.wind_speed_10m??0)} mph · Gusts up to ${Math.round(gusts)} mph · Rain chance ${Math.round(precip)}%</small>${warning?'<em>Weather could affect the next decision.</em>':''}`;
   $('weatherSummary').className=`intel-card${warning?' warning':''}`;$('weatherSummary').innerHTML=html;
-  const marker=L.circleMarker([point.lat,point.lon],{radius:9,color:'#fff',weight:2,fillColor:COLORS.weather,fillOpacity:.95});
-  marker.bindPopup(`<strong>${escapeHtml(point.label)}</strong><br>${Math.round(current.temperature_2m??0)}°F · ${escapeHtml(condition)}<br>Gusts ${Math.round(gusts)} mph · Rain ${Math.round(precip)}%`);state.weatherGroup.addLayer(marker);
+  mapEngine.layers.reconcile('weather',[{key:'current',point,current,condition,gusts,precip}],{
+    key:model=>model.key,
+    fingerprint:model=>JSON.stringify(model),
+    create:model=>{
+      const marker=L.circleMarker([model.point.lat,model.point.lon],{radius:9,color:'#fff',weight:2,fillColor:COLORS.weather,fillOpacity:.95});
+      marker.bindPopup(`<strong>${escapeHtml(model.point.label)}</strong><br>${Math.round(model.current.temperature_2m??0)}°F · ${escapeHtml(model.condition)}<br>Gusts ${Math.round(model.gusts)} mph · Rain ${Math.round(model.precip)}%`);
+      return marker;
+    }
+  });
 }
 function weatherMaxGustMph(data) {
   const current=Number(data?.current?.wind_gusts_10m)||0;
   const hourly=Array.isArray(data?.hourly?.wind_gusts_10m)?data.hourly.wind_gusts_10m.filter(Number.isFinite):[];
   return Math.max(...hourly,current);
 }
-function clearWeather() {state.weatherData=null;state.weatherPoint=null;state.weatherGroup?.clearLayers();$('weatherSummary').className='intel-card empty';$('weatherSummary').textContent='No weather loaded.';renderIntelSummary();}
+function clearWeather() {state.weatherData=null;state.weatherPoint=null;mapEngine.layers.clear('weather');$('weatherSummary').className='intel-card empty';$('weatherSummary').textContent='No weather loaded.';renderIntelSummary();}
 
 const RAINVIEWER_MAPS_URL='https://api.rainviewer.com/public/weather-maps.json';
 function radarTileUrl(frame) {return `${frame.host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;}
@@ -1223,20 +1243,27 @@ async function loadWazeTraffic() {
   state.trafficIncidents=data?parseWazeJson(data):parseWazeXml(text);
 }
 function renderTraffic() {
-  state.trafficGroup?.clearLayers();
   let severe=0;
-  state.trafficIncidents.forEach((incident,index)=>{
-    const geometry=incident.geometry;if(!geometry)return;const p=incident.properties||{};const category=Number(p.iconCategory);if([1,8,11].includes(category))severe++;
-    const style=trafficStyle(category);let layer;
-    if(geometry.type==='Point')layer=L.circleMarker([geometry.coordinates[1],geometry.coordinates[0]],{radius:7,color:'#fff',weight:2,fillColor:style.fillColor,fillOpacity:.95});
-    else if(geometry.type==='LineString')layer=L.polyline(geometry.coordinates.map(pair=>[pair[1],pair[0]]),{color:style.color,weight:6,opacity:.8});
-    if(!layer)return;
-    const description=p.events?.[0]?.description||TRAFFIC_CATEGORY[category]||String(p.iconCategory||'Traffic incident');const delay=Number(p.delay)||0;const road=[p.from,p.to].filter(Boolean).join(' → ')||p.roadNumbers?.join(', ')||'';
-    layer.bindPopup(`<strong>${escapeHtml(description)}</strong><br>${escapeHtml(road)}${delay?`<br>Reported delay: ${Math.round(delay/60)} min`:''}<br><small>${escapeHtml(incident.source||'Traffic provider')}</small>`);state.trafficGroup.addLayer(layer);
+  const models=state.trafficIncidents.map((incident,index)=>{
+    const geometry=incident.geometry;if(!['Point','LineString'].includes(geometry?.type))return null;const p=incident.properties||{};const category=Number(p.iconCategory);if([1,8,11].includes(category))severe++;
+    return {key:String(p.id||incident.id||index),incident,geometry,p,category};
+  }).filter(Boolean);
+  mapEngine.layers.reconcile('traffic',models,{
+    key:model=>model.key,
+    fingerprint:model=>JSON.stringify(model.incident),
+    create:model=>{
+      const style=trafficStyle(model.category);let layer;
+      if(model.geometry.type==='Point')layer=L.circleMarker([model.geometry.coordinates[1],model.geometry.coordinates[0]],{radius:7,color:'#fff',weight:2,fillColor:style.fillColor,fillOpacity:.95});
+      else if(model.geometry.type==='LineString')layer=L.polyline(model.geometry.coordinates.map(pair=>[pair[1],pair[0]]),{color:style.color,weight:6,opacity:.8});
+      if(!layer)return null;
+      const description=model.p.events?.[0]?.description||TRAFFIC_CATEGORY[model.category]||String(model.p.iconCategory||'Traffic incident');const delay=Number(model.p.delay)||0;const road=[model.p.from,model.p.to].filter(Boolean).join(' → ')||model.p.roadNumbers?.join(', ')||'';
+      layer.bindPopup(`<strong>${escapeHtml(description)}</strong><br>${escapeHtml(road)}${delay?`<br>Reported delay: ${Math.round(delay/60)} min`:''}<br><small>${escapeHtml(model.incident.source||'Traffic provider')}</small>`);
+      return layer;
+    }
   });
   $('trafficSummary').className=`intel-card${severe?' warning':''}`;$('trafficSummary').innerHTML=`<strong>${state.trafficIncidents.length} current incidents</strong><small>${severe} severe · Map viewport only · ${escapeHtml(state.settings.trafficProvider==='tomtom'?'TomTom':'Waze for Cities')}</small>`;
 }
-function clearTraffic() {state.trafficIncidents=[];state.trafficGroup?.clearLayers();$('trafficSummary').className='intel-card empty';$('trafficSummary').textContent='No traffic loaded.';renderIntelSummary();}
+function clearTraffic() {state.trafficIncidents=[];mapEngine.layers.clear('traffic');$('trafficSummary').className='intel-card empty';$('trafficSummary').textContent='No traffic loaded.';renderIntelSummary();}
 
 function openWazeAtMapCenter() {
   const point=currentIntelPoint();
@@ -1394,5 +1421,13 @@ async function startApplication(){
     return false;
   }
 }
-window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,restoreDeferredCheckpoint,skipCurrentCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival,moveCheckpointInOrder,makeCheckpointNext,restoreImportedCheckpointOrder,handleStationaryAction,renderStationaryEvents,updateStationaryDetection,runtimeDependencyReport,startApplication,registerServiceWorker};
+function mapEngineDiagnostics(){
+  const types=['features','competitors','stationaryEvents','traffic','weather'];
+  return {
+    mapContainers:document.querySelectorAll('.leaflet-container').length,
+    registry:mapEngine?.layers.counts()||{},
+    groups:Object.fromEntries(types.map(type=>[type,mapEngine?.group(type).getLayers().length||0]))
+  };
+}
+window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,restoreDeferredCheckpoint,skipCurrentCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival,moveCheckpointInOrder,makeCheckpointNext,restoreImportedCheckpointOrder,handleStationaryAction,renderStationaryEvents,updateStationaryDetection,renderMapFeatures,mapEngineDiagnostics,runtimeDependencyReport,startApplication,registerServiceWorker};
 startApplication();
