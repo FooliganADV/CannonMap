@@ -1,11 +1,18 @@
-const CACHE = 'cannonmap-v0.7.1-20260725-03';
+const CACHE = 'cannonmap-v0.7.1-20260726-01';
 const APP_SHELL = [
   './',
   './index.html',
   './app.css',
   './gps-checkpoints-feed.js?v=20260725-02',
   './stationary-events.js?v=20260725-01',
-  './app.js?v=20260725-02',
+  './app.js?v=20260726-01',
+  './src/core/clock.js',
+  './src/core/compatibility.js',
+  './src/core/errors.js',
+  './src/core/event-bus.js',
+  './src/core/ids.js',
+  './src/core/state-store.js',
+  './src/domain/geo/geometry.js',
   './manifest.webmanifest',
   './vendor/leaflet/leaflet.js',
   './vendor/leaflet/leaflet.css',

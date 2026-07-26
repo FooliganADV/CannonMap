@@ -1,4 +1,5 @@
-'use strict';
+import {createCoreCompatibility} from './src/core/compatibility.js';
+import * as geometry from './src/domain/geo/geometry.js';
 
 const APP_VERSION = '0.7.1';
 const BUILD_ID = '2026.07.21.08';
@@ -22,31 +23,15 @@ const COLORS = {
   fuel: '#a78bfa', hotel: '#fb7185', backbone: '#94a3b8', competitor: '#ef4444', traffic: '#facc15', weather: '#38bdf8'
 };
 
-const state = {
-  map: null, baseLayers: {}, featureGroup: null, competitorGroup: null, stationaryEventGroup: null, trafficGroup: null, weatherGroup: null,
-  gpsLayer: null, gpsAccuracyLayer: null, gpsWatchId: null, lastGpsPosition: null, followedCompetitorId: null,
-  arrivalCandidateId:null, arrivalEnteredAt:0,
-  pendingLayer: null, pendingImport: null, selectedId: null, editingLayer: null, history: [],
-  rallyPollTimer: null, rallyLiveFeed: null, rallySync: { running:false, lastSync:null, lastError:'', pointsAdded:0 },
-  weatherData: null, weatherPoint: null, trafficIncidents: [],
-  radarLayer: null, radarNextLayer: null, radarFrames: [], radarFrameIndex: -1, radarTimer: null, radarLoadTimer: null, radarPlaying:false, radarAnimationToken:0,
-  hotelBailoutActive:false,
-  project: {
-    version: APP_VERSION, name: 'America 250 – 2026', createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(), features: [], competitors: [], stationaryEvents: []
-  },
-  settings: {
-    dayFilter: 'all', inreachUrl: '', baseLayer: 'Streets', lineOpacity:90,
-    typeVisibility:{track:true,route:true,backbone:true,waypoint:true,checkpoint:true,fuel:true,hotel:true},
-    leaderboardUrl:'https://gpscheckpoints.com/admin/leaderboard.html?id_event=15', rallyEndpointUrl:'', rallyEventId:'15', rallyPollSeconds:30,
-    showCompetitorTrails:true, showCompetitorMarkers:true, competitorFreshMinutes:15,
-    trafficProvider:'none', tomtomApiKey:'', wazeFeedUrl:'', radarOpacity:65, radarCoverage:'active-day', routeWeatherSpeed:45,
-    usableFuelCapacity:0,expectedPavedRange:0,expectedMixedRange:0,reserveDistance:25,fuelProfile:'mixed'
-  }
-};
+const core=createCoreCompatibility({appVersion:APP_VERSION});
+const state=core.state;
 
 const $ = id => document.getElementById(id);
-const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+const uid=core.ids.create;
+const haversine=geometry.haversineMeters;
+const lineDistanceMiles=geometry.lineDistanceMiles;
+const validPoint=geometry.validPoint;
+const distancePointToSegmentMiles=geometry.distancePointToSegmentMiles;
 const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 const deepClean = obj => JSON.parse(JSON.stringify(obj, (key, value) => key === '_layer' ? undefined : value));
 const normalizedFeatureName = value => String(value||'').trim().replace(/\s+/g,' ').toLowerCase();
@@ -380,16 +365,6 @@ function renderAll() {
   if($('showCompetitorMarkers'))$('showCompetitorMarkers').checked=state.settings.showCompetitorMarkers!==false;
   renderMapFeatures(); renderLayerList(); renderStats(); renderCompetitorSummary(); renderMissionControl(); renderTypeLayerControls(); renderSearch(); renderIntelSummary(); renderRallyMode();
 }
-function lineDistanceMiles(points) {
-  let meters=0; for(let i=1;i<points.length;i++) meters += haversine(points[i-1],points[i]);
-  return meters/1609.344;
-}
-function haversine(a,b) {
-  const R=6371000,toRad=x=>x*Math.PI/180,dLat=toRad(b.lat-a.lat),dLon=toRad(b.lon-a.lon);
-  const q=Math.sin(dLat/2)**2+Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.sin(dLon/2)**2;
-  return 2*R*Math.asin(Math.sqrt(q));
-}
-function validPoint(p){return Number.isFinite(p.lat)&&Number.isFinite(p.lon)&&Math.abs(p.lat)<=90&&Math.abs(p.lon)<=180;}
 function pointToLineMiles(point,line){
   let best=Infinity;
   for(let i=1;i<line.length;i++)best=Math.min(best,distancePointToSegmentMiles(point,line[i-1],line[i]));
@@ -466,12 +441,6 @@ function inferDay(text,fallback=0) {
   return fallback;
 }
 function textOf(element,tag){const node=element.getElementsByTagName(tag)[0]||element.getElementsByTagNameNS?.('*',tag)?.[0];return node?node.textContent.trim():'';}
-function distancePointToSegmentMiles(p,a,b) {
-  const x=p.lon,y=p.lat,x1=a.lon,y1=a.lat,x2=b.lon,y2=b.lat;
-  const dx=x2-x1,dy=y2-y1;
-  const t=(dx||dy)?Math.max(0,Math.min(1,((x-x1)*dx+(y-y1)*dy)/(dx*dx+dy*dy))):0;
-  return lineDistanceMiles([p,{lat:y1+t*dy,lon:x1+t*dx}]);
-}
 function nearestAssignedDay(point,lines) {
   let best={day:0,d:Infinity};
   for(const line of lines){
