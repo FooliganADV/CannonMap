@@ -47,13 +47,16 @@ test('checkpoint defer, restore, complete, scoring, hotel bailout and undo',asyn
   await expect(page.locator('#rallyNextName')).toContainText('Checkpoint One');
   await page.locator('#rallyDeferButton').click();
   await expect(page.locator('#rallyNextName')).toContainText('Extreme Checkpoint Two');
+  await page.locator('#rallyMoreButton').click();
   await page.locator('#rallyRestoreButton').click();
+  await page.locator('#rallyMoreButton').click();
   await page.locator('#rallyCompleteButton').click();
   await expect(page.locator('#rallyScore')).toHaveText('10');
   await expect(page.locator('#rallyNextName')).toContainText('Extreme Checkpoint Two');
   await page.locator('#rallyCompleteButton').click();
   await expect(page.locator('#rallyScore')).toHaveText('31');
   page.once('dialog',dialog=>dialog.accept());
+  await page.locator('#rallyMoreButton').click();
   await page.locator('#goHotelButton').click();
   await expect(page.locator('#goHotelButton')).toHaveText('UNDO HOTEL BAILOUT');
   await page.locator('#goHotelButton').click();

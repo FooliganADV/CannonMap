@@ -8,6 +8,14 @@ const DB_NAME = 'CannonMapDB';
 const DB_STORE = 'projects';
 const PROHIBITED_FEATURE_NAMES = new Set(['old coast road']);
 const CHECKPOINT_STATUSES = new Set(['planned','next','completed','deferred','skipped','unreachable']);
+const REQUIRED_RUNTIME_DEPENDENCIES = [
+  {name:'Leaflet',available:scope=>typeof scope.L?.map==='function'},
+  {name:'Leaflet-Geoman',available:scope=>Boolean(scope.L?.PM)}
+];
+const OPTIONAL_RUNTIME_DEPENDENCIES = [
+  {name:'SheetJS',available:scope=>Boolean(scope.XLSX?.utils)},
+  {name:'Firebase Realtime Database',available:scope=>typeof scope.firebase?.database==='function'}
+];
 
 const COLORS = {
   track: '#f97316', route: '#38bdf8', waypoint: '#facc15', checkpoint: '#22c55e',
@@ -83,6 +91,26 @@ function setStatus(message, isError = false) {
   el.classList.toggle('editing-banner', message.startsWith('Editing '));
   el.style.background = isError ? '#450a0a' : '';
   el.style.borderColor = isError ? '#991b1b' : '';
+}
+
+function runtimeDependencyReport(scope=globalThis){
+  const forcedMissing=String(scope.__CANNONMAP_TEST_MISSING_DEPENDENCY||'');
+  const missingRequired=REQUIRED_RUNTIME_DEPENDENCIES.filter(item=>item.name===forcedMissing||!item.available(scope)).map(item=>item.name);
+  const missingOptional=OPTIONAL_RUNTIME_DEPENDENCIES.filter(item=>!item.available(scope)).map(item=>item.name);
+  return {missingRequired,missingOptional};
+}
+function setStartupState(stateName,message='',missing=[]){
+  document.documentElement.dataset.cannonmapStartupState=stateName;
+  document.documentElement.dataset.cannonmapReady=stateName==='ready'?'true':'false';
+  if(missing.length)document.documentElement.dataset.cannonmapMissingDependencies=missing.join(',');
+  else delete document.documentElement.dataset.cannonmapMissingDependencies;
+  if(message)setStatus(message,stateName==='failed');
+}
+function registerServiceWorker(){
+  if(!('serviceWorker'in navigator))return Promise.resolve(null);
+  return navigator.serviceWorker.register('./sw.js')
+    .then(registration=>{registration.update();return registration;})
+    .catch(error=>{console.error(`[CannonMap startup] Service worker registration failed: ${error.message}`);return null;});
 }
 
 function snapshot() {
@@ -789,7 +817,7 @@ function manifestRows() {
   }).sort((a,b)=>(Number(a.Day)||99)-(Number(b.Day)||99)||(typeOrder[a.Type]||99)-(typeOrder[b.Type]||99)||a.Sequence-b.Sequence);
 }
 function exportExcel() {
-  if(typeof XLSX==='undefined')return setStatus('Excel library did not load. Check the internet connection and reload.',true);
+  if(typeof XLSX==='undefined')return setStatus('SheetJS dependency is unavailable. Reload CannonMap to restore Excel export.',true);
   const manifest=manifestRows(),wb=XLSX.utils.book_new();
   const add=(name,rows)=>{const ws=XLSX.utils.json_to_sheet(rows.length?rows:[{Message:'No records'}]);ws['!autofilter']={ref:ws['!ref']};ws['!freeze']={xSplit:0,ySplit:1};ws['!cols']=[18,10,34,14,14,14,12,14,12,45,28,10,20,24].map(w=>({wch:w}));XLSX.utils.book_append_sheet(wb,ws,name);};
   add('Master Manifest',manifest);
@@ -1358,7 +1386,7 @@ function wireUi() {
     state.pendingLayer.remove();state.pendingLayer=null;state.project.features.push(feature);saveProject(false);renderAll();selectFeature(feature.id);$('createDialog').close('default');setStatus(`Created ${feature.name}.`);
   });
 }
-async function init() {
+async function initializeApplication() {
   await loadProject();
   state.project.features.forEach(f=>{f.assignmentMethod ||= '';f.favorite ||= false;});
   state.settings.typeVisibility=Object.assign({track:true,route:true,backbone:true,waypoint:true,checkpoint:true,fuel:true,hotel:true},state.settings.typeVisibility||{});
@@ -1368,8 +1396,34 @@ async function init() {
   initMap();wireUi();$('radarOpacity').value=state.settings.radarOpacity||65;$('radarCoverage').value=state.settings.radarCoverage||'active-day';$('routeWeatherSpeed').value=String(state.settings.routeWeatherSpeed||45);
   $('buildLabel').textContent=`Beta ${APP_VERSION}`;
   $('appVersion').textContent=`v${APP_VERSION} · ${BUILD_ID}`;
-  renderAll();document.documentElement.dataset.cannonmapReady='true';setTimeout(()=>{if(state.project.features.length)fitMap();},200);
-  if('serviceWorker'in navigator){let refreshing=false;navigator.serviceWorker.addEventListener('controllerchange',()=>{if(refreshing)return;refreshing=true;location.reload();});navigator.serviceWorker.register('./sw.js').then(registration=>registration.update()).catch(()=>{});}
+  renderAll();setTimeout(()=>{if(state.project.features.length)fitMap();},200);
 }
-window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,restoreDeferredCheckpoint,skipCurrentCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival,moveCheckpointInOrder,makeCheckpointNext,restoreImportedCheckpointOrder,handleStationaryAction,renderStationaryEvents,updateStationaryDetection};
-init();
+async function startApplication(){
+  setStartupState('initializing','Starting CannonMap…');
+  const serviceWorkerRegistration=registerServiceWorker();
+  const dependencies=runtimeDependencyReport();
+  if(dependencies.missingOptional.length){
+    document.documentElement.dataset.cannonmapOptionalMissing=dependencies.missingOptional.join(',');
+    console.warn(`[CannonMap startup] Optional integration unavailable: ${dependencies.missingOptional.join(', ')}`);
+  }else delete document.documentElement.dataset.cannonmapOptionalMissing;
+  if(dependencies.missingRequired.length){
+    const message=`CannonMap could not start. Missing required dependency: ${dependencies.missingRequired.join(', ')}.`;
+    console.error(`[CannonMap startup] ${message}`);
+    setStartupState('failed',message,dependencies.missingRequired);
+    await serviceWorkerRegistration;
+    return false;
+  }
+  try{
+    await initializeApplication();
+    setStartupState('ready');
+    return true;
+  }catch(error){
+    const message=`CannonMap initialization failed: ${error?.message||error}`;
+    console.error(`[CannonMap startup] ${message}`);
+    setStartupState('failed',message);
+    await serviceWorkerRegistration;
+    return false;
+  }
+}
+window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,restoreDeferredCheckpoint,skipCurrentCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival,moveCheckpointInOrder,makeCheckpointNext,restoreImportedCheckpointOrder,handleStationaryAction,renderStationaryEvents,updateStationaryDetection,runtimeDependencyReport,startApplication,registerServiceWorker};
+startApplication();
