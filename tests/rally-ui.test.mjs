@@ -1,0 +1,44 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {renderRally} from '../src/ui/rally/presenter.js';
+import {wireRallyController} from '../src/ui/rally/controller.js';
+
+const fakeElement=()=>({
+  textContent:'',innerHTML:'',disabled:false,hidden:false,value:'',checked:false,listeners:{},
+  classList:{values:new Set(),toggle(name,enabled){if(enabled)this.values.add(name);else this.values.delete(name);}},
+  addEventListener(name,handler){this.listeners[name]=handler;}
+});
+
+test('Rally presenter preserves score, checkpoint, fuel, and control state',()=>{
+  const elements=new Map(),getElement=id=>{
+    if(!elements.has(id))elements.set(id,fakeElement());
+    return elements.get(id);
+  };
+  renderRally({getElement,escapeHtml:value=>String(value),model:{
+    day:1,online:false,gpsStatus:'GPS off',score:31,
+    next:{id:'cp',name:'Extreme Checkpoint',extreme:true,points:21,status:'next'},distance:4.25,
+    hotelLabel:'Hotel 12 mi',fuelLabel:'20 mi usable estimate · WARNING',fuelWarning:true,feedAge:'Feed Never',
+    hasDeferred:true,hasHotel:true,hotelBailoutActive:false,autoComplete:true,arrivalRadius:500,maxAccuracy:200,
+    checkpoints:[{id:'cp',name:'Extreme Checkpoint',extreme:true,status:'next'}]
+  }});
+  assert.equal(getElement('rallyDay').textContent,'DAY 1');
+  assert.equal(getElement('rallyScore').textContent,31);
+  assert.equal(getElement('rallyNextPoints').textContent,'EXTREME · 21 points · next');
+  assert.equal(getElement('rallyFuelStatus').classList.values.has('warning'),true);
+  assert.match(getElement('checkpointOrderList').innerHTML,/21-point extreme/);
+  assert.equal(getElement('rallyCompleteButton').disabled,false);
+});
+
+test('Rally controller owns control event wiring through injected actions',()=>{
+  const elements=new Map(),getElement=id=>{
+    if(!elements.has(id))elements.set(id,fakeElement());
+    return elements.get(id);
+  };
+  let completed=0,onlineHandlers=0;
+  const actions=new Proxy({complete:()=>completed++,render:()=>{}},{get:(target,key)=>target[key]||(()=>{})});
+  wireRallyController({getElement,actions,windowTarget:{addEventListener(){onlineHandlers++;}}});
+  getElement('rallyCompleteButton').listeners.click();
+  assert.equal(completed,1);
+  assert.equal(typeof getElement('checkpointOrderList').listeners.click,'function');
+  assert.equal(onlineHandlers,2);
+});
