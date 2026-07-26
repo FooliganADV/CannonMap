@@ -6,6 +6,9 @@ import * as checkpoints from './src/domain/checkpoints/workflow.js';
 import {renderRally as presentRally} from './src/ui/rally/presenter.js';
 import {wireRallyController} from './src/ui/rally/controller.js';
 import {wireProjectController} from './src/ui/project/controller.js';
+import {createFeatureFlags} from './src/core/feature-flags.js';
+import {createObservationCapture,OBSERVATION_CAPTURE_FEATURE_FLAG} from './src/application/observation-capture.js';
+import {createObservationCaptureRepository,openIndexedDbV2,V2_FEATURE_FLAG} from './src/infrastructure/indexeddb/index.js';
 
 const APP_VERSION = '0.7.1';
 const BUILD_ID = '2026.07.21.08';
@@ -31,6 +34,11 @@ const COLORS = {
 const core=createCoreCompatibility({appVersion:APP_VERSION});
 const state=core.state;
 let mapEngine=null;
+let observationCapture=null;
+let observationDatabase=null;
+let observationSequence=0;
+const observationSessionId=`device-${core.ids.create()}`;
+const featureFlags=createFeatureFlags({read:key=>globalThis.__CANNONMAP_FEATURE_FLAGS__?.[key]===true});
 
 const $ = id => document.getElementById(id);
 const uid=core.ids.create;
@@ -416,7 +424,7 @@ function lineGeometriesMatch(a,b){
 
 function openDatabase() {
   return new Promise((resolve,reject)=>{
-    const request=indexedDB.open(DB_NAME,1);
+    const request=indexedDB.open(DB_NAME);
     request.onupgradeneeded=()=>{const db=request.result;if(!db.objectStoreNames.contains(DB_STORE))db.createObjectStore(DB_STORE);};
     request.onsuccess=()=>resolve(request.result); request.onerror=()=>reject(request.error||new Error('IndexedDB could not be opened.'));
   });
@@ -680,8 +688,45 @@ function startGps() {
     state.gpsAccuracyLayer=L.circle(ll,{radius:position.coords.accuracy,color:'#38bdf8',weight:1,fillOpacity:.08}).addTo(state.map);
     state.gpsLayer=L.circleMarker(ll,{radius:8,color:'#fff',weight:3,fillColor:'#38bdf8',fillOpacity:1}).addTo(state.map);
     $('gpsStatus').textContent=`GPS ±${Math.round(accuracyFeet)} ft`;ensureNextCheckpoint();evaluateCheckpointArrival(accuracyFeet);renderRallyMode();
+    captureGpsObservation(position);
   },error=>setStatus(`GPS error: ${error.message}`,true),{enableHighAccuracy:true,maximumAge:2000,timeout:15000});
   $('gpsButton').textContent='Stop GPS';
+}
+function observationContext(overrides={}){
+  return {
+    eventId:String(state.settings.rallyEventId||'local'),
+    riderId:'local-rider',
+    checkpointId:currentCheckpoint()?.id||null,
+    deviceSessionId:observationSessionId,
+    sequence:++observationSequence,
+    captureSource:'browser.geolocation',
+    ...overrides
+  };
+}
+async function captureGpsObservation(position,context){
+  if(!observationCapture)return {status:'disabled'};
+  return observationCapture.capture(position,context||observationContext());
+}
+async function initializeObservationCapture(){
+  if(!featureFlags.isEnabled(OBSERVATION_CAPTURE_FEATURE_FLAG))return null;
+  observationDatabase=await openIndexedDbV2({
+    indexedDB,
+    featureFlags:{isEnabled:key=>key===V2_FEATURE_FLAG||featureFlags.isEnabled(key)}
+  });
+  observationCapture=createObservationCapture({
+    clock:core.clock,
+    featureFlags,
+    persistence:createObservationCaptureRepository(observationDatabase)
+  });
+  await observationCapture.recover();
+  return observationCapture;
+}
+function observationCaptureDiagnostics(){
+  return {
+    enabled:featureFlags.isEnabled(OBSERVATION_CAPTURE_FEATURE_FLAG),
+    initialized:Boolean(observationCapture),
+    entries:observationCapture?.diagnostics()||[]
+  };
 }
 async function importCompetitorJson(file) {
   try {
@@ -1236,6 +1281,7 @@ async function initializeApplication() {
   state.settings=Object.assign({leaderboardUrl:'https://gpscheckpoints.com/admin/leaderboard.html?id_event=15',rallyEndpointUrl:'',rallyEventId:'15',rallyPollSeconds:30,showCompetitorTrails:true,showCompetitorMarkers:true,competitorFreshMinutes:15,trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:'',radarOpacity:65,radarCoverage:'active-day',routeWeatherSpeed:45,usableFuelCapacity:0,expectedPavedRange:0,expectedMixedRange:0,reserveDistance:25,fuelProfile:'mixed',autoCompleteCheckpoints:true,checkpointArrivalRadius:500,checkpointMaxAccuracy:200,hideCompletedCheckpoints:true},state.settings);
   state.project.competitors ||= [];
   state.project.stationaryEvents ||= [];
+  try{await initializeObservationCapture();}catch(error){console.warn(`[CannonMap observation capture] ${error?.message||error}`);}
   initMap();wireUi();$('radarOpacity').value=state.settings.radarOpacity||65;$('radarCoverage').value=state.settings.radarCoverage||'active-day';$('routeWeatherSpeed').value=String(state.settings.routeWeatherSpeed||45);
   $('buildLabel').textContent=`Beta ${APP_VERSION}`;
   $('appVersion').textContent=`v${APP_VERSION} · ${BUILD_ID}`;
@@ -1276,5 +1322,5 @@ function mapEngineDiagnostics(){
     groups:Object.fromEntries(types.map(type=>[type,mapEngine?.group(type).getLayers().length||0]))
   };
 }
-window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,restoreDeferredCheckpoint,skipCurrentCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival,moveCheckpointInOrder,makeCheckpointNext,restoreImportedCheckpointOrder,handleStationaryAction,renderStationaryEvents,updateStationaryDetection,renderMapFeatures,mapEngineDiagnostics,runtimeDependencyReport,startApplication,registerServiceWorker};
+window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,restoreDeferredCheckpoint,skipCurrentCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival,moveCheckpointInOrder,makeCheckpointNext,restoreImportedCheckpointOrder,handleStationaryAction,renderStationaryEvents,updateStationaryDetection,renderMapFeatures,mapEngineDiagnostics,observationCaptureDiagnostics,captureGpsObservation,observationContext,runtimeDependencyReport,startApplication,registerServiceWorker};
 startApplication();
