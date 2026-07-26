@@ -48,3 +48,23 @@ Required failures publish `failed`, `false`, and a comma-separated
 The service-worker application shell includes every local dependency asset and
 Leaflet image. Live Firebase database responses, map tiles, weather, and traffic
 data are runtime network data and are not part of the static application shell.
+
+## Rider visibility preferences
+
+`rider-preferences.js` owns a versioned, event-scoped local preference document.
+The UI asks the store for `{markerVisible, breadcrumbVisible, selected}` by
+event ID and competitor ID. Defaults are marker on, breadcrumb off, and not
+selected.
+
+The preference store is separate from normalized Firebase/feed records,
+Firebase listener lifecycle, Leaflet layer references, and stationary-event
+state. `app.js` renders Rider Manager cards and projects preferences into a
+short-lived `competitorLayers` map. Opening or closing the panel performs no
+feed operation, so it cannot add Firebase subscriptions.
+
+Removed riders remain in persisted preference state. `ensure()` adds defaults
+for new IDs without replacing existing entries. Version 1 storage uses:
+
+```json
+{"version":1,"events":{"60":{"7":{"markerVisible":true,"breadcrumbVisible":false,"selected":false}}}}
+```

@@ -2,6 +2,11 @@
 
 ## Current QA status
 
+The Rider Manager branch expands the authoritative matrix to 85 cases: 83
+passed, 0 failed, and 2 intentional desktop skips. Rider Manager coverage passed
+35/35 across phone portrait, phone landscape, and desktop profiles; startup
+passed 20/20 and offline-shell startup passed 5/5. Node/unit coverage is 33/33.
+
 The authoritative 2026-07-25 Playwright run on
 `agent/local-runtime-dependencies` executed 50 cases serially: 48 passed, 0
 failed, 2 intentionally skipped, and 0 timed out. The original 19 CDN-blocking
@@ -31,6 +36,10 @@ America 250 field checklist. The CDN startup blocker no longer gates feature QA.
 - The committed vendor directory must be included unchanged by the production deployment.
 - Five parallel local workers caused transient Chromium process closures; serial execution passed the complete matrix. CI worker capacity should be calibrated before making high parallelism a release gate.
 - Live event credentials, Firebase availability, GPS accuracy, and field connectivity remain operational risks outside deterministic shell testing.
+- Rider Manager preferences are device-local; they do not synchronize between
+  phones or browsers.
+- Breadcrumb visibility is ready for existing or feed-provided rider layers,
+  but local breadcrumb recording remains intentionally deferred.
 
 ## Exit criteria
 

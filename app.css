@@ -139,6 +139,12 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
 .weather-radar-controls{margin-top:14px;padding-top:12px;border-top:1px solid var(--border)}.weather-attribution{margin-top:8px}.weather-attribution a{color:#7dd3fc}.weather-radar-controls input[type="range"]{width:100%}
 .cannon-radar-layer{transition:opacity .32s linear}
 .intel-toggle{display:none}.intel-sheet{display:none}
+.rider-manager{position:absolute;z-index:1320;top:12px;right:12px;bottom:12px;width:min(430px,calc(100% - 24px));display:flex;flex-direction:column;visibility:hidden;opacity:0;pointer-events:none;transform:translateX(20px);transition:opacity .18s ease,transform .18s ease;background:rgba(15,23,42,.98);border:1px solid #475569;border-radius:15px;padding:12px;color:#fff;box-shadow:0 18px 50px #000c;backdrop-filter:blur(12px)}
+.rider-manager.open{visibility:visible;opacity:1;pointer-events:auto;transform:none}
+.rider-manager>header{display:flex;align-items:center;justify-content:space-between;gap:10px}.rider-manager>header strong,.rider-manager>header small{display:block}.rider-manager>header small{margin-top:3px;color:#cbd5e1}.rider-manager>header button{width:48px;height:48px;border:0;border-radius:10px;background:#1f2937;color:#fff;font-size:1.5rem}
+.rider-manager-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}.rider-manager-actions button{min-height:50px;padding:7px;border:1px solid #64748b;border-radius:10px;background:#1f2937;color:#fff;font-weight:800}
+.rider-manager-list{min-height:0;overflow:auto;display:grid;align-content:start;gap:9px;padding:1px}.rider-manager-empty{padding:22px 10px;text-align:center;color:#cbd5e1}
+.rider-card{border:1px solid #475569;border-radius:12px;background:#111827;padding:10px}.rider-card header{display:flex;align-items:center;gap:9px}.rider-card header>div{min-width:0}.rider-card strong,.rider-card small{display:block}.rider-card strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rider-card small{margin-top:2px;color:#cbd5e1}.rider-select{min-width:72px;min-height:48px;border:1px solid #64748b;border-radius:9px;background:#1f2937;color:#fff;font-weight:800}.rider-select.selected{border-color:#38bdf8;background:#075985}.rider-card-status{display:flex;justify-content:space-between;gap:8px;margin:8px 0;color:#cbd5e1;font-size:.82rem}.rider-toggle-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.rider-toggle-grid label{min-height:52px;display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid #475569;border-radius:9px;background:#1f2937;font-weight:700}.rider-toggle-grid input{width:26px;height:26px;flex:0 0 26px}
 .rally-mode{display:none}
 
 @media (max-width:900px){
@@ -154,6 +160,7 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
   .intel-sheet{display:block;position:fixed;z-index:1200;left:8px;right:8px;bottom:calc(72px + env(safe-area-inset-bottom));visibility:hidden;opacity:0;pointer-events:none;transition:opacity .2s ease;background:rgba(15,23,42,.97);border:1px solid #475569;border-radius:15px;padding:12px;box-shadow:0 18px 50px #000c;backdrop-filter:blur(12px)}
   .intel-sheet.open{visibility:visible;opacity:1;pointer-events:auto}
   .intel-sheet header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}.intel-sheet header strong,.intel-sheet header small{display:block}.intel-sheet header small{color:var(--muted);margin-top:2px}.intel-sheet header button{width:44px;height:44px;border:0;border-radius:9px;background:#1f2937;color:#fff;font-size:1.4rem}
+  .rider-manager{position:fixed;top:8px;left:8px;right:8px;width:auto;bottom:calc(72px + env(safe-area-inset-bottom));padding:10px}
   .mobile-intel-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.mobile-intel-grid article{padding:8px}
   .mobile-weather{margin:9px 0;padding:9px;border:1px solid var(--border);border-radius:9px;background:#111827;font-size:.78rem}
   .mobile-intel-actions{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:7px}.mobile-intel-actions .button{min-height:44px;padding:8px;font-size:.78rem}
@@ -161,4 +168,4 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
   #trackingPanel .intel-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .map-status{display:none}
 }
-@media (max-width:900px) and (orientation:landscape){.rally-head{right:auto;width:100px}.rally-head>div:last-child{display:none}.rally-primary-card{top:8px;left:116px;right:auto;width:288px}.rally-more-sheet{left:412px;bottom:calc(128px + env(safe-area-inset-bottom))}.intel-sheet{left:412px;bottom:calc(128px + env(safe-area-inset-bottom))}.rally-actions{left:412px;grid-template-columns:repeat(3,minmax(48px,1fr))}}
+@media (max-width:900px) and (orientation:landscape){.rally-head{right:auto;width:100px}.rally-head>div:last-child{display:none}.rally-primary-card{top:8px;left:116px;right:auto;width:288px}.rally-more-sheet{left:412px;bottom:calc(128px + env(safe-area-inset-bottom))}.intel-sheet{left:412px;bottom:calc(128px + env(safe-area-inset-bottom))}.rider-manager{left:412px;bottom:calc(128px + env(safe-area-inset-bottom))}.rally-actions{left:412px;grid-template-columns:repeat(3,minmax(48px,1fr))}}

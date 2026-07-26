@@ -217,6 +217,7 @@
             <label><input id="showCompetitorMarkers" type="checkbox" /> Show latest rider positions</label>
           </div>
           <label class="field"><span>Freshness threshold</span><select id="competitorFreshMinutes"><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option></select></label>
+          <button id="openRiderManagerButton" class="button secondary wide" type="button">Open Rider Manager</button>
           <div class="notice muted">A faded trail is stale. The backbone remains a separate optional reference layer and is never treated as the official route.</div>
         </details>
 
@@ -295,6 +296,7 @@
             <button id="rallyFuelButton" type="button">Fuel settings</button>
             <button id="rallyWeatherButton" type="button">Weather</button>
             <button id="rallyHotelButton" type="button">Show hotel</button>
+            <button id="rallyRidersButton" type="button" aria-expanded="false">Rider Manager</button>
             <button id="goHotelButton" class="rally-hotel-action" type="button">GO TO HOTEL</button>
             <button id="rallyPlannerButton" type="button">Open Planner</button>
           </div>
@@ -340,6 +342,17 @@
           <button id="mobileWeatherButton" class="button secondary">Weather</button>
           <button id="mobileTrafficButton" class="button secondary">Traffic</button>
         </div>
+      </section>
+      <section id="riderManager" class="rider-manager" aria-hidden="true" aria-label="Rider Manager">
+        <header>
+          <div><strong>Rider Manager</strong><small id="riderManagerCount">0 riders</small></div>
+          <button id="riderManagerClose" type="button" aria-label="Close Rider Manager">×</button>
+        </header>
+        <div class="rider-manager-actions">
+          <button id="riderHideAllTrails" type="button">Hide all trails</button>
+          <button id="riderSelectedTrails" type="button">Show selected trails only</button>
+        </div>
+        <div id="riderManagerList" class="rider-manager-list" aria-live="polite"></div>
       </section>
     </main>
   </div>
@@ -422,6 +435,7 @@
   <script src="vendor/firebase/firebase-database.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script src="app.js?v=20260725-02"></script>
+  <script src="rider-preferences.js?v=20260726-01"></script>
+  <script src="app.js?v=20260726-01"></script>
 </body>
 </html>

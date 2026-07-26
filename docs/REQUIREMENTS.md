@@ -20,3 +20,21 @@
   without changing the selected base layer.
 
 Out of scope: fuel lookup, cause classification, clustering, and route advice.
+
+## Rally Mode Rider Manager
+
+- List every competitor in the normalized GPS Checkpoints model, including
+  riders whose current location is temporarily unavailable.
+- Show competitor number, rider name, team or vehicle, score or rank, and
+  freshness when those values are available.
+- Keep independent marker, breadcrumb, and selection preferences for each
+  event ID and competitor ID.
+- Default markers to visible and breadcrumbs to hidden.
+- Apply rider and bulk trail changes immediately, persist them locally, and
+  restore them across refreshes without modifying normalized feed records.
+- Preserve preferences for temporarily removed riders and apply defaults only
+  to newly observed riders.
+- Provide glove-friendly controls on phone portrait layouts without permanently
+  covering the Rally Mode action dock.
+
+Competitor Signatures and local breadcrumb recording remain separate later work.
