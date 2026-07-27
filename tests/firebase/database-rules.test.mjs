@@ -43,6 +43,9 @@ test('derived intelligence remains server-only',async()=>{
   const database=environment.authenticatedContext('owner-a').database();
   await assertFails(database.ref('/derivedIntelligence/event-1').once('value'));
   await assertFails(database.ref('/derivedIntelligence/event-1').set({commitment:'forbidden'}));
+  await assertFails(database.ref('/evidenceLedger/event-1/evidence-1').set({assertionKind:'observed'}));
+  await assertFails(database.ref('/commitmentInferences/event-1/owner-a/inference-1').set({assertionKind:'inferred'}));
+  await assertFails(database.ref('/commitmentDiagnostics/event-1/trace-1').once('value'));
 });
 
 test('emulator suite reached the configured rules project',()=>{

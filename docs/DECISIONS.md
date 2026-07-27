@@ -44,3 +44,8 @@ timeout or an unhandled `L is not defined` exception.
 **Decision:** Keep the M5 IndexedDB/outbox path authoritative and make secure upload a separate, default-off application adapter. Require all remote writes to cross an authenticated, App-Check-protected Cloud Function; Realtime Database clients receive no direct write permission.
 
 **Reason:** This preserves offline Rally behavior, keeps Firebase state out of normalized evidence records, centralizes validation and abuse controls, and prevents a compromised client from writing validated or derived intelligence. Deterministic owner-scoped receipts provide idempotency without making observations mutable.
+# M7 — explainable commitment remains a shadow inference
+
+**Decision:** Infer checkpoint commitment only from multiple validated observational signals, persist the immutable supporting ledger separately, and mark every result explicitly as inferred. Use deterministic IDs and revision links, retain independent confidence dimensions, and expose no consumer.
+
+**Reason:** A rider's intent cannot be observed directly. Requiring persistent checkpoint presence plus independent corroboration reduces pass-through false positives, while explanations and trace fixtures make false-positive and false-negative review reproducible. Shadow mode preserves current Rally behavior and provides an immediate rollback boundary.

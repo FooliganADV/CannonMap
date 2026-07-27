@@ -22,6 +22,22 @@
       ".read": false,
       ".write": false
     },
+    "evidenceLedger": {
+      ".read": false,
+      ".write": false
+    },
+    "commitmentInferences": {
+      ".read": false,
+      ".write": false
+    },
+    "commitmentInferenceHeads": {
+      ".read": false,
+      ".write": false
+    },
+    "commitmentDiagnostics": {
+      ".read": false,
+      ".write": false
+    },
     "derivedIntelligence": {
       ".read": false,
       ".write": false

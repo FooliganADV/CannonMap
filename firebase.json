@@ -3,7 +3,11 @@
     "rules": "database.rules.json"
   },
   "functions": {
-    "source": "functions"
+    "source": "functions",
+    "predeploy": [
+      "node scripts/package-functions.mjs",
+      "node scripts/validate-function-package.mjs"
+    ]
   },
   "emulators": {
     "auth": {

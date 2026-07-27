@@ -1,0 +1,13 @@
+{
+  "eventId": "america-250",
+  "competitorId": "rider-42",
+  "checkpoint": {"checkpointId": "cp-7", "location": {"lat": 35, "lon": -82}, "radiusMeters": 120},
+  "nowMs": 1800000000000,
+  "observations": [
+    {"observationId":"o1","eventId":"america-250","competitorId":"rider-42","occurredAt":1799999820000,"observed":{"location":{"lat":35.0036,"lon":-82},"accuracyMeters":8}},
+    {"observationId":"o2","eventId":"america-250","competitorId":"rider-42","occurredAt":1799999860000,"observed":{"location":{"lat":35.0008,"lon":-82},"accuracyMeters":8}},
+    {"observationId":"o3","eventId":"america-250","competitorId":"rider-42","occurredAt":1799999900000,"observed":{"location":{"lat":35.0006,"lon":-82},"accuracyMeters":8}},
+    {"observationId":"o4","eventId":"america-250","competitorId":"rider-42","occurredAt":1799999940000,"observed":{"location":{"lat":35.0005,"lon":-82},"accuracyMeters":8}},
+    {"observationId":"o5","eventId":"america-250","competitorId":"rider-42","occurredAt":1799999980000,"observed":{"location":{"lat":35.0004,"lon":-82},"accuracyMeters":8}}
+  ]
+}

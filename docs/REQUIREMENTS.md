@@ -28,3 +28,11 @@ Out of scope: fuel lookup, cause classification, clustering, and route advice.
 - The boundary accepts only schema version 1 observations with known keys, valid identifiers and timestamps, bounded position values, a matching idempotency key, and a request no larger than 32 KiB.
 - Accepted observations are immutable. Each authenticated user receives an owner-scoped deterministic receipt; replay returns that receipt without creating another observation.
 - Abuse controls include App Check verification, per-user/event minute quotas, strict origin handling, request-size limits, and replay reservations.
+# Milestone M7 — Commitment Engine
+
+- Commitment is an inference from recent validated observations and checkpoint geometry. It is never represented as an observed fact.
+- The lifecycle supports `pending`, `candidate`, `confirmed`, `rejected`, and `expired` with explicit forward-only transitions.
+- An inference is emitted only when checkpoint-area presence and at least one additional independent signal are supported by immutable evidence. Insufficient evidence produces no inference.
+- Every inference carries deterministic inference and trace IDs, event/competitor/checkpoint identity, schema and algorithm versions, three independent confidence dimensions, evidence references, and a human-readable explanation whose signals reference that evidence.
+- The engine may not consume rider-entered intent, Route Family output, UI state, notifications, publications, or recommendations.
+- M7 operates only in shadow mode: server results and diagnostics persist, but no application or downstream intelligence module consumes them.
