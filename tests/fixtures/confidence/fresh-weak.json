@@ -1,0 +1,14 @@
+{
+  "evaluationTime": 10000000,
+  "evidence": [
+    {
+      "evidenceId": "fresh-weak-1",
+      "occurredAt": 9820000,
+      "effects": {
+        "evidenceStrength": {"kind": "set", "value": 0.2},
+        "current": {"kind": "reinforce"},
+        "recency": {"kind": "set"}
+      }
+    }
+  ]
+}

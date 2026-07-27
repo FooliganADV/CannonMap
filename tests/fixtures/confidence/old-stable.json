@@ -1,0 +1,14 @@
+{
+  "evaluationTime": 10000000,
+  "evidence": [
+    {
+      "evidenceId": "old-stable-1",
+      "occurredAt": 2800000,
+      "effects": {
+        "historical": {"kind": "set", "value": 0.8},
+        "recency": {"kind": "set"},
+        "stability": {"kind": "set", "value": 0.9}
+      }
+    }
+  ]
+}
