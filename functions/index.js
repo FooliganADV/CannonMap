@@ -1,13 +1,16 @@
 import {onRequest} from 'firebase-functions/v2/https';
+import {onValueCreated} from 'firebase-functions/v2/database';
 import {getApps,initializeApp} from 'firebase-admin/app';
 import {getAuth} from 'firebase-admin/auth';
 import {getAppCheck} from 'firebase-admin/app-check';
 import {getDatabase} from 'firebase-admin/database';
 import {createIngestObservation,createRealtimeIngestionRepository} from './src/ingest-observation.js';
+import {createInferCommitmentHandler,createRealtimeCommitmentRepository} from './src/infer-commitment.js';
 
 if(!getApps().length)initializeApp();
 const database=getDatabase();
 const ingest=createIngestObservation({repository:createRealtimeIngestionRepository(database)});
+const infer=createInferCommitmentHandler({repository:createRealtimeCommitmentRepository(database)});
 const allowedOrigins=new Set(String(process.env.CANNONMAP_ALLOWED_ORIGINS||'').split(',').map(value=>value.trim()).filter(Boolean));
 
 export const ingestObservation=onRequest({region:'us-central1',timeoutSeconds:30,memory:'256MiB',maxInstances:20},async(req,res)=>{
@@ -41,4 +44,16 @@ export const ingestObservation=onRequest({region:'us-central1',timeoutSeconds:30
     console.warn('secure-ingestion-rejected',{name:error?.name||'Error',code:error?.code||'unknown'});
     return res.status(401).json({error:'Authentication or App Check verification failed.'});
   }
+});
+
+export const inferCommitment=onValueCreated({
+  ref:'/validatedObservations/{eventId}/{observationId}',
+  region:'us-central1',timeoutSeconds:60,memory:'256MiB',maxInstances:20
+},async event=>{
+  const observation=event.data.val();
+  const result=await infer({eventId:event.params.eventId,observation});
+  console.info('commitment-shadow-evaluation',{
+    eventId:event.params.eventId,observationId:event.params.observationId,
+    status:result.status,traceId:result.traceId||result.inference?.traceId
+  });
 });

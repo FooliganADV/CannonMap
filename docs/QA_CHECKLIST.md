@@ -111,3 +111,13 @@ there is no remaining product assertion failure.
 - [x] Deterministic receipts, replay handling, immutable writes, request limits, and per-user/event quotas are tested.
 - [x] Realtime Database Emulator confirms default deny, owner-only reads, direct-ingress denial, and server-only derived paths.
 - [x] Firebase Auth and App Check browser assets are local vendor dependencies.
+# M7 Commitment Engine
+
+- [x] Confirmed trace fixture produces a deterministic multi-signal inference.
+- [x] Every explanation signal references immutable observed evidence.
+- [x] Fast pass-through, stale, mismatched, missing-geometry, and single-source traces produce no inference.
+- [x] Sustained commitment remains detectable when heading data is unavailable.
+- [x] Replay returns the same trace/inference identities and creates no duplicate shadow record.
+- [x] Lifecycle transition tests cover all five states and reject backward transitions.
+- [x] Architecture tests prohibit UI, route-family, intent, notification, and publication dependencies or consumers.
+- [x] Database Rules deny client access to evidence, inferences, heads, and diagnostics.

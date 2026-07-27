@@ -44,3 +44,6 @@ America 250 field checklist. The CDN startup blocker no longer gates feature QA.
 # M6 release gate
 
 Secure ingestion is deployable only after the CannonMap Firebase project, allowed origins, Authentication provider, App Check provider, Realtime Database rules, and `ingestObservation` function are configured together. The client flag must remain off until that deployment is verified. Offline/local observation capture does not depend on this release gate. Production monitoring must alert on authentication failures, rejected schemas, quota responses, and function errors without logging observation payloads or credentials.
+# M7 release gate
+
+Commitment inference is shadow-only. Deploy the trigger and server-only paths for trace review, false-positive/false-negative analysis, replay reconciliation, and diagnostic monitoring. Do not expose commitment data to Rally Mode or downstream engines. Rollback is disabling/removing the trigger while retaining append-only evidence and inference history; existing observation capture and secure ingestion continue independently.
