@@ -6,11 +6,13 @@ import {getAppCheck} from 'firebase-admin/app-check';
 import {getDatabase} from 'firebase-admin/database';
 import {createIngestObservation,createRealtimeIngestionRepository} from './src/ingest-observation.js';
 import {createInferCommitmentHandler,createRealtimeCommitmentRepository} from './src/infer-commitment.js';
+import {createRealtimeRouteRepository,createUpdateRouteVariantHandler} from './routes/index.js';
 
 if(!getApps().length)initializeApp();
 const database=getDatabase();
 const ingest=createIngestObservation({repository:createRealtimeIngestionRepository(database)});
 const infer=createInferCommitmentHandler({repository:createRealtimeCommitmentRepository(database)});
+const updateRoute=createUpdateRouteVariantHandler({repository:createRealtimeRouteRepository(database)});
 const allowedOrigins=new Set(String(process.env.CANNONMAP_ALLOWED_ORIGINS||'').split(',').map(value=>value.trim()).filter(Boolean));
 
 export const ingestObservation=onRequest({region:'us-central1',timeoutSeconds:30,memory:'256MiB',maxInstances:20},async(req,res)=>{
@@ -55,5 +57,16 @@ export const inferCommitment=onValueCreated({
   console.info('commitment-shadow-evaluation',{
     eventId:event.params.eventId,observationId:event.params.observationId,
     status:result.status,traceId:result.traceId||result.inference?.traceId
+  });
+});
+
+export const updateRouteVariant=onValueCreated({
+  ref:'/validatedObservations/{eventId}/{observationId}',
+  region:'us-central1',timeoutSeconds:60,memory:'256MiB',maxInstances:20
+},async event=>{
+  const result=await updateRoute({eventId:event.params.eventId,observation:event.data.val()});
+  console.info('route-family-shadow-projection',{
+    eventId:event.params.eventId,observationId:event.params.observationId,status:result.status,
+    variantId:result.variant?.variantId,familyId:result.family?.familyId
   });
 });

@@ -47,3 +47,6 @@ Secure ingestion is deployable only after the CannonMap Firebase project, allowe
 # M7 release gate
 
 Commitment inference is shadow-only. Deploy the trigger and server-only paths for trace review, false-positive/false-negative analysis, replay reconciliation, and diagnostic monitoring. Do not expose commitment data to Rally Mode or downstream engines. Rollback is disabling/removing the trigger while retaining append-only evidence and inference history; existing observation capture and secure ingestion continue independently.
+# M8 release gate
+
+Route Family projections remain shadow-only. Deploy the projection trigger and default-deny paths together, then monitor replay receipts, transaction-contention diagnostics, lineage consistency, and Variant/Family aggregate reconciliation. Rollback is disabling the trigger while retaining immutable revisions and lineage; no existing Rally, capture, ingestion, or commitment behavior depends on M8.

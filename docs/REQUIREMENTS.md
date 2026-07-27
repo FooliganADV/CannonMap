@@ -36,3 +36,11 @@ Out of scope: fuel lookup, cause classification, clustering, and route advice.
 - Every inference carries deterministic inference and trace IDs, event/competitor/checkpoint identity, schema and algorithm versions, three independent confidence dimensions, evidence references, and a human-readable explanation whose signals reference that evidence.
 - The engine may not consume rider-entered intent, Route Family output, UI state, notifications, publications, or recommendations.
 - M7 operates only in shadow mode: server results and diagnostics persist, but no application or downstream intelligence module consumes them.
+# Milestone M8 â€” Route Family Engine
+
+- Route Variants retain independent lifecycle, geometry fingerprint, evidence references, statistics, and immutable revisions.
+- Route Families retain an independent aggregate projection, member Variant references, lifecycle, lineage, and immutable revisions.
+- Deterministic replay of one validated traversal does not duplicate statistics or history.
+- Merge and split changes are provisional, reversible, explainable, and preserve superseded source revisions.
+- Server projection heads use transactional revision checks with bounded contention retries.
+- All Route Family paths are server-only shadow data. Rally Mode and downstream systems do not consume M8 output.

@@ -60,3 +60,10 @@ The Cloud Function authenticates the caller, verifies App Check, validates the c
 The `inferCommitment` Realtime Database create trigger reads validated observations and checkpoint geometry through a server repository, evaluates all relevant checkpoints, persists the strongest explainable inference and immutable evidence, and records a shadow diagnostic. Deterministic trace, evidence, and inference IDs make trigger replay idempotent. A head pointer and `supersededBy`/`supersedes` links preserve revision history without rewriting evidence.
 
 The browser application, Rally presenters, routes, publications, and notification paths do not import or read commitment output. The Cloud Functions deployment packages an exact validated copy of the canonical domain modules so the deployed source remains self-contained.
+# M8 Route Family Engine
+
+`src/domain/routes` deterministically derives immutable Route Variant and Route Family revisions from validated route-traversal evidence. A Variant owns its `independentStats`; a Family owns a separately calculated `aggregateStats` projection. Family reconciliation never writes into or replaces Variant statistics.
+
+The server trigger in `functions/routes` is the only M8 runtime adapter. It records immutable revision histories, transactional head pointers, aggregate shadow projections, observation replay receipts, diagnostics, proposals, and lineage in default-deny Realtime Database paths. Deterministic geometry fingerprints and IDs make replay stable; bounded head transactions surface contention rather than overwriting a concurrent revision.
+
+Merge and split operations begin as provisional proposals. Applying one creates target revisions, superseded source revisions, and an explainable lineage edge while retaining every prior snapshot. M8 has no application/UI import and no publication, recommendation, Co-Driver, Checkpoint Intelligence, Compatibility, or M9 Confidence Evolution consumer.

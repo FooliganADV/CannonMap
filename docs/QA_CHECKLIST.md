@@ -121,3 +121,13 @@ there is no remaining product assertion failure.
 - [x] Lifecycle transition tests cover all five states and reject backward transitions.
 - [x] Architecture tests prohibit UI, route-family, intent, notification, and publication dependencies or consumers.
 - [x] Database Rules deny client access to evidence, inferences, heads, and diagnostics.
+# M8 Route Family Engine
+
+- [x] Geometry fingerprints and initial Variant/Family revisions replay deterministically.
+- [x] Variant statistics remain independent from Family aggregate statistics.
+- [x] Observation receipts prevent trigger replay from incrementing traversal totals.
+- [x] Merge and split proposals preserve superseded revisions and explainable lineage.
+- [x] Missing route evidence is ignored without changing projections.
+- [x] Contention exhaustion fails explicitly instead of overwriting a head.
+- [x] Database Rules deny client access to revisions, heads, projections, lineage, proposals, receipts, and diagnostics.
+- [x] Architecture tests confirm no application/UI or M9 consumer exists.

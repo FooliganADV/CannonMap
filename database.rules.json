@@ -38,6 +38,15 @@
       ".read": false,
       ".write": false
     },
+    "routeVariantRevisions": { ".read": false, ".write": false },
+    "routeVariantHeads": { ".read": false, ".write": false },
+    "routeFamilyRevisions": { ".read": false, ".write": false },
+    "routeFamilyHeads": { ".read": false, ".write": false },
+    "routeAggregateProjections": { ".read": false, ".write": false },
+    "routeLineage": { ".read": false, ".write": false },
+    "routeProposals": { ".read": false, ".write": false },
+    "routeDiagnostics": { ".read": false, ".write": false },
+    "routeProjectionReceipts": { ".read": false, ".write": false },
     "derivedIntelligence": {
       ".read": false,
       ".write": false
