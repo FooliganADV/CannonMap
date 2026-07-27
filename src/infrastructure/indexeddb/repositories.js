@@ -1,4 +1,5 @@
 import {requestResult,transactionDone} from './request.js';
+import {createConfidenceVectorRepository} from './confidence-vector-repository.js';
 
 const REQUIRED_METADATA=['schemaVersion','createdAt','updatedAt','eventId'];
 
@@ -54,7 +55,7 @@ export function createDomainRepositories(database){
     commitmentInferences:createRepository({database,storeName:'commitmentInferences'}),
     routeFamilies:createRepository({database,storeName:'routeFamilies'}),
     routeVariants:createRepository({database,storeName:'routeVariants'}),
-    confidenceVectors:createRepository({database,storeName:'confidenceVectors'}),
+    confidenceVectors:createConfidenceVectorRepository({database}),
     intelligenceItems:createRepository({database,storeName:'intelligenceItems'}),
     recommendations:createRepository({database,storeName:'recommendations'}),
     recommendationEvaluations:createRepository({database,storeName:'recommendationEvaluations'}),

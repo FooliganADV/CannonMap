@@ -1,0 +1,13 @@
+{
+  "evaluationTime": 10000000,
+  "evidence": [
+    {
+      "evidenceId": "high-quality-sparse-1",
+      "occurredAt": 9940000,
+      "effects": {
+        "quality": {"kind": "set", "value": 0.95},
+        "evidenceStrength": {"kind": "set", "value": 0.25}
+      }
+    }
+  ]
+}

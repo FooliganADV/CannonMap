@@ -1,0 +1,14 @@
+{
+  "evaluationTime": 10000000,
+  "evidence": [
+    {
+      "evidenceId": "strong-low-quality-1",
+      "occurredAt": 9940000,
+      "effects": {
+        "quality": {"kind": "set", "value": 0.2},
+        "evidenceStrength": {"kind": "set", "value": 0.9},
+        "inference": {"kind": "set", "value": 0.8}
+      }
+    }
+  ]
+}
