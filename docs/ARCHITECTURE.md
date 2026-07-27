@@ -48,3 +48,8 @@ Required failures publish `failed`, `false`, and a comma-separated
 The service-worker application shell includes every local dependency asset and
 Leaflet image. Live Firebase database responses, map tiles, weather, and traffic
 data are runtime network data and are not part of the static application shell.
+# M6 secure-ingestion boundary
+
+M6 adds an optional upload path without changing IndexedDB authority. `observation-capture` continues to append the normalized M5 record and outbox item locally. When both capture and `architecture.auth.secure-ingestion` are enabled, `secure-observation-upload` reads that record through the existing observation repository, validates it, obtains Firebase Authentication/App Check credentials through an infrastructure adapter, and sends it through the HTTP ingress adapter. A successful server receipt is then acknowledged by the existing outbox replay seam.
+
+The Cloud Function authenticates the caller, verifies App Check, validates the complete observation, reserves the deterministic idempotency receipt, consumes a per-user/event quota, and performs an immutable server-side ingress write. Realtime Database rules default-deny all unspecified paths. Clients may read only their own ingress and receipts; Admin SDK code is the sole writer. No M7 commitment, route-family, compatibility, crowd, checkpoint-intelligence, publication, recommendation, or evaluation component is present.

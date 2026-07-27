@@ -19,6 +19,7 @@ export function createObservationCaptureRepository(database){
       const items=await repositories.observationOutbox.getAll();
       return items.filter(item=>item.state==='pending').sort((a,b)=>String(a.createdAt).localeCompare(String(b.createdAt)));
     },
+    get:key=>repositories.observations.get(key),
     acknowledge:(idempotencyKey,details)=>acknowledgeOutboxItem(database,idempotencyKey,details)
   });
 }

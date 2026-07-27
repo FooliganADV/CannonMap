@@ -20,3 +20,11 @@
   without changing the selected base layer.
 
 Out of scope: fuel lookup, cause classification, clustering, and route advice.
+# Milestone M6 — Auth and Secure Ingestion
+
+- Secure upload is independently feature-gated by `architecture.auth.secure-ingestion`; local observation capture remains authoritative and operational when upload is disabled or unavailable.
+- An enabled upload session authenticates with Firebase Authentication and presents Firebase ID and App Check tokens to the ingestion endpoint.
+- Clients cannot write observation ingress, validated observations, quotas, receipts, or derived intelligence directly. The ingestion function is the only observation write boundary.
+- The boundary accepts only schema version 1 observations with known keys, valid identifiers and timestamps, bounded position values, a matching idempotency key, and a request no larger than 32 KiB.
+- Accepted observations are immutable. Each authenticated user receives an owner-scoped deterministic receipt; replay returns that receipt without creating another observation.
+- Abuse controls include App Check verification, per-user/event minute quotas, strict origin handling, request-size limits, and replay reservations.

@@ -8,7 +8,10 @@ import {wireRallyController} from './src/ui/rally/controller.js';
 import {wireProjectController} from './src/ui/project/controller.js';
 import {createFeatureFlags} from './src/core/feature-flags.js';
 import {createObservationCapture,OBSERVATION_CAPTURE_FEATURE_FLAG} from './src/application/observation-capture.js';
+import {createSecureObservationUploader,SECURE_INGESTION_FEATURE_FLAG} from './src/application/secure-observation-upload.js';
 import {createObservationCaptureRepository,openIndexedDbV2,V2_FEATURE_FLAG} from './src/infrastructure/indexeddb/index.js';
+import {createFirebaseAuthentication} from './src/infrastructure/firebase/authentication.js';
+import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
 const APP_VERSION = '0.7.1';
 const BUILD_ID = '2026.07.21.08';
@@ -35,7 +38,9 @@ const core=createCoreCompatibility({appVersion:APP_VERSION});
 const state=core.state;
 let mapEngine=null;
 let observationCapture=null;
+let secureObservationUploader=null;
 let observationDatabase=null;
+let observationRepository=null;
 let observationSequence=0;
 const observationSessionId=`device-${core.ids.create()}`;
 const featureFlags=createFeatureFlags({read:key=>globalThis.__CANNONMAP_FEATURE_FLAGS__?.[key]===true});
@@ -713,18 +718,42 @@ async function initializeObservationCapture(){
     indexedDB,
     featureFlags:{isEnabled:key=>key===V2_FEATURE_FLAG||featureFlags.isEnabled(key)}
   });
+  observationRepository=createObservationCaptureRepository(observationDatabase);
   observationCapture=createObservationCapture({
     clock:core.clock,
     featureFlags,
-    persistence:createObservationCaptureRepository(observationDatabase)
+    persistence:observationRepository
   });
   await observationCapture.recover();
   return observationCapture;
+}
+async function initializeSecureObservationIngestion(){
+  if(!featureFlags.isEnabled(SECURE_INGESTION_FEATURE_FLAG))return null;
+  if(!observationCapture||!observationRepository)throw new Error('Local observation capture must be initialized before secure ingestion.');
+  secureObservationUploader=createSecureObservationUploader({
+    featureFlags,
+    clock:core.clock,
+    observations:observationRepository,
+    authentication:createFirebaseAuthentication({
+      firebase:globalThis.firebase,
+      config:globalThis.__CANNONMAP_FIREBASE_CONFIG__,
+      appCheckSiteKey:globalThis.__CANNONMAP_APP_CHECK_SITE_KEY__
+    }),
+    transport:createObservationIngressClient({endpoint:globalThis.__CANNONMAP_SECURE_INGESTION_URL__})
+  });
+  await secureObservationUploader.initialize();
+  return secureObservationUploader;
+}
+async function replaySecureObservations(options){
+  if(!observationCapture||!secureObservationUploader)return {status:'disabled',delivered:0};
+  return observationCapture.replay({deliver:item=>secureObservationUploader.deliver(item),...options});
 }
 function observationCaptureDiagnostics(){
   return {
     enabled:featureFlags.isEnabled(OBSERVATION_CAPTURE_FEATURE_FLAG),
     initialized:Boolean(observationCapture),
+    secureIngestionEnabled:featureFlags.isEnabled(SECURE_INGESTION_FEATURE_FLAG),
+    secureIngestionInitialized:Boolean(secureObservationUploader),
     entries:observationCapture?.diagnostics()||[]
   };
 }
@@ -1282,6 +1311,7 @@ async function initializeApplication() {
   state.project.competitors ||= [];
   state.project.stationaryEvents ||= [];
   try{await initializeObservationCapture();}catch(error){console.warn(`[CannonMap observation capture] ${error?.message||error}`);}
+  try{await initializeSecureObservationIngestion();}catch(error){console.warn(`[CannonMap secure ingestion] ${error?.message||error}`);}
   initMap();wireUi();$('radarOpacity').value=state.settings.radarOpacity||65;$('radarCoverage').value=state.settings.radarCoverage||'active-day';$('routeWeatherSpeed').value=String(state.settings.routeWeatherSpeed||45);
   $('buildLabel').textContent=`Beta ${APP_VERSION}`;
   $('appVersion').textContent=`v${APP_VERSION} · ${BUILD_ID}`;
@@ -1322,5 +1352,5 @@ function mapEngineDiagnostics(){
     groups:Object.fromEntries(types.map(type=>[type,mapEngine?.group(type).getLayers().length||0]))
   };
 }
-window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,restoreDeferredCheckpoint,skipCurrentCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival,moveCheckpointInOrder,makeCheckpointNext,restoreImportedCheckpointOrder,handleStationaryAction,renderStationaryEvents,updateStationaryDetection,renderMapFeatures,mapEngineDiagnostics,observationCaptureDiagnostics,captureGpsObservation,observationContext,runtimeDependencyReport,startApplication,registerServiceWorker};
+window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,restoreDeferredCheckpoint,skipCurrentCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival,moveCheckpointInOrder,makeCheckpointNext,restoreImportedCheckpointOrder,handleStationaryAction,renderStationaryEvents,updateStationaryDetection,renderMapFeatures,mapEngineDiagnostics,observationCaptureDiagnostics,captureGpsObservation,replaySecureObservations,observationContext,runtimeDependencyReport,startApplication,registerServiceWorker};
 startApplication();

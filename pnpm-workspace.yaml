@@ -1,0 +1,8 @@
+packages:
+  - functions
+  - tests/firebase
+
+allowBuilds:
+  '@firebase/util': false
+  core-js: false
+  protobufjs: false
