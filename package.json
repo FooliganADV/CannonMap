@@ -10,6 +10,7 @@
     "test:commitment": "node --test tests/commitment-engine.test.mjs",
     "test:routes": "node --test tests/route-family-engine.test.mjs",
     "test:confidence": "node --test tests/confidence-evolution.test.mjs",
+    "test:intelligence": "node --test tests/checkpoint-compatibility.test.mjs",
     "validate:functions": "node scripts/validate-function-package.mjs",
     "test:browser": "playwright test",
     "test:security": "firebase emulators:exec --project demo-cannonmap --only database \"node --test tests/firebase/*.test.mjs\""
