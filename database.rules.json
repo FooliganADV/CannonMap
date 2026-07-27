@@ -47,6 +47,41 @@
     "routeProposals": { ".read": false, ".write": false },
     "routeDiagnostics": { ".read": false, ".write": false },
     "routeProjectionReceipts": { ".read": false, ".write": false },
+    "checkpointAggregateRevisions": { ".read": false, ".write": false },
+    "checkpointAggregateHeads": { ".read": false, ".write": false },
+    "sequenceAggregateRevisions": { ".read": false, ".write": false },
+    "sequenceAggregateHeads": { ".read": false, ".write": false },
+    "compatibilityRevisions": { ".read": false, ".write": false },
+    "compatibilityHeads": { ".read": false, ".write": false },
+    "compatibilitySuggestions": { ".read": false, ".write": false },
+    "networkCommands": {
+      "$uid": {
+        "$commandId": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && auth.uid === $uid && auth.token.events[newData.child('eventId').val()] === true && !data.exists()",
+          ".validate": "newData.hasChildren(['schemaVersion','commandId','uid','eventId','memberId','type','issuedAt','actorUid','authorization','eventMembershipVerified'])",
+          "schemaVersion": { ".validate": "newData.isNumber() && newData.val() === 1" },
+          "commandId": { ".validate": "newData.isString() && newData.val() === $commandId && newData.val().length <= 128" },
+          "uid": { ".validate": "newData.isString() && newData.val() === $uid" },
+          "eventId": { ".validate": "newData.isString() && newData.val().length <= 128" },
+          "memberId": { ".validate": "newData.isString() && newData.val().length <= 128" },
+          "type": { ".validate": "newData.val() === 'AddMember' || newData.val() === 'RemoveMember' || newData.val() === 'UpdateWeight' || newData.val() === 'UpdateNotes'" },
+          "issuedAt": { ".validate": "newData.isNumber() && newData.val() <= now + 300000 && newData.val() >= now - 86400000" },
+          "actorUid": { ".validate": "newData.isString() && newData.val() === $uid" },
+          "authorization": { ".validate": "newData.val() === 'explicit-user-command'" },
+          "eventMembershipVerified": { ".validate": "newData.val() === true" },
+          "weight": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1" },
+          "notes": { ".validate": "newData.isString() && newData.val().length <= 500" },
+          "$other": { ".validate": false }
+        }
+      }
+    },
+    "intelligenceNetworks": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": false
+      }
+    },
     "derivedIntelligence": {
       ".read": false,
       ".write": false

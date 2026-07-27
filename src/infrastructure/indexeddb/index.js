@@ -4,6 +4,7 @@ export {
 } from './schema.js';
 export {createDomainRepositories,createRepository} from './repositories.js';
 export {createConfidenceVectorRepository} from './confidence-vector-repository.js';
+export {createIntelligenceRepository} from './intelligence-repository.js';
 export {appendObservationWithOutbox,acknowledgeOutboxItem} from './observation-outbox.js';
 export {createObservationCaptureRepository} from './observation-capture-repository.js';
 export {createMigrationRunner} from './migration-runner.js';

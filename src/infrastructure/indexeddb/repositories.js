@@ -1,5 +1,6 @@
 import {requestResult,transactionDone} from './request.js';
 import {createConfidenceVectorRepository} from './confidence-vector-repository.js';
+import {createIntelligenceRepository} from './intelligence-repository.js';
 
 const REQUIRED_METADATA=['schemaVersion','createdAt','updatedAt','eventId'];
 
@@ -56,6 +57,7 @@ export function createDomainRepositories(database){
     routeFamilies:createRepository({database,storeName:'routeFamilies'}),
     routeVariants:createRepository({database,storeName:'routeVariants'}),
     confidenceVectors:createConfidenceVectorRepository({database}),
+    intelligence:createIntelligenceRepository({database}),
     intelligenceItems:createRepository({database,storeName:'intelligenceItems'}),
     recommendations:createRepository({database,storeName:'recommendations'}),
     recommendationEvaluations:createRepository({database,storeName:'recommendationEvaluations'}),
