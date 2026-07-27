@@ -49,3 +49,8 @@ timeout or an unhandled `L is not defined` exception.
 **Decision:** Infer checkpoint commitment only from multiple validated observational signals, persist the immutable supporting ledger separately, and mark every result explicitly as inferred. Use deterministic IDs and revision links, retain independent confidence dimensions, and expose no consumer.
 
 **Reason:** A rider's intent cannot be observed directly. Requiring persistent checkpoint presence plus independent corroboration reduces pass-through false positives, while explanations and trace fixtures make false-positive and false-negative review reproducible. Shadow mode preserves current Rally behavior and provides an immediate rollback boundary.
+# M8 â€” immutable Variant statistics and explainable Family lineage
+
+**Decision:** Keep Route Variant statistics independent, derive Route Family aggregates without mutation, and represent merges/splits as provisional proposals followed by new revisions and lineage edges. Store all M8 output in server-only shadow paths.
+
+**Reason:** Independent Variant evidence must survive later grouping changes. Append-only revisions and deterministic identities make replay, rollback, review, and contention handling explainable without changing Rally behavior or committing to M9 confidence semantics.
