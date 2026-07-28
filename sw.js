@@ -1,11 +1,11 @@
-const CACHE = 'cannonmap-v0.7.1-20260727-m11f';
+const CACHE = 'cannonmap-v0.7.1-20260727-m11g';
 const APP_SHELL = [
   './',
   './index.html',
   './app.css',
   './gps-checkpoints-feed.js?v=20260725-02',
   './stationary-events.js?v=20260725-01',
-  './app.js?v=20260727-m11f',
+  './app.js?v=20260727-m11g',
   './src/core/clock.js',
   './src/core/compatibility.js',
   './src/core/errors.js',
@@ -20,6 +20,7 @@ const APP_SHELL = [
   './src/infrastructure/firebase/authentication.js',
   './src/infrastructure/firebase/observation-ingress-client.js',
   './src/ui/map/map-engine.js',
+  './src/ui/map/layer-registry.js',
   './src/ui/project/controller.js',
   './src/ui/rally/controller.js',
   './src/ui/rally/presenter.js',
