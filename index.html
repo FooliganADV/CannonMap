@@ -13,6 +13,12 @@
   <link rel="stylesheet" href="app.css?v=20260727-m11c" />
 </head>
 <body>
+  <!-- ARCH-006: fuel management UI removed; hidden stubs keep legacy app.js selectors from throwing -->
+  <span id="missionFuelCount" hidden>0</span>
+  <span id="rallyFuelStatus" hidden></span>
+  <dialog id="fuelDialog" hidden></dialog>
+  <button id="rallyFuelButton" type="button" hidden></button>
+
   <header class="topbar">
     <div class="brand">
       <span class="brand-mark">CM</span>
