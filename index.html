@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260727-m11b" />
+  <link rel="stylesheet" href="app.css?v=20260727-m11c" />
 </head>
 <body>
   <header class="topbar">
@@ -47,7 +47,6 @@
         <div class="stats-grid mission-stats">
           <article><span>Total features</span><strong id="missionFeatureCount">0</strong></article>
           <article><span>Checkpoints</span><strong id="missionCheckpointCount">0</strong></article>
-          <article><span>Fuel stops</span><strong id="missionFuelCount">0</strong></article>
           <article><span>Hotels</span><strong id="missionHotelCount">0</strong></article>
           <article><span>Unassigned</span><strong id="missionUnassignedCount">0</strong></article>
           <article><span>Planned mileage</span><strong id="missionMileage">0 mi</strong></article>
@@ -126,7 +125,6 @@
                 <option value="backbone">Backbone (reference)</option>
                 <option value="waypoint">Waypoint</option>
                 <option value="checkpoint">Checkpoint</option>
-                <option value="fuel">Fuel</option>
                 <option value="hotel">Hotel</option>
               </select>
             </label>
@@ -166,10 +164,10 @@
       </section>
 
       <section id="searchPanel" class="panel">
-        <div class="section-heading"><div><h2>Global Search</h2><p>Find any checkpoint, route, fuel stop, hotel, track, or note.</p></div></div>
-        <label class="field"><span>Search project</span><input id="globalSearch" type="search" placeholder="Checkpoint 37, fuel, Pueblo, hotel…" /></label>
+        <div class="section-heading"><div><h2>Global Search</h2><p>Find any checkpoint, route, hotel, track, or note.</p></div></div>
+        <label class="field"><span>Search project</span><input id="globalSearch" type="search" placeholder="Checkpoint 37, Pueblo, hotel…" /></label>
         <div class="two-col">
-          <label class="field"><span>Type</span><select id="searchType"><option value="all">All types</option><option value="checkpoint">Checkpoints</option><option value="fuel">Fuel</option><option value="hotel">Hotels</option><option value="route">Routes</option><option value="track">Tracks</option><option value="backbone">Backbone</option><option value="waypoint">Waypoints</option></select></label>
+          <label class="field"><span>Type</span><select id="searchType"><option value="all">All types</option><option value="checkpoint">Checkpoints</option><option value="hotel">Hotels</option><option value="route">Routes</option><option value="track">Tracks</option><option value="backbone">Backbone</option><option value="waypoint">Waypoints</option></select></label>
           <label class="field"><span>Day</span><select id="searchDay"><option value="all">All days</option><option value="1">Day 1</option><option value="2">Day 2</option><option value="3">Day 3</option><option value="4">Day 4</option><option value="5">Day 5</option><option value="6">Day 6</option><option value="7">Day 7</option><option value="8">Day 8</option><option value="0">Unassigned</option></select></label>
         </div>
         <div id="searchResults" class="search-results empty">Enter a search term or choose filters.</div>
@@ -273,17 +271,15 @@
           </div>
           <p id="rallyNextHint" class="rally-hint">Select Next to load the active day checkpoint.</p>
         </div>
-        <button id="rallyRecenterFab" class="rally-recenter-fab" type="button" aria-label="Recenter map on GPS">GPS</button>
+        <button id="rallyRecenterFab" class="rally-recenter-fab" type="button" aria-label="Start GPS tracking">START</button>
         <section id="rallyMoreSheet" class="rally-more-sheet" aria-hidden="true">
           <div class="rally-status-strip">
             <span id="rallyHotelEta">Hotel ETA —</span>
-            <span id="rallyFuelStatus">Fuel range not configured</span>
             <span id="rallyFeedAge">Feed never updated</span>
           </div>
           <div class="rally-more-actions">
             <button id="rallyRestoreButton" type="button">Restore deferred</button>
             <button id="rallySkipButton" type="button">Skip checkpoint</button>
-            <button id="rallyFuelButton" type="button">Fuel settings</button>
             <button id="rallyWeatherButton" type="button">Weather</button>
             <button id="rallyHotelButton" type="button">Show hotel</button>
             <button id="goHotelButton" class="rally-hotel-action" type="button">GO TO HOTEL</button>
@@ -350,7 +346,6 @@
             <option value="backbone">Backbone (reference)</option>
             <option value="waypoint">Waypoint</option>
             <option value="checkpoint">Checkpoint</option>
-            <option value="fuel">Fuel</option>
             <option value="hotel">Hotel</option>
           </select>
         </label>
@@ -390,19 +385,6 @@
     </form>
   </dialog>
 
-  <dialog id="fuelDialog">
-    <form method="dialog" id="fuelForm" class="dialog-form">
-      <h2>Fuel foundation</h2>
-      <p class="notice muted">Planning estimate only. Calibrate against actual ride data before relying on it.</p>
-      <label class="field"><span>Usable fuel capacity (gal)</span><input id="usableFuelCapacity" type="number" min="0" step="0.1"></label>
-      <label class="field"><span>Expected paved range (mi)</span><input id="expectedPavedRange" type="number" min="0" step="1"></label>
-      <label class="field"><span>Expected mixed/off-road range (mi)</span><input id="expectedMixedRange" type="number" min="0" step="1"></label>
-      <label class="field"><span>Reserve distance (mi)</span><input id="reserveDistance" type="number" min="0" step="1"></label>
-      <label class="field"><span>Current riding profile</span><select id="fuelProfile"><option value="paved">Paved</option><option value="mixed">Mixed/off-road</option></select></label>
-      <div class="dialog-actions"><button value="cancel" class="button secondary">Cancel</button><button id="saveFuelButton" value="default" class="button primary">Save estimates</button></div>
-    </form>
-  </dialog>
-
   <script src="vendor/leaflet/leaflet.js"></script>
   <script src="vendor/leaflet-geoman/leaflet-geoman.min.js"></script>
   <script src="vendor/xlsx/xlsx.full.min.js"></script>
@@ -412,6 +394,6 @@
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260727-m11b"></script>
+  <script type="module" src="app.js?v=20260727-m11c"></script>
 </body>
 </html>
