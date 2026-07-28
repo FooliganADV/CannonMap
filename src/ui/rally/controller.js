@@ -5,11 +5,16 @@ export function wireRallyController({getElement,actions,windowTarget=window}){
   on('rallyWeatherButton','click',()=>actions.setIntelOpen(true));
   on('rallyHotelButton','click',actions.focusHotel);
   on('rallyRecenterFab','click',()=>{
-    const gpsBtn=getElement('gpsButton');
     const status=getElement('gpsStatus');
-    const isOff=!status||/off|GPS off/i.test(status.textContent||'');
-    if(isOff&&gpsBtn){
-      gpsBtn.click();
+    const text=(status?.textContent||'').toLowerCase();
+    const isOff=!status||text.includes('off')||text.includes('starting')||text.includes('error');
+    if(isOff){
+      if(typeof actions.startGps==='function'){
+        actions.startGps();
+      }else{
+        const gpsBtn=getElement('gpsButton');
+        if(gpsBtn)gpsBtn.click();
+      }
     }else if(typeof actions.center==='function'){
       actions.center();
     }
