@@ -154,6 +154,23 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
     color:#fff;
   }
 
+  /* Restore touch hit-testing for interactive children on Mobile Safari */
+  .rally-primary-card,
+  .rally-recenter-fab,
+  .rally-actions,
+  .rally-more-sheet {
+    pointer-events: auto !important;
+    isolation: isolate;
+  }
+  .rally-actions button,
+  .rally-recenter-fab,
+  .rally-more-actions button,
+  .checkpoint-order-list button,
+  #resetCheckpointOrder {
+    pointer-events: auto !important;
+    touch-action: manipulation;
+  }
+
   .rally-head{
     position:absolute;
     left:10px;right:10px;
@@ -182,6 +199,7 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
     padding:10px 14px;
     box-shadow:0 12px 32px #000c;
     pointer-events:auto;
+    z-index:1060;
   }
   .rally-primary-card.is-extreme{border-color:#f59e0b;background:rgba(69,26,3,.95)}
   .rally-primary-card.is-hotel{border-color:#fb7185}
@@ -239,7 +257,7 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
     position:absolute;
     right:14px;
     bottom:calc(88px + env(safe-area-inset-bottom));
-    z-index:1100;
+    z-index:1260;
     width:64px;height:64px;
     border-radius:50%;
     border:3px solid #fff;
@@ -257,7 +275,7 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
 
   .rally-actions{
     position:fixed;
-    z-index:1250;
+    z-index:1260;
     left:8px;right:8px;
     bottom:calc(8px + env(safe-area-inset-bottom));
     display:grid;
