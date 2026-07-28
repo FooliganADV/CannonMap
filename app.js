@@ -14,7 +14,7 @@ import {createFirebaseAuthentication} from './src/infrastructure/firebase/authen
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
 const APP_VERSION = '0.7.1';
-const BUILD_ID = '2026.07.26.07';
+const BUILD_ID = '2026.07.27.m11d';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
@@ -92,6 +92,7 @@ function sanitizeEventPayload(payload,source='event JSON'){
 
 function setStatus(message, isError = false) {
   const el = $('status');
+  if(!el)return;
   el.textContent = message;
   el.classList.toggle('editing-banner', message.startsWith('Editing '));
   el.style.background = isError ? '#450a0a' : '';
@@ -165,7 +166,7 @@ function initMap() {
     $('createNotes').value = '';
     $('createDialog').showModal();
   });
-  state.map.on('mousemove', e => $('cursorCoordinates').textContent = `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`);
+  state.map.on('mousemove', e => { if($('cursorCoordinates')) $('cursorCoordinates').textContent = `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`; });
 }
 
 function normalizeLatLngs(latlngs) {
@@ -353,6 +354,7 @@ function updateStationaryDetection() {
 }
 function renderLayerList() {
   const box = $('layerList');
+  if(!box)return;
   const filtered = state.project.features.filter(featureMatchesDay);
   if (!filtered.length) { box.className='layer-list empty'; box.textContent='No map features for this day.'; return; }
   box.className='layer-list';
@@ -381,13 +383,14 @@ function planningMileage(features) {
 }
 function renderStats() {
   const visible = state.project.features.filter(featureMatchesDay);
-  $('trackCount').textContent = visible.filter(f => f.type==='track').length;
-  $('routeCount').textContent = visible.filter(f => f.type==='route').length;
-  $('waypointCount').textContent = visible.filter(f => ['waypoint','checkpoint','fuel','hotel'].includes(f.type)).length;
-  $('distanceTotal').textContent = `${planningMileage(visible).toFixed(1)} mi`;
+  if($('trackCount')) $('trackCount').textContent = visible.filter(f => f.type==='track').length;
+  if($('routeCount')) $('routeCount').textContent = visible.filter(f => f.type==='route').length;
+  if($('waypointCount')) $('waypointCount').textContent = visible.filter(f => ['waypoint','checkpoint','fuel','hotel'].includes(f.type)).length;
+  if($('distanceTotal')) $('distanceTotal').textContent = `${planningMileage(visible).toFixed(1)} mi`;
 }
 function renderAll() {
-  $('projectName').value=state.project.name; $('dayFilter').value=state.settings.dayFilter;
+  if($('projectName')) $('projectName').value=state.project.name;
+  if($('dayFilter')) $('dayFilter').value=state.settings.dayFilter;
   const fields={
     inreachUrl:'inreachUrl', leaderboardUrl:'leaderboardUrl', rallyEndpointUrl:'rallyEndpointUrl', rallyEventId:'rallyEventId',
     rallyPollSeconds:'rallyPollSeconds', competitorFreshMinutes:'competitorFreshMinutes', trafficProvider:'trafficProvider',
@@ -565,39 +568,60 @@ function deleteSnapshot(id){writeSnapshots(getSnapshots().filter(x=>x.id!==id));
 function renderSnapshots(){const box=$('snapshotList');if(!box)return;const items=getSnapshots();if(!items.length){box.className='snapshot-list empty';box.textContent='No snapshots yet.';return;}box.className='snapshot-list';box.innerHTML=items.map(x=>`<div class="snapshot-row"><div><strong>${escapeHtml(x.label)}</strong><small>${new Date(x.createdAt).toLocaleString()} · ${x.project.features?.length||0} features</small></div><button class="button secondary" data-restore="${x.id}">Restore</button><button class="button danger-outline" data-drop="${x.id}">×</button></div>`).join('');box.querySelectorAll('[data-restore]').forEach(b=>b.onclick=()=>restoreSnapshot(b.dataset.restore));box.querySelectorAll('[data-drop]').forEach(b=>b.onclick=()=>deleteSnapshot(b.dataset.drop));}
 function renderMissionControl(){
   const fs=state.project.features,miles=planningMileage(fs);
-  $('missionProjectName').textContent=state.project.name;$('missionUpdated').textContent=`Updated ${new Date(state.project.updatedAt||Date.now()).toLocaleString()}`;
-  $('missionFeatureCount').textContent=fs.length;$('missionCheckpointCount').textContent=fs.filter(f=>f.type==='checkpoint').length;$('missionFuelCount').textContent=fs.filter(f=>f.type==='fuel').length;$('missionHotelCount').textContent=fs.filter(f=>f.type==='hotel').length;$('missionUnassignedCount').textContent=fs.filter(f=>!f.day).length;$('missionMileage').textContent=`${miles.toFixed(1)} mi`;
-  $('dailyReadiness').innerHTML=[1,2,3,4,5,6,7,8].map(day=>{const rows=fs.filter(f=>f.day===day),cp=rows.filter(f=>f.type==='checkpoint').length,fuel=rows.filter(f=>f.type==='fuel').length,hotel=rows.filter(f=>f.type==='hotel').length,dm=planningMileage(rows),score=Math.min(100,(rows.length?40:0)+(cp?25:0)+(fuel?15:0)+(hotel?20:0));return `<div class="day-card" data-day-card="${day}"><header><strong>Day ${day}</strong><span>${dm.toFixed(0)} mi</span></header><small>${cp} checkpoints · ${fuel} fuel · ${hotel} hotel · ${rows.length} features</small><div class="day-meter"><i style="width:${score}%"></i></div></div>`}).join('');
-  $('dailyReadiness').querySelectorAll('[data-day-card]').forEach(c=>c.onclick=()=>{state.settings.dayFilter=c.dataset.dayCard;$('dayFilter').value=state.settings.dayFilter;document.querySelector('[data-tab="project"]').click();saveProject(false);renderAll();});renderSnapshots();
+  if($('missionProjectName')) $('missionProjectName').textContent=state.project.name;
+  if($('missionUpdated')) $('missionUpdated').textContent=`Updated ${new Date(state.project.updatedAt||Date.now()).toLocaleString()}`;
+  if($('missionFeatureCount')) $('missionFeatureCount').textContent=fs.length;
+  if($('missionCheckpointCount')) $('missionCheckpointCount').textContent=fs.filter(f=>f.type==='checkpoint').length;
+  // ARCH-006: fuel count hidden; stub remains for legacy selector safety
+  if($('missionFuelCount')) $('missionFuelCount').textContent=fs.filter(f=>f.type==='fuel').length;
+  if($('missionHotelCount')) $('missionHotelCount').textContent=fs.filter(f=>f.type==='hotel').length;
+  if($('missionUnassignedCount')) $('missionUnassignedCount').textContent=fs.filter(f=>!f.day).length;
+  if($('missionMileage')) $('missionMileage').textContent=`${miles.toFixed(1)} mi`;
+  if($('dailyReadiness')){
+    $('dailyReadiness').innerHTML=[1,2,3,4,5,6,7,8].map(day=>{
+      const rows=fs.filter(f=>f.day===day);
+      const cp=rows.filter(f=>f.type==='checkpoint').length;
+      const hotel=rows.filter(f=>f.type==='hotel').length;
+      const dm=planningMileage(rows);
+      // ARCH-006: no fuel score contribution or label
+      const score=Math.min(100,(rows.length?40:0)+(cp?25:0)+(hotel?20:0));
+      return `<div class="day-card" data-day-card="${day}"><header><strong>Day ${day}</strong><span>${dm.toFixed(0)} mi</span></header><small>${cp} checkpoints · ${hotel} hotel · ${rows.length} features</small><div class="day-meter"><i style="width:${score}%"></i></div></div>`;
+    }).join('');
+    $('dailyReadiness').querySelectorAll('[data-day-card]').forEach(c=>c.onclick=()=>{state.settings.dayFilter=c.dataset.dayCard;$('dayFilter').value=state.settings.dayFilter;document.querySelector('[data-tab="project"]')?.click();saveProject(false);renderAll();});
+  }
+  renderSnapshots();
 }
-function renderTypeLayerControls(){const box=$('typeLayerControls');if(!box)return;const labels={track:'Tracks',route:'Routes',backbone:'Backbone',waypoint:'Waypoints',checkpoint:'Checkpoints',fuel:'Fuel',hotel:'Hotels'};box.innerHTML=Object.entries(labels).map(([type,label])=>`<label class="type-toggle"><input type="checkbox" data-type-visible="${type}" ${state.settings.typeVisibility?.[type]!==false?'checked':''}><span class="swatch" style="background:${COLORS[type]}"></span>${label}</label>`).join('');box.querySelectorAll('[data-type-visible]').forEach(input=>input.onchange=()=>{state.settings.typeVisibility[input.dataset.typeVisible]=input.checked;saveProject(false);renderMapFeatures();});$('lineOpacity').value=state.settings.lineOpacity||90;}
-function renderSearch(){const box=$('searchResults');if(!box)return;const q=$('globalSearch').value.trim().toLowerCase(),type=$('searchType').value,day=$('searchDay').value;let rows=state.project.features.filter(f=>(type==='all'||f.type===type)&&(day==='all'||String(f.day||0)===day));if(q)rows=rows.filter(f=>`${f.name} ${f.notes||''} ${f.source||''}`.toLowerCase().includes(q));rows=rows.slice(0,100);if(!q&&type==='all'&&day==='all'){box.className='search-results empty';box.textContent='Enter a search term or choose filters.';return;}if(!rows.length){box.className='search-results empty';box.textContent='No matching features.';return;}box.className='search-results';box.innerHTML=rows.map(f=>`<button class="search-result" data-search-id="${f.id}"><strong>${f.favorite?'<span class="favorite-star">★</span> ':''}${escapeHtml(f.name)}</strong><small>${f.type} · ${f.day?`Day ${f.day}`:'Unassigned'}${f.notes?` · ${escapeHtml(f.notes.slice(0,90))}`:''}</small></button>`).join('');box.querySelectorAll('[data-search-id]').forEach(b=>b.onclick=()=>{selectFeature(b.dataset.searchId);zoomSelected();document.querySelector('[data-tab="features"]').click();});}
-function openContextMenu(id,x,y){state.selectedId=id;const menu=$('contextMenu');menu.hidden=false;menu.style.left=`${Math.min(x,window.innerWidth-190)}px`;menu.style.top=`${Math.min(y,window.innerHeight-260)}px`;}
-function closeContextMenu(){$('contextMenu').hidden=true;}
+function renderTypeLayerControls(){const box=$('typeLayerControls');if(!box)return;const labels={track:'Tracks',route:'Routes',backbone:'Backbone',waypoint:'Waypoints',checkpoint:'Checkpoints',hotel:'Hotels'};box.innerHTML=Object.entries(labels).map(([type,label])=>`<label class="type-toggle"><input type="checkbox" data-type-visible="${type}" ${state.settings.typeVisibility?.[type]!==false?'checked':''}><span class="swatch" style="background:${COLORS[type]||'#64748b'}"></span>${label}</label>`).join('');box.querySelectorAll('[data-type-visible]').forEach(input=>input.onchange=()=>{state.settings.typeVisibility[input.dataset.typeVisible]=input.checked;saveProject(false);renderMapFeatures();});if($('lineOpacity'))$('lineOpacity').value=state.settings.lineOpacity||90;}
+function renderSearch(){const box=$('searchResults');if(!box)return;const q=$('globalSearch')?.value.trim().toLowerCase()||'',type=$('searchType')?.value||'all',day=$('searchDay')?.value||'all';let rows=state.project.features.filter(f=>(type==='all'||f.type===type)&&(day==='all'||String(f.day||0)===day));if(q)rows=rows.filter(f=>`${f.name} ${f.notes||''} ${f.source||''}`.toLowerCase().includes(q));rows=rows.slice(0,100);if(!q&&type==='all'&&day==='all'){box.className='search-results empty';box.textContent='Enter a search term or choose filters.';return;}if(!rows.length){box.className='search-results empty';box.textContent='No matching features.';return;}box.className='search-results';box.innerHTML=rows.map(f=>`<button class="search-result" data-search-id="${f.id}"><strong>${f.favorite?'<span class="favorite-star">★</span> ':''}${escapeHtml(f.name)}</strong><small>${f.type} · ${f.day?`Day ${f.day}`:'Unassigned'}${f.notes?` · ${escapeHtml(f.notes.slice(0,90))}`:''}</small></button>`).join('');box.querySelectorAll('[data-search-id]').forEach(b=>b.onclick=()=>{selectFeature(b.dataset.searchId);zoomSelected();document.querySelector('[data-tab="features"]')?.click();});}
+function openContextMenu(id,x,y){state.selectedId=id;const menu=$('contextMenu');if(!menu)return;menu.hidden=false;menu.style.left=`${Math.min(x,window.innerWidth-190)}px`;menu.style.top=`${Math.min(y,window.innerHeight-260)}px`;}
+function closeContextMenu(){const menu=$('contextMenu');if(menu)menu.hidden=true;}
 function reverseSelected(){const f=state.project.features.find(x=>x.id===state.selectedId);if(!f||f.geometry.kind!=='line')return setStatus('Only routes and tracks can be reversed.');snapshot();f.geometry.coordinates.reverse();f.updatedAt=new Date().toISOString();saveProject(false);renderAll();selectFeature(f.id);setStatus(`Reversed ${f.name}.`);}
 function toggleFavorite(){const f=state.project.features.find(x=>x.id===state.selectedId);if(!f)return;snapshot();f.favorite=!f.favorite;saveProject(false);renderAll();setStatus(`${f.favorite?'Favorited':'Removed favorite from'} ${f.name}.`);}
 function clearSelection() {
   stopEditing();
-  state.selectedId=null; $('selectedFeatureId').value='';
-  ['featureName','featureType','featureDay','featureNotes','featureLatitude','featureLongitude'].forEach(id=>$(id).disabled=true);
-  ['updateFeatureButton','zoomFeatureButton','duplicateFeatureButton','deleteFeatureButton','editGeometryButton','stopEditButton'].forEach(id=>$(id).disabled=true);
+  state.selectedId=null; if($('selectedFeatureId')) $('selectedFeatureId').value='';
+  ['featureName','featureType','featureDay','featureNotes','featureLatitude','featureLongitude'].forEach(id=>{if($(id))$(id).disabled=true;});
+  ['updateFeatureButton','zoomFeatureButton','duplicateFeatureButton','deleteFeatureButton','editGeometryButton','stopEditButton'].forEach(id=>{if($(id))$(id).disabled=true;});
 }
 function populateFeatureForm(feature) {
-  $('selectedFeatureId').value=feature.id;$('featureName').value=feature.name;$('featureType').value=feature.type;
-  $('featureDay').value=String(feature.day||0);$('featureNotes').value=feature.notes||'';
+  if($('selectedFeatureId')) $('selectedFeatureId').value=feature.id;
+  if($('featureName')) $('featureName').value=feature.name;
+  if($('featureType')) $('featureType').value=feature.type;
+  if($('featureDay')) $('featureDay').value=String(feature.day||0);
+  if($('featureNotes')) $('featureNotes').value=feature.notes||'';
   const isPoint=feature.geometry.kind==='point';
-  $('pointCoordinates').classList.toggle('hidden',!isPoint);
-  if(isPoint){$('featureLatitude').value=feature.geometry.coordinates[0].lat.toFixed(6);$('featureLongitude').value=feature.geometry.coordinates[0].lon.toFixed(6);}
-  ['featureName','featureType','featureDay','featureNotes'].forEach(id=>$(id).disabled=false);
-  $('featureLatitude').disabled=!isPoint;$('featureLongitude').disabled=!isPoint;
-  ['updateFeatureButton','zoomFeatureButton','duplicateFeatureButton','deleteFeatureButton','editGeometryButton'].forEach(id=>$(id).disabled=false);
+  if($('pointCoordinates')) $('pointCoordinates').classList.toggle('hidden',!isPoint);
+  if(isPoint){if($('featureLatitude')) $('featureLatitude').value=feature.geometry.coordinates[0].lat.toFixed(6);if($('featureLongitude')) $('featureLongitude').value=feature.geometry.coordinates[0].lon.toFixed(6);}
+  ['featureName','featureType','featureDay','featureNotes'].forEach(id=>{if($(id))$(id).disabled=false;});
+  if($('featureLatitude')) $('featureLatitude').disabled=!isPoint;if($('featureLongitude')) $('featureLongitude').disabled=!isPoint;
+  ['updateFeatureButton','zoomFeatureButton','duplicateFeatureButton','deleteFeatureButton','editGeometryButton'].forEach(id=>{if($(id))$(id).disabled=false;});
 }
 function selectFeature(id) {
   stopEditing();
   const feature=state.project.features.find(f=>f.id===id);if(!feature)return;
   state.selectedId=id;populateFeatureForm(feature);
   document.querySelectorAll('.tab,.panel').forEach(el=>el.classList.remove('active'));
-  document.querySelector('[data-tab="features"]').classList.add('active');$('featuresPanel').classList.add('active');
+  document.querySelector('[data-tab="features"]')?.classList.add('active');$('featuresPanel')?.classList.add('active');
   if(window.innerWidth<=840)setSidebarOpen(true);
 }
 function updateSelectedFeature(event) {
@@ -621,7 +645,7 @@ function editSelectedGeometry() {
   }else{
     state.editingLayer.pm.enable({allowSelfIntersection:true,snappable:true});
   }
-  $('stopEditButton').disabled=false;
+  if($('stopEditButton')) $('stopEditButton').disabled=false;
   setStatus(`Editing ${feature.name}. Drag the point or line vertices, then select Finish edit.`);
 }
 function stopEditing(save=true) {
@@ -673,7 +697,8 @@ function exportExcel() {
   const add=(name,rows)=>{const ws=XLSX.utils.json_to_sheet(rows.length?rows:[{Message:'No records'}]);ws['!autofilter']={ref:ws['!ref']};ws['!freeze']={xSplit:0,ySplit:1};ws['!cols']=[18,10,34,14,14,14,12,14,12,45,28,10,20,24].map(w=>({wch:w}));XLSX.utils.book_append_sheet(wb,ws,name);};
   add('Master Manifest',manifest);
   add('Daily Summary',[1,2,3,4,5,6,7,8].map(day=>{const rows=manifest.filter(r=>r.Day===day);return {Day:day,Features:rows.length,Checkpoints:rows.filter(r=>r.Type==='checkpoint').length,Routes:rows.filter(r=>r.Type==='route').length,Tracks:rows.filter(r=>r.Type==='track').length,'Line Miles':Number(rows.reduce((s,r)=>s+(Number(r['Distance (mi)'])||0),0).toFixed(2))};}));
-  for(const [sheet,type] of [['Checkpoints','checkpoint'],['Routes','route'],['Tracks','track'],['Backbone','backbone'],['Fuel Stops','fuel'],['Hotels','hotel'],['Waypoints','waypoint']])add(sheet,manifest.filter(r=>r.Type===type));
+  for(const [sheet,type] of [['Checkpoints','checkpoint'],['Routes','route'],['Tracks','track'],['Backbone','backbone'],['Hotels','hotel'],['Waypoints','waypoint']])add(sheet,manifest.filter(r=>r.Type===type));
+  // ARCH-006: fuel sheet omitted from Excel export UI surface
   const comp=[];state.project.competitors.forEach(c=>c.points.forEach((p,i)=>comp.push({Rider:c.name||c.id,Sequence:i+1,Latitude:p.lat,Longitude:p.lon,Time:p.time||''})));add('Competitor Trails',comp);
   XLSX.writeFile(wb,`${safeFilename(state.project.name)}-manifest${state.settings.dayFilter==='all'?'':`-day-${state.settings.dayFilter}`}.xlsx`);
   setStatus(`Exported ${manifest.length} manifest rows to Excel.`);
@@ -686,16 +711,42 @@ function exportCsv() {
 }
 
 function startGps() {
-  if(!navigator.geolocation)return setStatus('This browser does not support GPS.',true);
-  if(state.gpsWatchId!==null){navigator.geolocation.clearWatch(state.gpsWatchId);state.gpsWatchId=null;$('gpsButton').textContent='Start GPS';$('gpsStatus').textContent='GPS off';return;}
+  if(!navigator.geolocation){
+    setStatus('This browser does not support GPS.',true);
+    return;
+  }
+  if(state.gpsWatchId!==null){
+    navigator.geolocation.clearWatch(state.gpsWatchId);
+    state.gpsWatchId=null;
+    if($('gpsButton')) $('gpsButton').textContent='Start GPS';
+    if($('gpsStatus')) $('gpsStatus').textContent='GPS off';
+    renderRallyMode();
+    return;
+  }
+  // Immediate feedback for FAB / status (critical for iOS gesture + permission UX)
+  if($('gpsStatus')) $('gpsStatus').textContent='GPS starting…';
+  if($('gpsButton')) $('gpsButton').textContent='Stop GPS';
+  renderRallyMode();
   state.gpsWatchId=navigator.geolocation.watchPosition(position=>{
-    const ll=[position.coords.latitude,position.coords.longitude],accuracyFeet=position.coords.accuracy*3.28084;state.lastGpsPosition={lat:ll[0],lon:ll[1],accuracyFeet,time:new Date(position.timestamp||Date.now()).toISOString()};state.gpsLayer?.remove();state.gpsAccuracyLayer?.remove();
+    const ll=[position.coords.latitude,position.coords.longitude];
+    const accuracyFeet=position.coords.accuracy*3.28084;
+    state.lastGpsPosition={lat:ll[0],lon:ll[1],accuracyFeet,time:new Date(position.timestamp||Date.now()).toISOString()};
+    state.gpsLayer?.remove();
+    state.gpsAccuracyLayer?.remove();
     state.gpsAccuracyLayer=L.circle(ll,{radius:position.coords.accuracy,color:'#38bdf8',weight:1,fillOpacity:.08}).addTo(state.map);
     state.gpsLayer=L.circleMarker(ll,{radius:8,color:'#fff',weight:3,fillColor:'#38bdf8',fillOpacity:1}).addTo(state.map);
-    $('gpsStatus').textContent=`GPS ±${Math.round(accuracyFeet)} ft`;ensureNextCheckpoint();evaluateCheckpointArrival(accuracyFeet);renderRallyMode();
+    if($('gpsStatus')) $('gpsStatus').textContent=`GPS ±${Math.round(accuracyFeet)} ft`;
+    ensureNextCheckpoint();
+    evaluateCheckpointArrival(accuracyFeet);
+    renderRallyMode();
     captureGpsObservation(position);
-  },error=>setStatus(`GPS error: ${error.message}`,true),{enableHighAccuracy:true,maximumAge:2000,timeout:15000});
-  $('gpsButton').textContent='Stop GPS';
+  },error=>{
+    state.gpsWatchId=null;
+    if($('gpsButton')) $('gpsButton').textContent='Start GPS';
+    if($('gpsStatus')) $('gpsStatus').textContent='GPS off';
+    setStatus(`GPS error: ${error.message}`,true);
+    renderRallyMode();
+  },{enableHighAccuracy:true,maximumAge:2000,timeout:15000});
 }
 function observationContext(overrides={}){
   return {
@@ -766,7 +817,7 @@ async function importCompetitorJson(file) {
   } catch(error){setStatus(`Competitor import failed: ${error.message}`,true);}
 }
 function renderCompetitorSummary() {
-  const box=$('competitorSummary');if(!state.project.competitors.length){box.className='layer-list empty';box.textContent='No competitor data loaded.';return;}
+  const box=$('competitorSummary');if(!box)return;if(!state.project.competitors.length){box.className='layer-list empty';box.textContent='No competitor data loaded.';return;}
   box.className='layer-list';box.innerHTML=state.project.competitors.map(c=>{const fresh=competitorFreshness(c);const age=fresh.ageMinutes===null?'undated':`${Math.round(fresh.ageMinutes)} min`;return `<div class="layer-row"><span class="swatch" style="background:${fresh.fresh?COLORS.competitor:'#64748b'}"></span><button type="button" data-rider-id="${escapeHtml(c.id)}"><strong>${escapeHtml(c.name)}</strong><small>${c.points.length} breadcrumbs · ${age}</small></button><span class="fresh-dot ${fresh.fresh?'is-fresh':''}" title="${fresh.fresh?'Fresh':'Stale'}"></span></div>`}).join('');
   box.querySelectorAll('[data-rider-id]').forEach(button=>button.onclick=()=>zoomCompetitor(button.dataset.riderId));
 }
@@ -963,14 +1014,14 @@ function currentIntelPoint() {
 const WEATHER_CODES={0:'Clear',1:'Mostly clear',2:'Partly cloudy',3:'Overcast',45:'Fog',48:'Rime fog',51:'Light drizzle',53:'Drizzle',55:'Heavy drizzle',56:'Freezing drizzle',57:'Heavy freezing drizzle',61:'Light rain',63:'Rain',65:'Heavy rain',66:'Freezing rain',67:'Heavy freezing rain',71:'Light snow',73:'Snow',75:'Heavy snow',77:'Snow grains',80:'Rain showers',81:'Rain showers',82:'Heavy showers',85:'Snow showers',86:'Heavy snow showers',95:'Thunderstorm',96:'Thunderstorm with hail',99:'Severe thunderstorm with hail'};
 async function loadWeatherHere() {
   const point=currentIntelPoint();
-  $('weatherSummary').className='intel-card loading';$('weatherSummary').textContent='Loading weather…';
+  if($('weatherSummary')){$('weatherSummary').className='intel-card loading';$('weatherSummary').textContent='Loading weather…';}
   try{
     const params=new URLSearchParams({latitude:point.lat.toFixed(5),longitude:point.lon.toFixed(5),current:'temperature_2m,apparent_temperature,precipitation,rain,weather_code,wind_speed_10m,wind_gusts_10m',hourly:'temperature_2m,precipitation_probability,weather_code,wind_speed_10m,wind_gusts_10m',forecast_hours:'6',temperature_unit:'fahrenheit',wind_speed_unit:'mph',precipitation_unit:'inch',timezone:'auto'});
     const response=await fetchWithTimeout(`https://api.open-meteo.com/v1/forecast?${params}`);
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
     const data=await response.json();
     state.weatherData=data;state.weatherPoint=point;renderWeather();renderIntelSummary();setStatus(`Weather loaded for ${point.label}.`);
-  }catch(error){$('weatherSummary').className='intel-card error';$('weatherSummary').textContent=`Weather failed: ${error.message}`;setStatus(`Weather failed: ${error.message}`,true);}
+  }catch(error){if($('weatherSummary')){$('weatherSummary').className='intel-card error';$('weatherSummary').textContent=`Weather failed: ${error.message}`;}setStatus(`Weather failed: ${error.message}`,true);}
 }
 function renderWeather() {
   const data=state.weatherData,point=state.weatherPoint;
@@ -981,7 +1032,7 @@ function renderWeather() {
   const condition=WEATHER_CODES[current.weather_code]||`Code ${current.weather_code??'—'}`;
   const warning=(current.weather_code>=95||precip>=60||gusts>=35);
   const html=`<strong>${Math.round(current.temperature_2m??0)}°F · ${escapeHtml(condition)}</strong><small>Feels ${Math.round(current.apparent_temperature??current.temperature_2m??0)}°F · Wind ${Math.round(current.wind_speed_10m??0)} mph · Gusts up to ${Math.round(gusts)} mph · Rain chance ${Math.round(precip)}%</small>${warning?'<em>Weather could affect the next decision.</em>':''}`;
-  $('weatherSummary').className=`intel-card${warning?' warning':''}`;$('weatherSummary').innerHTML=html;
+  if($('weatherSummary')){$('weatherSummary').className=`intel-card${warning?' warning':''}`;$('weatherSummary').innerHTML=html;}
   mapEngine.layers.reconcile('weather',[{key:'current',point,current,condition,gusts,precip}],{
     key:model=>model.key,
     fingerprint:model=>JSON.stringify(model),
@@ -997,13 +1048,13 @@ function weatherMaxGustMph(data) {
   const hourly=Array.isArray(data?.hourly?.wind_gusts_10m)?data.hourly.wind_gusts_10m.filter(Number.isFinite):[];
   return Math.max(...hourly,current);
 }
-function clearWeather() {state.weatherData=null;state.weatherPoint=null;mapEngine.layers.clear('weather');$('weatherSummary').className='intel-card empty';$('weatherSummary').textContent='No weather loaded.';renderIntelSummary();}
+function clearWeather() {state.weatherData=null;state.weatherPoint=null;mapEngine.layers.clear('weather');if($('weatherSummary')){$('weatherSummary').className='intel-card empty';$('weatherSummary').textContent='No weather loaded.';}renderIntelSummary();}
 
 const RAINVIEWER_MAPS_URL='https://api.rainviewer.com/public/weather-maps.json';
 function radarTileUrl(frame) {return `${frame.host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;}
 function radarFrameTime(frame) {return new Date(Number(frame.time)*1000);}
 async function showRadar() {
-  $('radarSummary').className='intel-card loading';$('radarSummary').textContent='Loading recent radar frames…';
+  if($('radarSummary')){$('radarSummary').className='intel-card loading';$('radarSummary').textContent='Loading recent radar frames…';}
   try{
     const response=await fetchWithTimeout(RAINVIEWER_MAPS_URL);
     if(!response.ok)throw new Error(`RainViewer HTTP ${response.status}`);
@@ -1011,8 +1062,10 @@ async function showRadar() {
     const host=String(data.host||'');const frames=(data.radar?.past||[]).filter(frame=>frame?.path&&Number.isFinite(Number(frame.time))).map(frame=>({...frame,host}));
     if(!host||!frames.length)throw new Error('No radar frames are currently available.');
     state.radarFrames=frames;state.radarFrameIndex=frames.length-1;renderRadarFrame();
-    $('radarPlayButton').disabled=frames.length<2;$('radarToggleButton').textContent='Hide radar';setStatus('Weather radar loaded.');
-  }catch(error){hideRadar(false);$('radarSummary').className='intel-card error';$('radarSummary').textContent=`Radar failed: ${error.message}`;setStatus(`Radar failed: ${error.message}`,true);}
+    if($('radarPlayButton')) $('radarPlayButton').disabled=frames.length<2;
+    if($('radarToggleButton')) $('radarToggleButton').textContent='Hide radar';
+    setStatus('Weather radar loaded.');
+  }catch(error){hideRadar(false);if($('radarSummary')){$('radarSummary').className='intel-card error';$('radarSummary').textContent=`Radar failed: ${error.message}`;}setStatus(`Radar failed: ${error.message}`,true);}
 }
 function radarCoverageFeatures() {
   const scope=state.settings.radarCoverage||'active-day';if(scope==='map')return [];
@@ -1040,7 +1093,7 @@ function createRadarLayer(frame,opacity=0) {
 }
 function updateRadarSummary() {
   const frame=state.radarFrames[state.radarFrameIndex];if(!frame)return;const time=radarFrameTime(frame);
-  $('radarSummary').className='intel-card';$('radarSummary').innerHTML=`<strong>Radar ${escapeHtml(time.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}))}</strong><small>Recent observed precipitation · frame ${state.radarFrameIndex+1} of ${state.radarFrames.length} · ${escapeHtml(radarCoverageLabel())}</small>`;
+  if($('radarSummary')){$('radarSummary').className='intel-card';$('radarSummary').innerHTML=`<strong>Radar ${escapeHtml(time.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}))}</strong><small>Recent observed precipitation · frame ${state.radarFrameIndex+1} of ${state.radarFrames.length} · ${escapeHtml(radarCoverageLabel())}</small>`;}
 }
 function renderRadarFrame() {
   const frame=state.radarFrames[state.radarFrameIndex];if(!frame)return;if(state.radarLayer)state.map.removeLayer(state.radarLayer);
@@ -1058,7 +1111,7 @@ function stopRadarLoop() {
   state.radarPlaying=false;state.radarAnimationToken++;if(state.radarTimer){clearTimeout(state.radarTimer);state.radarTimer=null;}if(state.radarLoadTimer){clearTimeout(state.radarLoadTimer);state.radarLoadTimer=null;}if(state.radarNextLayer&&state.map.hasLayer(state.radarNextLayer))state.map.removeLayer(state.radarNextLayer);state.radarNextLayer=null;if($('radarPlayButton'))$('radarPlayButton').textContent='Play loop';
 }
 function toggleRadarLoop() {
-  if(state.radarPlaying)return stopRadarLoop();if(state.radarFrames.length<2)return;state.radarPlaying=true;$('radarPlayButton').textContent='Pause loop';transitionRadarFrame(0);
+  if(state.radarPlaying)return stopRadarLoop();if(state.radarFrames.length<2)return;state.radarPlaying=true;if($('radarPlayButton'))$('radarPlayButton').textContent='Pause loop';transitionRadarFrame(0);
 }
 function hideRadar(save=true) {
   stopRadarLoop();if(state.radarLayer&&state.map)state.map.removeLayer(state.radarLayer);state.radarLayer=null;state.radarFrames=[];state.radarFrameIndex=-1;
@@ -1084,7 +1137,7 @@ async function loadRouteWeather() {
   const feature=activeWeatherLine();if(!feature)return setRouteWeatherError('Select a route/track or choose an active day first.');
   const samples=routeSamples(feature);if(samples.length<2)return setRouteWeatherError('The selected route/track does not contain enough points.');
   const speed=Number($('routeWeatherSpeed').value)||45;state.settings.routeWeatherSpeed=speed;saveProject(false);
-  $('routeWeatherSummary').className='intel-card loading';$('routeWeatherSummary').textContent='Checking rain along the track…';
+  if($('routeWeatherSummary')){$('routeWeatherSummary').className='intel-card loading';$('routeWeatherSummary').textContent='Checking rain along the track…';}
   try{
     const coordinates={latitude:samples.map(p=>p.lat.toFixed(5)).join(','),longitude:samples.map(p=>p.lon.toFixed(5)).join(',')};
     const params=new URLSearchParams({...coordinates,minutely_15:'temperature_2m,precipitation,rain,snowfall,weather_code,wind_gusts_10m,visibility',forecast_minutely_15:'48',temperature_unit:'fahrenheit',wind_speed_unit:'mph',precipitation_unit:'inch',timezone:'GMT'});
@@ -1103,14 +1156,15 @@ async function loadRouteWeather() {
       const labels=[];if(gust>=35)labels.push(`gusts ${Math.round(gust)} mph`);if(precipitation>=0.15)labels.push(`heavy precipitation ${precipitation.toFixed(2)} in/15 min`);if(snow>0)labels.push(`snow ${snow.toFixed(2)} in/15 min`);if(Number.isFinite(temperature)&&temperature<=32&&precipitation>0)labels.push('freezing precipitation risk');else if(Number.isFinite(temperature)&&temperature<=20)labels.push(`extreme cold ${Math.round(temperature)}°F`);if(Number.isFinite(temperature)&&temperature>=95)labels.push(`high heat ${Math.round(temperature)}°F`);if(code>=95)labels.push(code>=96?'thunderstorm/hail':'thunderstorm');if(Number.isFinite(visibility)&&visibility<3219)labels.push(`low visibility ${Math.max(.1,visibility/1609.344).toFixed(1)} mi`);if(dust>=25)labels.push(`elevated dust ${Math.round(dust)} µg/m³`);if(pm25>=35||aqi>=101)labels.push(`poor air quality AQI ${Math.round(aqi)}`);if(uv>=8)labels.push(`very high UV ${uv.toFixed(0)}`);
       if(labels.length)hazards.push({miles,arrivalMinutes,labels});
     }
-    $('routeWeatherSummary').className=`intel-card${wet?' warning':''}`;
-    const firstHazard=hazards[0];const hazardText=firstHazard?hazards.slice(0,3).map(item=>`<em>${item.arrivalMinutes} min / ${item.miles.toFixed(0)} mi ahead: ${escapeHtml(item.labels.join(', '))}.</em>`).join(''):'<small>No unusual wind, precipitation, temperature, snow, storm, visibility, dust, air-quality, or UV hazard detected at sampled points.</small>';
-    $('routeWeatherSummary').className=`intel-card${wet||firstHazard?' warning':''}`;
-    $('routeWeatherSummary').innerHTML=(wet?`<strong>Rain likely in about ${wet.arrivalMinutes} minutes</strong><small>Approximately ${wet.miles.toFixed(0)} miles ahead on ${escapeHtml(feature.name)} at ${speed} mph. First wet sample: ${wet.precipitation.toFixed(2)} in/15 min. Estimated rainfall exposure across sampled track: ${totalRain.toFixed(2)} in.</small>`:`<strong>No rain indicated along the sampled track</strong><small>${escapeHtml(feature.name)} · next ${Math.round(miles)} miles sampled at ${speed} mph · estimated rainfall exposure ${totalRain.toFixed(2)} in.</small>`)+hazardText+'<small>Forecast estimate only—check radar, alerts, and current conditions.</small>';
+    if($('routeWeatherSummary')){
+      const firstHazard=hazards[0];const hazardText=firstHazard?hazards.slice(0,3).map(item=>`<em>${item.arrivalMinutes} min / ${item.miles.toFixed(0)} mi ahead: ${escapeHtml(item.labels.join(', '))}.</em>`).join(''):'<small>No unusual wind, precipitation, temperature, snow, storm, visibility, dust, air-quality, or UV hazard detected at sampled points.</small>';
+      $('routeWeatherSummary').className=`intel-card${wet||firstHazard?' warning':''}`;
+      $('routeWeatherSummary').innerHTML=(wet?`<strong>Rain likely in about ${wet.arrivalMinutes} minutes</strong><small>Approximately ${wet.miles.toFixed(0)} miles ahead on ${escapeHtml(feature.name)} at ${speed} mph. First wet sample: ${wet.precipitation.toFixed(2)} in/15 min. Estimated rainfall exposure across sampled track: ${totalRain.toFixed(2)} in.</small>`:`<strong>No rain indicated along the sampled track</strong><small>${escapeHtml(feature.name)} · next ${Math.round(miles)} miles sampled at ${speed} mph · estimated rainfall exposure ${totalRain.toFixed(2)} in.</small>`)+hazardText+'<small>Forecast estimate only—check radar, alerts, and current conditions.</small>';
+    }
     setStatus(`Route rain outlook checked for ${feature.name}.`);
   }catch(error){setRouteWeatherError(`Route weather failed: ${error.message}`);}
 }
-function setRouteWeatherError(message) {$('routeWeatherSummary').className='intel-card error';$('routeWeatherSummary').textContent=message;setStatus(message,true);}
+function setRouteWeatherError(message) {if($('routeWeatherSummary')){$('routeWeatherSummary').className='intel-card error';$('routeWeatherSummary').textContent=message;}setStatus(message,true);}
 function bboxAreaKm2(bounds) {
   const south=bounds.getSouth(),north=bounds.getNorth(),west=bounds.getWest(),east=bounds.getEast();
   const height=Math.abs(north-south)*111.32;const width=Math.abs(east-west)*111.32*Math.cos(((north+south)/2)*Math.PI/180);return height*width;
@@ -1124,11 +1178,11 @@ function trafficStyle(category) {
 async function loadTrafficHere() {
   state.settings.trafficProvider=$('trafficProvider').value;state.settings.tomtomApiKey=$('tomtomApiKey').value.trim();state.settings.wazeFeedUrl=$('wazeFeedUrl').value.trim();saveProject(false);
   if(state.settings.trafficProvider==='none')return setStatus('Choose TomTom or Waze for Cities first.',true);
-  $('trafficSummary').className='intel-card loading';$('trafficSummary').textContent='Loading traffic…';
+  if($('trafficSummary')){$('trafficSummary').className='intel-card loading';$('trafficSummary').textContent='Loading traffic…';}
   try{
     if(state.settings.trafficProvider==='tomtom')await loadTomTomTraffic();else await loadWazeTraffic();
     renderTraffic();renderIntelSummary();setStatus(`Loaded ${state.trafficIncidents.length} traffic incidents.`);
-  }catch(error){$('trafficSummary').className='intel-card error';$('trafficSummary').textContent=`Traffic failed: ${error.message}`;setStatus(`Traffic failed: ${error.message}`,true);}
+  }catch(error){if($('trafficSummary')){$('trafficSummary').className='intel-card error';$('trafficSummary').textContent=`Traffic failed: ${error.message}`;}setStatus(`Traffic failed: ${error.message}`,true);}
 }
 async function loadTomTomTraffic() {
   const key=state.settings.tomtomApiKey;if(!key)throw new Error('TomTom API key is required.');
@@ -1185,9 +1239,9 @@ function renderTraffic() {
       return layer;
     }
   });
-  $('trafficSummary').className=`intel-card${severe?' warning':''}`;$('trafficSummary').innerHTML=`<strong>${state.trafficIncidents.length} current incidents</strong><small>${severe} severe · Map viewport only · ${escapeHtml(state.settings.trafficProvider==='tomtom'?'TomTom':'Waze for Cities')}</small>`;
+  if($('trafficSummary')){$('trafficSummary').className=`intel-card${severe?' warning':''}`;$('trafficSummary').innerHTML=`<strong>${state.trafficIncidents.length} current incidents</strong><small>${severe} severe · Map viewport only · ${escapeHtml(state.settings.trafficProvider==='tomtom'?'TomTom':'Waze for Cities')}</small>`;}
 }
-function clearTraffic() {state.trafficIncidents=[];mapEngine.layers.clear('traffic');$('trafficSummary').className='intel-card empty';$('trafficSummary').textContent='No traffic loaded.';renderIntelSummary();}
+function clearTraffic() {state.trafficIncidents=[];mapEngine.layers.clear('traffic');if($('trafficSummary')){$('trafficSummary').className='intel-card empty';$('trafficSummary').textContent='No traffic loaded.';}renderIntelSummary();}
 
 function openWazeAtMapCenter() {
   const point=currentIntelPoint();
@@ -1214,18 +1268,20 @@ function currentHotel(){return checkpoints.currentHotel(state.project,state.sett
 function distanceFromCurrent(feature){const point=feature?.geometry?.coordinates?.[0];const from=state.lastGpsPosition;if(!point||!from)return null;return haversine(from,point)/1609.344;}
 function rallyScore(){return checkpoints.rallyScore(state.project);}
 function hotelEta(){const hotel=currentHotel(),miles=distanceFromCurrent(hotel);if(miles===null)return {hotel,miles:null,label:'Hotel ETA —'};const minutes=miles/(Number(state.settings.routeWeatherSpeed)||45)*60;return {hotel,miles,label:`Hotel ${miles.toFixed(0)} mi · ${new Date(Date.now()+minutes*60000).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}`};}
-function fuelEstimate(){const configured=state.settings.fuelProfile==='paved'?Number(state.settings.expectedPavedRange):Number(state.settings.expectedMixedRange);const remaining=Math.max(0,configured-Number(state.settings.reserveDistance||0));const checkpointMiles=distanceFromCurrent(currentCheckpoint()),hotelMiles=distanceFromCurrent(currentHotel());const required=Math.min(...[checkpointMiles,hotelMiles].filter(Number.isFinite));return {remaining,warning:Number.isFinite(required)&&remaining>0&&required>remaining,label:remaining?`${remaining.toFixed(0)} mi usable estimate${Number.isFinite(required)&&required>remaining?' · WARNING':''}`:'Fuel range not configured'};}
 function renderRallyMode(){
-  const next=currentCheckpoint(),hotel=hotelEta(),fuel=fuelEstimate(),last=state.rallySync.lastSync,rows=dayCheckpoints();
+  const next=currentCheckpoint(),hotel=hotelEta(),last=state.rallySync.lastSync,rows=dayCheckpoints();
   presentRally({getElement:$,escapeHtml,model:{
-    day:activeRallyDay(),online:navigator.onLine,gpsStatus:$('gpsStatus')?.textContent||'GPS off',score:rallyScore(),
-    next,distance:distanceFromCurrent(next),hotelLabel:hotel.label,fuelLabel:fuel.label,fuelWarning:fuel.warning,
+    day:activeRallyDay(),online:navigator.onLine,
+    gpsStatus:$('gpsStatus')?.textContent||'GPS off',
+    gpsActive:state.gpsWatchId!==null,
+    score:rallyScore(),
+    next,distance:distanceFromCurrent(next),hotelLabel:hotel.label,
     feedAge:last?`Feed ${formatClock(last)}`:'Feed never updated',hasDeferred:rows.some(feature=>feature.status==='deferred'),
     hasHotel:Boolean(hotel.hotel),hotelBailoutActive:state.hotelBailoutActive,autoComplete:state.settings.autoCompleteCheckpoints!==false,
     arrivalRadius:state.settings.checkpointArrivalRadius||500,maxAccuracy:state.settings.checkpointMaxAccuracy||200,checkpoints:rows
   }});
 }
-function setRallyMoreOpen(open){$('rallyMode').classList.toggle('more-open',open);$('rallyMoreSheet').setAttribute('aria-hidden',String(!open));$('rallyMoreButton').setAttribute('aria-expanded',String(open));$('rallyMoreButton').textContent=open?'Close':'More';}
+function setRallyMoreOpen(open){$('rallyMode')?.classList.toggle('more-open',open);$('rallyMoreSheet')?.setAttribute('aria-hidden',String(!open));$('rallyMoreButton')?.setAttribute('aria-expanded',String(open));if($('rallyMoreButton'))$('rallyMoreButton').textContent=open?'Close':'More';}
 function activateNextPlannedCheckpoint(){const next=checkpoints.activateNextPlanned(dayCheckpoints());if(next)state.selectedId=next.id;return next;}
 function ensureNextCheckpoint(){if(dayCheckpoints().some(feature=>feature.status==='next'))return currentCheckpoint();const next=activateNextPlannedCheckpoint();if(next)saveProject(false);return next;}
 function evaluateCheckpointArrival(accuracyFeet){if(state.settings.autoCompleteCheckpoints===false)return;const checkpoint=ensureNextCheckpoint();if(!checkpoint)return;const radius=Math.max(100,Number(state.settings.checkpointArrivalRadius)||500),maxAccuracy=Math.max(25,Number(state.settings.checkpointMaxAccuracy)||200);const distance=distanceFromCurrent(checkpoint);if(distance===null||accuracyFeet>maxAccuracy||distance*5280>radius){state.arrivalCandidateId=null;state.arrivalEnteredAt=0;return;}const now=Date.now();if(state.arrivalCandidateId!==checkpoint.id){state.arrivalCandidateId=checkpoint.id;state.arrivalEnteredAt=now;return;}if(now-state.arrivalEnteredAt<2000)return;state.arrivalCandidateId=null;state.arrivalEnteredAt=0;completeCurrentCheckpoint(true);}
@@ -1237,10 +1293,8 @@ function skipCurrentCheckpoint(){const checkpoint=currentCheckpoint();if(!checkp
 function launchNavigation(feature){const point=feature?.geometry?.coordinates?.[0];if(!point)return;window.open(`https://www.google.com/maps/dir/?api=1&destination=${point.lat},${point.lon}`,'_blank','noopener,noreferrer');}
 function goToHotel(){const hotel=currentHotel();if(!hotel)return setStatus('No hotel is assigned to the active day.',true);const info=hotelEta();if(!confirm(`Go to ${hotel.name}? ${info.miles===null?'Distance unavailable':`${info.miles.toFixed(1)} miles`}. Unfinished checkpoints will be deferred, not deleted.`))return;snapshot();checkpoints.deferForHotel(dayCheckpoints(),new Date().toISOString());state.hotelBailoutActive=true;saveProject(false);renderAll();launchNavigation(hotel);setStatus(`Hotel bailout active. Unfinished checkpoints were deferred. Tap Undo Hotel Bailout to reverse.`);}
 function toggleHotelBailout(){if(state.hotelBailoutActive)return undo();goToHotel();}
-function openFuelSettings(){for(const id of ['usableFuelCapacity','expectedPavedRange','expectedMixedRange','reserveDistance'])$(id).value=state.settings[id]||0;$('fuelProfile').value=state.settings.fuelProfile||'mixed';$('fuelDialog').showModal();}
-function saveFuelSettings(event){event.preventDefault();for(const id of ['usableFuelCapacity','expectedPavedRange','expectedMixedRange','reserveDistance'])state.settings[id]=Math.max(0,Number($(id).value)||0);state.settings.fuelProfile=$('fuelProfile').value;saveProject(false);$('fuelDialog').close();renderRallyMode();setStatus('Fuel planning estimates saved.');}
 function setIntelSheetOpen(open) {
-  const sheet=$('intelSheet');sheet.classList.toggle('open',open);sheet.setAttribute('aria-hidden',String(!open));$('intelButton').setAttribute('aria-expanded',String(open));
+  const sheet=$('intelSheet');if(!sheet)return;sheet.classList.toggle('open',open);sheet.setAttribute('aria-hidden',String(!open));$('intelButton')?.setAttribute('aria-expanded',String(open));
 }
 function newProject() {
   if(!confirm('Create a new empty project? The currently saved local project will be replaced.'))return;
@@ -1248,54 +1302,80 @@ function newProject() {
   clearSelection();saveProject(false);renderAll();setStatus('New project created.');
 }
 function setSidebarOpen(open) {
-  $('sidebar').classList.toggle('open',open);$('sidebarBackdrop').classList.toggle('visible',open);$('sidebarToggle').setAttribute('aria-expanded',String(open));$('sidebarToggle').textContent=open?'Close':'Planner';
+  $('sidebar')?.classList.toggle('open',open);$('sidebarBackdrop')?.classList.toggle('visible',open);$('sidebarToggle')?.setAttribute('aria-expanded',String(open));if($('sidebarToggle'))$('sidebarToggle').textContent=open?'Close':'Planner';
 }
 function wireUi() {
-  document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>{document.querySelectorAll('.tab,.panel').forEach(el=>el.classList.remove('active'));tab.classList.add('active');$(`${tab.dataset.tab}Panel`).classList.add('active');}));
-  $('sidebarToggle').addEventListener('click',()=>setSidebarOpen(!$('sidebar').classList.contains('open')));$('sidebarClose').addEventListener('click',()=>setSidebarOpen(false));$('sidebarBackdrop').addEventListener('click',()=>setSidebarOpen(false));
+  document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>{document.querySelectorAll('.tab,.panel').forEach(el=>el.classList.remove('active'));tab.classList.add('active');$(`${tab.dataset.tab}Panel`)?.classList.add('active');}));
+  $('sidebarToggle')?.addEventListener('click',()=>setSidebarOpen(!$('sidebar').classList.contains('open'));
+  $('sidebarClose')?.addEventListener('click',()=>setSidebarOpen(false));
+  $('sidebarBackdrop')?.addEventListener('click',()=>setSidebarOpen(false));
   document.addEventListener('keydown',event=>{if(event.key==='Escape'){setSidebarOpen(false);setIntelSheetOpen(false);}});
   wireProjectController({getElement:$,actions:{
     importGpx:importGpxFiles,openProject:openProjectFile,saveProject,exportProject:exportProjectFile,reassignDays:reassignExistingDays,
     exportGpx,exportExcel,exportCsv,applyImport:applyPendingImport,cancelImport:()=>state.pendingImport=null
   }});
-  $('missionFitButton').addEventListener('click',fitMap);$('missionUnassignedButton').addEventListener('click',()=>{state.settings.dayFilter='0';$('dayFilter').value='0';document.querySelector('[data-tab="project"]').click();saveProject(false);renderAll();});$('missionSnapshotButton').addEventListener('click',()=>createNamedSnapshot('Manual snapshot'));
-  ['globalSearch','searchType','searchDay'].forEach(id=>$(id).addEventListener(id==='globalSearch'?'input':'change',renderSearch));
-  $('lineOpacity').addEventListener('input',()=>{state.settings.lineOpacity=Number($('lineOpacity').value);renderMapFeatures();});$('lineOpacity').addEventListener('change',()=>saveProject(false));
-  document.addEventListener('click',event=>{if(!$('contextMenu').contains(event.target))closeContextMenu();});$('contextMenu').querySelectorAll('[data-context]').forEach(btn=>btn.addEventListener('click',()=>{const a=btn.dataset.context;closeContextMenu();if(a==='zoom')zoomSelected();if(a==='edit'){selectFeature(state.selectedId);editSelectedGeometry();}if(a==='duplicate')duplicateSelected();if(a==='reverse')reverseSelected();if(a==='favorite')toggleFavorite();if(a==='delete')deleteSelected();}));
-  $('fitButton').addEventListener('click',fitMap);$('newProjectButton').addEventListener('click',newProject);$('gpsButton').addEventListener('click',startGps);
-  $('projectName').addEventListener('change',()=>saveProject(false));$('dayFilter').addEventListener('change',()=>{state.settings.dayFilter=$('dayFilter').value;saveProject(false);renderAll();});
-  $('featureForm').addEventListener('submit',updateSelectedFeature);$('zoomFeatureButton').addEventListener('click',zoomSelected);$('duplicateFeatureButton').addEventListener('click',duplicateSelected);
-  $('deleteFeatureButton').addEventListener('click',deleteSelected);$('editGeometryButton').addEventListener('click',editSelectedGeometry);$('stopEditButton').addEventListener('click',()=>{stopEditing();renderAll();selectFeature(state.selectedId);setStatus('Geometry edit saved.');});
-  $('undoButton').addEventListener('click',undo);$('bulkAssignButton').addEventListener('click',bulkAssign);
-  $('saveTrackingSettings').addEventListener('click',saveIntegrationSettings);
-  $('openLeaderboardButton').addEventListener('click',openLeaderboard);
-  $('syncRallyButton').addEventListener('click',syncRallyFeed);
-  $('toggleRallyPollingButton').addEventListener('click',toggleRallyPolling);
-  $('exportCompetitorButton').addEventListener('click',exportCompetitorData);
-  $('clearCompetitorButton').addEventListener('click',clearCompetitors);
-  $('showCompetitorTrails').addEventListener('change',()=>{state.settings.showCompetitorTrails=$('showCompetitorTrails').checked;saveProject(false);renderCompetitors();});
-  $('showCompetitorMarkers').addEventListener('change',()=>{state.settings.showCompetitorMarkers=$('showCompetitorMarkers').checked;saveProject(false);renderCompetitors();});
-  $('competitorFreshMinutes').addEventListener('change',()=>{state.settings.competitorFreshMinutes=Number($('competitorFreshMinutes').value)||15;saveProject(false);renderCompetitors();renderCompetitorSummary();renderIntelSummary();});
-  $('weatherHereButton').addEventListener('click',loadWeatherHere);$('clearWeatherButton').addEventListener('click',clearWeather);
-  $('radarToggleButton').addEventListener('click',toggleRadar);$('radarPlayButton').addEventListener('click',toggleRadarLoop);$('radarOpacity').addEventListener('input',setRadarOpacity);$('radarCoverage').addEventListener('change',setRadarCoverage);$('routeWeatherButton').addEventListener('click',loadRouteWeather);$('routeWeatherSpeed').addEventListener('change',()=>{state.settings.routeWeatherSpeed=Number($('routeWeatherSpeed').value)||45;saveProject(false);});
-  $('trafficHereButton').addEventListener('click',loadTrafficHere);$('openWazeButton').addEventListener('click',openWazeAtMapCenter);$('clearTrafficButton').addEventListener('click',clearTraffic);
-  $('trafficProvider').addEventListener('change',()=>{state.settings.trafficProvider=$('trafficProvider').value;saveProject(false);});
-  $('competitorInput').addEventListener('change',e=>{if(e.target.files[0])importCompetitorJson(e.target.files[0]);e.target.value='';});
-  $('intelButton').addEventListener('click',()=>setIntelSheetOpen(!$('intelSheet').classList.contains('open')));$('intelCloseButton').addEventListener('click',()=>setIntelSheetOpen(false));
-  $('mobileSyncButton').addEventListener('click',syncRallyFeed);$('mobileWeatherButton').addEventListener('click',loadWeatherHere);$('mobileTrafficButton').addEventListener('click',loadTrafficHere);
+  $('missionFitButton')?.addEventListener('click',fitMap);
+  $('missionUnassignedButton')?.addEventListener('click',()=>{state.settings.dayFilter='0';if($('dayFilter'))$('dayFilter').value='0';document.querySelector('[data-tab="project"]')?.click();saveProject(false);renderAll();});
+  $('missionSnapshotButton')?.addEventListener('click',()=>createNamedSnapshot('Manual snapshot'));
+  ['globalSearch','searchType','searchDay'].forEach(id=>$(id)?.addEventListener(id==='globalSearch'?'input':'change',renderSearch));
+  $('lineOpacity')?.addEventListener('input',()=>{state.settings.lineOpacity=Number($('lineOpacity').value);renderMapFeatures();});
+  $('lineOpacity')?.addEventListener('change',()=>saveProject(false));
+  document.addEventListener('click',event=>{if(!$('contextMenu')?.contains(event.target))closeContextMenu();});
+  $('contextMenu')?.querySelectorAll('[data-context]').forEach(btn=>btn.addEventListener('click',()=>{const a=btn.dataset.context;closeContextMenu();if(a==='zoom')zoomSelected();if(a==='edit'){selectFeature(state.selectedId);editSelectedGeometry();}if(a==='duplicate')duplicateSelected();if(a==='reverse')reverseSelected();if(a==='favorite')toggleFavorite();if(a==='delete')deleteSelected();}));
+  $('fitButton')?.addEventListener('click',fitMap);
+  $('newProjectButton')?.addEventListener('click',newProject);
+  $('gpsButton')?.addEventListener('click',startGps);
+  $('projectName')?.addEventListener('change',()=>saveProject(false));
+  $('dayFilter')?.addEventListener('change',()=>{state.settings.dayFilter=$('dayFilter').value;saveProject(false);renderAll();});
+  $('featureForm')?.addEventListener('submit',updateSelectedFeature);
+  $('zoomFeatureButton')?.addEventListener('click',zoomSelected);
+  $('duplicateFeatureButton')?.addEventListener('click',duplicateSelected);
+  $('deleteFeatureButton')?.addEventListener('click',deleteSelected);
+  $('editGeometryButton')?.addEventListener('click',editSelectedGeometry);
+  $('stopEditButton')?.addEventListener('click',()=>{stopEditing();renderAll();selectFeature(state.selectedId);setStatus('Geometry edit saved.');});
+  $('undoButton')?.addEventListener('click',undo);
+  $('bulkAssignButton')?.addEventListener('click',bulkAssign);
+  $('saveTrackingSettings')?.addEventListener('click',saveIntegrationSettings);
+  $('openLeaderboardButton')?.addEventListener('click',openLeaderboard);
+  $('syncRallyButton')?.addEventListener('click',syncRallyFeed);
+  $('toggleRallyPollingButton')?.addEventListener('click',toggleRallyPolling);
+  $('exportCompetitorButton')?.addEventListener('click',exportCompetitorData);
+  $('clearCompetitorButton')?.addEventListener('click',clearCompetitors);
+  $('showCompetitorTrails')?.addEventListener('change',()=>{state.settings.showCompetitorTrails=$('showCompetitorTrails').checked;saveProject(false);renderCompetitors();});
+  $('showCompetitorMarkers')?.addEventListener('change',()=>{state.settings.showCompetitorMarkers=$('showCompetitorMarkers').checked;saveProject(false);renderCompetitors();});
+  $('competitorFreshMinutes')?.addEventListener('change',()=>{state.settings.competitorFreshMinutes=Number($('competitorFreshMinutes').value)||15;saveProject(false);renderCompetitors();renderCompetitorSummary();renderIntelSummary();});
+  $('weatherHereButton')?.addEventListener('click',loadWeatherHere);
+  $('clearWeatherButton')?.addEventListener('click',clearWeather);
+  $('radarToggleButton')?.addEventListener('click',toggleRadar);
+  $('radarPlayButton')?.addEventListener('click',toggleRadarLoop);
+  $('radarOpacity')?.addEventListener('input',setRadarOpacity);
+  $('radarCoverage')?.addEventListener('change',setRadarCoverage);
+  $('routeWeatherButton')?.addEventListener('click',loadRouteWeather);
+  $('routeWeatherSpeed')?.addEventListener('change',()=>{state.settings.routeWeatherSpeed=Number($('routeWeatherSpeed').value)||45;saveProject(false);});
+  $('trafficHereButton')?.addEventListener('click',loadTrafficHere);
+  $('openWazeButton')?.addEventListener('click',openWazeAtMapCenter);
+  $('clearTrafficButton')?.addEventListener('click',clearTraffic);
+  $('trafficProvider')?.addEventListener('change',()=>{state.settings.trafficProvider=$('trafficProvider').value;saveProject(false);});
+  $('competitorInput')?.addEventListener('change',e=>{if(e.target.files[0])importCompetitorJson(e.target.files[0]);e.target.value='';});
+  $('intelButton')?.addEventListener('click',()=>setIntelSheetOpen(!$('intelSheet').classList.contains('open'));
+  $('intelCloseButton')?.addEventListener('click',()=>setIntelSheetOpen(false));
+  $('mobileSyncButton')?.addEventListener('click',syncRallyFeed);
+  $('mobileWeatherButton')?.addEventListener('click',loadWeatherHere);
+  $('mobileTrafficButton')?.addEventListener('click',loadTrafficHere);
   wireRallyController({getElement:$,actions:{
-    selectNext:selectNextCheckpoint,setIntelOpen:setIntelSheetOpen,defer:()=>deferCurrentCheckpoint(),openFuel:openFuelSettings,
+    selectNext:selectNextCheckpoint,setIntelOpen:setIntelSheetOpen,defer:()=>deferCurrentCheckpoint(),
     focusHotel:()=>{const hotel=currentHotel();if(hotel){const point=hotel.geometry.coordinates[0];state.map.setView([point.lat,point.lon],14);setRallyMoreOpen(false);}else setStatus('No hotel is assigned to the active day.',true);},
     center:()=>{if(state.lastGpsPosition)state.map.setView([state.lastGpsPosition.lat,state.lastGpsPosition.lon],15);else fitMap();},
+    startGps,
     toggleMore:()=>setRallyMoreOpen(!$('rallyMode').classList.contains('more-open')),
-    openPlanner:()=>{setRallyMoreOpen(false);setSidebarOpen(true);},toggleHotelBailout,saveFuel:saveFuelSettings,
+    openPlanner:()=>{setRallyMoreOpen(false);setSidebarOpen(true);},toggleHotelBailout,
     complete:()=>completeCurrentCheckpoint(false),restore:restoreDeferredCheckpoint,skip:skipCurrentCheckpoint,
     saveArrivalSettings:()=>{state.settings.autoCompleteCheckpoints=$('autoCompleteCheckpoints').checked;state.settings.checkpointArrivalRadius=Math.max(100,Number($('checkpointArrivalRadius').value)||500);state.settings.checkpointMaxAccuracy=Math.max(25,Number($('checkpointMaxAccuracy').value)||200);saveProject(false);renderRallyMode();},
     order:(id,action)=>{if(action==='up')moveCheckpointInOrder(id,-1);else if(action==='down')moveCheckpointInOrder(id,1);else if(action==='next')makeCheckpointNext(id);},
     resetOrder:restoreImportedCheckpointOrder,render:renderRallyMode
   }});
-  $('createDialog').addEventListener('close',()=>{if($('createDialog').returnValue!=='default'&&state.pendingLayer){state.pendingLayer.remove();state.pendingLayer=null;}});
-  $('createForm').addEventListener('submit',event=>{
+  $('createDialog')?.addEventListener('close',()=>{if($('createDialog').returnValue!=='default'&&state.pendingLayer){state.pendingLayer.remove();state.pendingLayer=null;}});
+  $('createForm')?.addEventListener('submit',event=>{
     event.preventDefault();
     if(event.submitter&&event.submitter.value==='cancel'){state.pendingLayer?.remove();state.pendingLayer=null;$('createDialog').close('cancel');return;}
     if(!state.pendingLayer)return;snapshot();
@@ -1312,9 +1392,9 @@ async function initializeApplication() {
   state.project.stationaryEvents ||= [];
   try{await initializeObservationCapture();}catch(error){console.warn(`[CannonMap observation capture] ${error?.message||error}`);}
   try{await initializeSecureObservationIngestion();}catch(error){console.warn(`[CannonMap secure ingestion] ${error?.message||error}`);}
-  initMap();wireUi();$('radarOpacity').value=state.settings.radarOpacity||65;$('radarCoverage').value=state.settings.radarCoverage||'active-day';$('routeWeatherSpeed').value=String(state.settings.routeWeatherSpeed||45);
-  $('buildLabel').textContent=`Beta ${APP_VERSION}`;
-  $('appVersion').textContent=`v${APP_VERSION} · ${BUILD_ID}`;
+  initMap();wireUi();if($('radarOpacity'))$('radarOpacity').value=state.settings.radarOpacity||65;if($('radarCoverage'))$('radarCoverage').value=state.settings.radarCoverage||'active-day';if($('routeWeatherSpeed'))$('routeWeatherSpeed').value=String(state.settings.routeWeatherSpeed||45);
+  if($('buildLabel'))$('buildLabel').textContent=`Beta ${APP_VERSION}`;
+  if($('appVersion'))$('appVersion').textContent=`v${APP_VERSION} · ${BUILD_ID}`;
   renderAll();setTimeout(()=>{if(state.project.features.length)fitMap();},200);
 }
 async function startApplication(){
