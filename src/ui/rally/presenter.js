@@ -50,14 +50,21 @@ export function renderRally({getElement,model,escapeHtml}){
   }
   const fab=getElement('rallyRecenterFab');
   if(fab){
-    fab.textContent=model.gpsActive?'GPS':'START';
-    fab.classList.toggle('is-active',Boolean(model.gpsActive));
-    fab.setAttribute('aria-label',model.gpsActive?'Recenter map on GPS':'Start GPS tracking');
+    const active=Boolean(model.gpsActive)||(model.gpsStatus&&!/off/i.test(model.gpsStatus));
+    fab.textContent=active?'GPS':'START';
+    fab.classList.toggle('is-active',active);
+    fab.setAttribute('aria-label',active?'Recenter map on GPS':'Start GPS tracking');
   }
-  for(const id of ['rallyDeferButton','rallyCompleteButton','rallySkipButton'])getElement(id).disabled=!model.next;
-  getElement('rallyRestoreButton').hidden=!model.hasDeferred;getElement('rallyRestoreButton').disabled=!model.hasDeferred;
-  getElement('goHotelButton').disabled=!model.hasHotel&&!model.hotelBailoutActive;
-  set('goHotelButton',model.hotelBailoutActive?'UNDO HOTEL BAILOUT':'GO TO HOTEL');
+  for(const id of ['rallyDeferButton','rallyCompleteButton','rallySkipButton']){
+    const el=getElement(id);if(el)el.disabled=!model.next;
+  }
+  const restore=getElement('rallyRestoreButton');
+  if(restore){restore.hidden=!model.hasDeferred;restore.disabled=!model.hasDeferred;}
+  const goHotel=getElement('goHotelButton');
+  if(goHotel){
+    goHotel.disabled=!model.hasHotel&&!model.hotelBailoutActive;
+    goHotel.textContent=model.hotelBailoutActive?'UNDO HOTEL BAILOUT':'GO TO HOTEL';
+  }
   if(getElement('autoCompleteCheckpoints'))getElement('autoCompleteCheckpoints').checked=model.autoComplete;
   if(getElement('checkpointArrivalRadius'))getElement('checkpointArrivalRadius').value=model.arrivalRadius;
   if(getElement('checkpointMaxAccuracy'))getElement('checkpointMaxAccuracy').value=model.maxAccuracy;

@@ -4,7 +4,16 @@ export function wireRallyController({getElement,actions,windowTarget=window}){
   on('rallyDeferButton','click',actions.defer);
   on('rallyWeatherButton','click',()=>actions.setIntelOpen(true));
   on('rallyHotelButton','click',actions.focusHotel);
-  on('rallyRecenterFab','click',actions.centerOrStartGps);
+  on('rallyRecenterFab','click',()=>{
+    const gpsBtn=getElement('gpsButton');
+    const status=getElement('gpsStatus');
+    const isOff=!status||/off|GPS off/i.test(status.textContent||'');
+    if(isOff&&gpsBtn){
+      gpsBtn.click();
+    }else if(typeof actions.center==='function'){
+      actions.center();
+    }
+  });
   on('rallyMoreButton','click',actions.toggleMore);
   on('rallyPlannerButton','click',actions.openPlanner);
   on('goHotelButton','click',actions.toggleHotelBailout);
