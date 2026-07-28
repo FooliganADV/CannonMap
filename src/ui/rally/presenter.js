@@ -7,7 +7,6 @@ function checkpointKind(next){
   if(!next)return 'none';
   if(next.extreme)return 'extreme';
   const type=String(next.type||'checkpoint').toLowerCase();
-  if(type==='fuel')return 'fuel';
   if(type==='hotel')return 'hotel';
   return 'checkpoint';
 }
@@ -16,7 +15,6 @@ function checkpointTypeLabel(next){
   if(!next)return 'NEXT CHECKPOINT';
   if(next.extreme)return 'EXTREME CHECKPOINT';
   const type=String(next.type||'checkpoint').toLowerCase();
-  if(type==='fuel')return 'NEXT FUEL';
   if(type==='hotel')return 'NEXT HOTEL';
   return 'NEXT CHECKPOINT';
 }
@@ -43,13 +41,18 @@ export function renderRally({getElement,model,escapeHtml}){
   set('rallyNextDistance',model.distance===null?'Distance unavailable':`${model.distance.toFixed(1)} mi away`);
   set('rallyNextPoints',model.next?`${model.next.extreme?'EXTREME · ':''}${model.next.points} points · ${model.next.status}`:'—');
   set('rallyNextHint',checkpointHint(model.next));
-  set('rallyHotelEta',model.hotelLabel);set('rallyFuelStatus',model.fuelLabel);
-  getElement('rallyFuelStatus').classList.toggle('warning',model.fuelWarning);
+  set('rallyHotelEta',model.hotelLabel);
   set('rallyFeedAge',model.feedAge);
   const card=getElement('rallyPrimaryCard')||getElement('rallyMode')?.querySelector?.('.rally-primary-card');
   if(card?.classList){
     for(const name of ['is-extreme','is-fuel','is-hotel','is-checkpoint','is-none'])card.classList.toggle(name,false);
     card.classList.toggle(`is-${kind}`,true);
+  }
+  const fab=getElement('rallyRecenterFab');
+  if(fab){
+    fab.textContent=model.gpsActive?'GPS':'START';
+    fab.classList.toggle('is-active',Boolean(model.gpsActive));
+    fab.setAttribute('aria-label',model.gpsActive?'Recenter map on GPS':'Start GPS tracking');
   }
   for(const id of ['rallyDeferButton','rallyCompleteButton','rallySkipButton'])getElement(id).disabled=!model.next;
   getElement('rallyRestoreButton').hidden=!model.hasDeferred;getElement('rallyRestoreButton').disabled=!model.hasDeferred;
