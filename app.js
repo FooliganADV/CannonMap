@@ -14,7 +14,7 @@ import {createFirebaseAuthentication} from './src/infrastructure/firebase/authen
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
 const APP_VERSION = '0.7.1';
-const BUILD_ID = '2026.07.27.m11d';
+const BUILD_ID = '2026.07.27.m11e';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
