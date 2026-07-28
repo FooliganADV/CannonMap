@@ -68,7 +68,6 @@
           <span>Project name</span>
           <input id="projectName" value="America 250 – 2026" />
         </label>
-
         <div class="toolbar-grid">
           <label class="button primary file-button">Import GPX
             <input id="gpxInput" type="file" accept=".gpx,application/gpx+xml,text/xml" multiple />
@@ -84,7 +83,6 @@
           <button id="fitButton" class="button secondary">Fit map</button>
           <button id="newProjectButton" class="button danger-outline">New project</button>
         </div>
-
         <label class="field">
           <span>Active rally day</span>
           <select id="dayFilter">
@@ -96,16 +94,13 @@
             <option value="0">Unassigned</option>
           </select>
         </label>
-
         <div class="stats-grid">
           <article><span>Tracks</span><strong id="trackCount">0</strong></article>
           <article><span>Routes</span><strong id="routeCount">0</strong></article>
           <article><span>Waypoints</span><strong id="waypointCount">0</strong></article>
           <article><span>Distance</span><strong id="distanceTotal">0 mi</strong></article>
         </div>
-
         <div class="notice" id="status">Import a GPX file or use the drawing controls on the map.</div>
-
         <details open>
           <summary>Layer manager</summary>
           <div class="layer-manager">
@@ -152,7 +147,8 @@
           </div>
           <div class="toolbar-grid">
             <button id="updateFeatureButton" class="button primary" type="submit" disabled>Update</button>
-            <button id="zoomFeatureButton" class="button secondary" type="button" disabled>Duplicate</button>
+            <button id="zoomFeatureButton" class="button secondary" type="button" disabled>Zoom</button>
+            <button id="duplicateFeatureButton" class="button secondary" type="button" disabled>Duplicate</button>
             <button id="editGeometryButton" class="button secondary" type="button" disabled>Edit map</button>
             <button id="stopEditButton" class="button secondary" type="button" disabled>Finish edit</button>
             <button id="undoButton" class="button secondary" type="button">Undo</button>
