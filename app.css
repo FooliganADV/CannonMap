@@ -154,13 +154,17 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
     color:#fff;
   }
 
-  /* Restore touch hit-testing for interactive children on Mobile Safari */
+  /* Restore touch hit-testing for interactive children on Mobile Safari.
+     Parent pointer-events:none + fixed/absolute children is a known WebKit quirk.
+     Force auto + isolation + compositing layer so touchstart/click reach controls. */
   .rally-primary-card,
   .rally-recenter-fab,
   .rally-actions,
   .rally-more-sheet {
     pointer-events: auto !important;
     isolation: isolate;
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
   }
   .rally-actions button,
   .rally-recenter-fab,
@@ -169,6 +173,8 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
   #resetCheckpointOrder {
     pointer-events: auto !important;
     touch-action: manipulation;
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
   }
 
   .rally-head{
