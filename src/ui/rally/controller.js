@@ -1,12 +1,10 @@
 export function wireRallyController({getElement,actions,windowTarget=window}){
   const on=(id,event,handler)=>getElement(id)?.addEventListener(event,handler);
   on('rallyNextButton','click',actions.selectNext);
-  on('rallyIntelButton','click',()=>actions.setIntelOpen(true));
   on('rallyDeferButton','click',actions.defer);
   on('rallyFuelButton','click',actions.openFuel);
   on('rallyWeatherButton','click',()=>actions.setIntelOpen(true));
   on('rallyHotelButton','click',actions.focusHotel);
-  on('rallyCenterButton','click',actions.center);
   on('rallyRecenterFab','click',actions.center);
   on('rallyMoreButton','click',actions.toggleMore);
   on('rallyPlannerButton','click',actions.openPlanner);
