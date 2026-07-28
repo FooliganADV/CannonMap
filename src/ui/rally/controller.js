@@ -7,6 +7,7 @@ export function wireRallyController({getElement,actions,windowTarget=window}){
   on('rallyWeatherButton','click',()=>actions.setIntelOpen(true));
   on('rallyHotelButton','click',actions.focusHotel);
   on('rallyCenterButton','click',actions.center);
+  on('rallyRecenterFab','click',actions.center);
   on('rallyMoreButton','click',actions.toggleMore);
   on('rallyPlannerButton','click',actions.openPlanner);
   on('goHotelButton','click',actions.toggleHotelBailout);
