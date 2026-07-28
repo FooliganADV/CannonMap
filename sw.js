@@ -1,78 +1,59 @@
-const CACHE = 'cannonmap-v0.7.1-20260727-m11';
+const CACHE = 'cannonmap-v0.7.1-20260727-m11b';
 const APP_SHELL = [
   './',
   './index.html',
   './app.css',
   './gps-checkpoints-feed.js?v=20260725-02',
   './stationary-events.js?v=20260725-01',
-  './app.js?v=20260727-m11',
+  './app.js?v=20260727-m11b',
   './src/core/clock.js',
   './src/core/compatibility.js',
   './src/core/errors.js',
-  './src/core/event-bus.js',
-  './src/core/ids.js',
-  './src/core/state-store.js',
   './src/core/feature-flags.js',
+  './src/core/ids.js',
+  './src/domain/geo/geometry.js',
+  './src/domain/checkpoints/workflow.js',
+  './src/application/project-workflows.js',
   './src/application/observation-capture.js',
   './src/application/secure-observation-upload.js',
-  './src/application/project-workflows.js',
-  './src/domain/checkpoints/workflow.js',
-  './src/domain/geo/geometry.js',
-  './src/domain/observations/contract.js',
-  './src/domain/observations/quality.js',
-  './src/domain/observations/sampling.js',
-  './src/domain/observations/state-machine.js',
-  './src/domain/observations/ingestion-contract.js',
+  './src/infrastructure/indexeddb/index.js',
   './src/infrastructure/firebase/authentication.js',
   './src/infrastructure/firebase/observation-ingress-client.js',
-  './src/infrastructure/indexeddb/index.js',
-  './src/infrastructure/indexeddb/confidence-vector-repository.js',
-  './src/infrastructure/indexeddb/intelligence-repository.js',
-  './src/infrastructure/indexeddb/migration-runner.js',
-  './src/infrastructure/indexeddb/observation-outbox.js',
-  './src/infrastructure/indexeddb/observation-capture-repository.js',
-  './src/infrastructure/indexeddb/repositories.js',
-  './src/infrastructure/indexeddb/request.js',
-  './src/infrastructure/indexeddb/schema.js',
-  './shared/contracts/confidence-vector.js',
-  './src/ui/map/layer-registry.js',
   './src/ui/map/map-engine.js',
   './src/ui/project/controller.js',
   './src/ui/rally/controller.js',
   './src/ui/rally/presenter.js',
-  './manifest.webmanifest',
-  './vendor/leaflet/leaflet.js',
   './vendor/leaflet/leaflet.css',
-  './vendor/leaflet/images/layers.png',
-  './vendor/leaflet/images/layers-2x.png',
-  './vendor/leaflet/images/marker-icon-2x.png',
-  './vendor/leaflet/images/marker-icon.png',
-  './vendor/leaflet/images/marker-shadow.png',
-  './vendor/leaflet-geoman/leaflet-geoman.min.js',
+  './vendor/leaflet/leaflet.js',
   './vendor/leaflet-geoman/leaflet-geoman.css',
+  './vendor/leaflet-geoman/leaflet-geoman.min.js',
   './vendor/xlsx/xlsx.full.min.js',
   './vendor/firebase/firebase-app.js',
   './vendor/firebase/firebase-database.js',
   './vendor/firebase/firebase-auth.js',
-  './vendor/firebase/firebase-app-check.js'
+  './vendor/firebase/firebase-app-check.js',
+  './manifest.webmanifest'
 ];
+
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP_SHELL)));
-  self.skipWaiting();
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
 });
+
 self.addEventListener('activate', event => {
-  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))));
-  self.clients.claim();
+  event.waitUntil(
+    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())
+  );
 });
+
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
-  if (event.request.mode === 'navigate') {
-    event.respondWith(fetch(event.request).then(response => {
-      const copy=response.clone();caches.open(CACHE).then(cache=>cache.put('./index.html',copy));return response;
-    }).catch(()=>caches.match('./index.html')));
-    return;
-  }
-  event.respondWith(fetch(event.request).then(response => {
-    const copy=response.clone();caches.open(CACHE).then(cache=>cache.put(event.request,copy));return response;
-  }).catch(()=>caches.match(event.request)));
+  event.respondWith(
+    caches.match(event.request).then(cached => cached || fetch(event.request).then(response => {
+      const clone = response.clone();
+      if (response.ok && event.request.url.startsWith(self.location.origin)) {
+        caches.open(CACHE).then(cache => cache.put(event.request, clone));
+      }
+      return response;
+    }).catch(() => cached))
+  );
 });

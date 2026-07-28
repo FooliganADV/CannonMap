@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260727-m11" />
+  <link rel="stylesheet" href="app.css?v=20260727-m11b" />
 </head>
 <body>
   <header class="topbar">
@@ -268,7 +268,7 @@
           <small id="rallyNextType">NEXT CHECKPOINT</small>
           <strong id="rallyNextName">No checkpoint selected</strong>
           <div class="rally-primary-metrics">
-            <span id="rallyNextDistance">Distance unavailable</span>
+            <span id="rallyNextDistance">—</span>
             <em id="rallyNextPoints">—</em>
           </div>
           <p id="rallyNextHint" class="rally-hint">Select Next to load the active day checkpoint.</p>
@@ -303,12 +303,10 @@
           </details>
         </section>
         <nav class="rally-actions" aria-label="Rally actions">
-          <button id="rallyNextButton" type="button">Next</button>
-          <button id="rallyCompleteButton" type="button">Complete</button>
-          <button id="rallyDeferButton" type="button">Defer</button>
-          <button id="rallyIntelButton" type="button">Intel</button>
-          <button id="rallyCenterButton" type="button">Center</button>
-          <button id="rallyMoreButton" type="button" aria-expanded="false">More</button>
+          <button id="rallyNextButton" type="button">NEXT</button>
+          <button id="rallyCompleteButton" type="button">COMPLETE</button>
+          <button id="rallyDeferButton" type="button">DEFER</button>
+          <button id="rallyMoreButton" type="button" aria-expanded="false">MORE</button>
         </nav>
       </section>
       <div class="map-status">
@@ -414,6 +412,6 @@
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260727-m11"></script>
+  <script type="module" src="app.js?v=20260727-m11b"></script>
 </body>
 </html>
