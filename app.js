@@ -813,7 +813,7 @@ async function importCompetitorJson(file) {
 }
 function renderCompetitorSummary() {
   const box=$('competitorSummary');if(!box)return;if(!state.project.competitors.length){box.className='layer-list empty';box.textContent='No competitor data loaded.';return;}
-  box.className='layer-list';box.innerHTML=state.project.competitors.map(c=>{const fresh=competitorFreshness(c);const age=fresh.ageMinutes===null?'undated':`${Math.round(fresh.ageMinutes)} min`;return `<div class="layer-row"><span class="swatch" style="background:${fresh.fresh?COLORS.competitor:'#64748b'}"></span><button type="button" data-rider-id="${escapeHtml(c.id)}"><strong>${escapeHtml(c.name)}</strong><small>${c.points.length} breadcrumbs · ${age}</small></button><span class="fresh-dot ${fresh.fresh?'is-fresh':''}" title="${fresh.fresh?'Fresh':'Stale'}"></span></div>`).join('');
+  box.className='layer-list';box.innerHTML=state.project.competitors.map(c=>{const fresh=competitorFreshness(c);const age=fresh.ageMinutes===null?'undated':`${Math.round(fresh.ageMinutes)} min`;return `<div class="layer-row"><span class="swatch" style="background:${fresh.fresh?COLORS.competitor:'#64748b'}"></span><button type="button" data-rider-id="${escapeHtml(c.id)}"><strong>${escapeHtml(c.name)}</strong><small>${c.points.length} breadcrumbs · ${age}</small></button><span class="fresh-dot ${fresh.fresh?'is-fresh':''}" title="${fresh.fresh?'Fresh':'Stale'}"></span></div>`;}).join('');
   box.querySelectorAll('[data-rider-id]').forEach(button=>button.onclick=()=>zoomCompetitor(button.dataset.riderId));
 }
 
@@ -1301,7 +1301,7 @@ function setSidebarOpen(open) {
 }
 function wireUi() {
   document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>{document.querySelectorAll('.tab,.panel').forEach(el=>el.classList.remove('active'));tab.classList.add('active');$(`${tab.dataset.tab}Panel`)?.classList.add('active');}));
-  $('sidebarToggle')?.addEventListener('click',()=>setSidebarOpen(!$('sidebar').classList.contains('open'));
+  $('sidebarToggle')?.addEventListener('click',()=>setSidebarOpen(!$('sidebar').classList.contains('open')));
   $('sidebarClose')?.addEventListener('click',()=>setSidebarOpen(false));
   $('sidebarBackdrop')?.addEventListener('click',()=>setSidebarOpen(false));
   document.addEventListener('keydown',event=>{if(event.key==='Escape'){setSidebarOpen(false);setIntelSheetOpen(false);}});
@@ -1352,7 +1352,7 @@ function wireUi() {
   $('clearTrafficButton')?.addEventListener('click',clearTraffic);
   $('trafficProvider')?.addEventListener('change',()=>{state.settings.trafficProvider=$('trafficProvider').value;saveProject(false);});
   $('competitorInput')?.addEventListener('change',e=>{if(e.target.files[0])importCompetitorJson(e.target.files[0]);e.target.value='';});
-  $('intelButton')?.addEventListener('click',()=>setIntelSheetOpen(!$('intelSheet').classList.contains('open'));
+  $('intelButton')?.addEventListener('click',()=>setIntelSheetOpen(!$('intelSheet').classList.contains('open')));
   $('intelCloseButton')?.addEventListener('click',()=>setIntelSheetOpen(false));
   $('mobileSyncButton')?.addEventListener('click',syncRallyFeed);
   $('mobileWeatherButton')?.addEventListener('click',loadWeatherHere);
