@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260721-08" />
+  <link rel="stylesheet" href="app.css?v=20260727-m11g" />
 </head>
 <body>
   <header class="topbar">
@@ -47,7 +47,6 @@
         <div class="stats-grid mission-stats">
           <article><span>Total features</span><strong id="missionFeatureCount">0</strong></article>
           <article><span>Checkpoints</span><strong id="missionCheckpointCount">0</strong></article>
-          <article><span>Fuel stops</span><strong id="missionFuelCount">0</strong></article>
           <article><span>Hotels</span><strong id="missionHotelCount">0</strong></article>
           <article><span>Unassigned</span><strong id="missionUnassignedCount">0</strong></article>
           <article><span>Planned mileage</span><strong id="missionMileage">0 mi</strong></article>
@@ -68,7 +67,6 @@
           <span>Project name</span>
           <input id="projectName" value="America 250 – 2026" />
         </label>
-
         <div class="toolbar-grid">
           <label class="button primary file-button">Import GPX
             <input id="gpxInput" type="file" accept=".gpx,application/gpx+xml,text/xml" multiple />
@@ -84,7 +82,6 @@
           <button id="fitButton" class="button secondary">Fit map</button>
           <button id="newProjectButton" class="button danger-outline">New project</button>
         </div>
-
         <label class="field">
           <span>Active rally day</span>
           <select id="dayFilter">
@@ -96,16 +93,13 @@
             <option value="0">Unassigned</option>
           </select>
         </label>
-
         <div class="stats-grid">
           <article><span>Tracks</span><strong id="trackCount">0</strong></article>
           <article><span>Routes</span><strong id="routeCount">0</strong></article>
           <article><span>Waypoints</span><strong id="waypointCount">0</strong></article>
           <article><span>Distance</span><strong id="distanceTotal">0 mi</strong></article>
         </div>
-
         <div class="notice" id="status">Import a GPX file or use the drawing controls on the map.</div>
-
         <details open>
           <summary>Layer manager</summary>
           <div class="layer-manager">
@@ -131,7 +125,6 @@
                 <option value="backbone">Backbone (reference)</option>
                 <option value="waypoint">Waypoint</option>
                 <option value="checkpoint">Checkpoint</option>
-                <option value="fuel">Fuel</option>
                 <option value="hotel">Hotel</option>
               </select>
             </label>
@@ -171,10 +164,10 @@
       </section>
 
       <section id="searchPanel" class="panel">
-        <div class="section-heading"><div><h2>Global Search</h2><p>Find any checkpoint, route, fuel stop, hotel, track, or note.</p></div></div>
-        <label class="field"><span>Search project</span><input id="globalSearch" type="search" placeholder="Checkpoint 37, fuel, Pueblo, hotel…" /></label>
+        <div class="section-heading"><div><h2>Global Search</h2><p>Find any checkpoint, route, hotel, track, or note.</p></div></div>
+        <label class="field"><span>Search project</span><input id="globalSearch" type="search" placeholder="Checkpoint 37, Pueblo, hotel…" /></label>
         <div class="two-col">
-          <label class="field"><span>Type</span><select id="searchType"><option value="all">All types</option><option value="checkpoint">Checkpoints</option><option value="fuel">Fuel</option><option value="hotel">Hotels</option><option value="route">Routes</option><option value="track">Tracks</option><option value="backbone">Backbone</option><option value="waypoint">Waypoints</option></select></label>
+          <label class="field"><span>Type</span><select id="searchType"><option value="all">All types</option><option value="checkpoint">Checkpoints</option><option value="hotel">Hotels</option><option value="route">Routes</option><option value="track">Tracks</option><option value="backbone">Backbone</option><option value="waypoint">Waypoints</option></select></label>
           <label class="field"><span>Day</span><select id="searchDay"><option value="all">All days</option><option value="1">Day 1</option><option value="2">Day 2</option><option value="3">Day 3</option><option value="4">Day 4</option><option value="5">Day 5</option><option value="6">Day 6</option><option value="7">Day 7</option><option value="8">Day 8</option><option value="0">Unassigned</option></select></label>
         </div>
         <div id="searchResults" class="search-results empty">Enter a search term or choose filters.</div>
@@ -182,14 +175,12 @@
 
       <section id="trackingPanel" class="panel">
         <div class="section-heading"><div><h2>Trail Intelligence</h2><p>Competitor trails first; weather and traffic support the decision.</p></div><span id="feedBadge" class="badge neutral">READY</span></div>
-
         <div class="intel-summary-grid">
           <article><span>Riders loaded</span><strong id="intelRiderCount">0</strong></article>
           <article><span>Fresh riders</span><strong id="intelFreshCount">0</strong></article>
           <article><span>Breadcrumbs</span><strong id="intelPointCount">0</strong></article>
           <article><span>Last feed sync</span><strong id="intelLastSync">Never</strong></article>
         </div>
-
         <div class="toolbar-grid">
           <button id="openLeaderboardButton" class="button secondary">Open leaderboard</button>
           <button id="syncRallyButton" class="button primary">Sync trails now</button>
@@ -197,7 +188,6 @@
           <button id="exportCompetitorButton" class="button secondary">Export trails JSON</button>
         </div>
         <div id="rallyFeedNotice" class="notice muted">The public leaderboard URL is saved. Live trail polling needs the JSON/location endpoint captured from a live event. Browser polling runs only while CannonMap is open and active.</div>
-
         <details>
           <summary>Official rally feed setup</summary>
           <label class="field"><span>Public leaderboard page</span><input id="leaderboardUrl" placeholder="https://gpscheckpoints.com/admin/leaderboard.html?id_event=…" /></label>
@@ -209,7 +199,6 @@
           <label class="field"><span>Garmin inReach KML feed (optional)</span><input id="inreachUrl" placeholder="Saved for later connector work" /></label>
           <button id="saveTrackingSettings" class="button secondary wide">Save integration settings</button>
         </details>
-
         <details>
           <summary>Competitor trail display</summary>
           <div class="toggle-list">
@@ -219,7 +208,6 @@
           <label class="field"><span>Freshness threshold</span><select id="competitorFreshMinutes"><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option></select></label>
           <div class="notice muted">A faded trail is stale. The backbone remains a separate optional reference layer and is never treated as the official route.</div>
         </details>
-
         <details open>
           <summary>Weather intelligence</summary>
           <div id="weatherSummary" class="intel-card empty">No weather loaded.</div>
@@ -243,7 +231,6 @@
             <small class="helper-text weather-attribution">Radar data: <a href="https://www.rainviewer.com/" target="_blank" rel="noopener noreferrer">RainViewer</a></small>
           </div>
         </details>
-
         <details>
           <summary>Traffic intelligence</summary>
           <label class="field"><span>Provider</span><select id="trafficProvider"><option value="none">None</option><option value="tomtom">TomTom Traffic</option><option value="waze">Waze for Cities data feed (approved partners)</option></select></label>
@@ -256,7 +243,6 @@
           </div>
           <div id="trafficSummary" class="intel-card empty">No traffic loaded.</div>
         </details>
-
         <details>
           <summary>Manual test data</summary>
           <label class="button secondary file-button wide">Import competitor snapshot JSON
@@ -264,7 +250,6 @@
           </label>
           <button id="clearCompetitorButton" class="button danger-outline wide">Clear competitor trails</button>
         </details>
-
         <div id="competitorSummary" class="layer-list empty">No competitor data loaded.</div>
       </section>
     </aside>
@@ -274,25 +259,27 @@
       <div id="map"></div>
       <section id="rallyMode" class="rally-mode" aria-label="Rally Mode">
         <header class="rally-head">
-          <div><strong id="rallyDay">DAY —</strong><small id="rallyConnectivity">Checking connection</small></div>
-          <div><span>Score</span><strong id="rallyScore">0</strong></div>
+          <div class="rally-head-day"><strong id="rallyDay">DAY —</strong><small id="rallyConnectivity">Checking connection</small></div>
+          <div class="rally-score-slot" aria-hidden="true"><span>Score</span><strong id="rallyScore">0</strong></div>
         </header>
-        <div class="rally-primary-card">
-          <small>NEXT CHECKPOINT</small>
+        <div id="rallyPrimaryCard" class="rally-primary-card is-none">
+          <small id="rallyNextType">NEXT CHECKPOINT</small>
           <strong id="rallyNextName">No checkpoint selected</strong>
-          <span id="rallyNextDistance">Distance unavailable</span>
-          <em id="rallyNextPoints">—</em>
+          <div class="rally-primary-metrics">
+            <span id="rallyNextDistance">—</span>
+            <em id="rallyNextPoints">—</em>
+          </div>
+          <p id="rallyNextHint" class="rally-hint">Select Next to load the active day checkpoint.</p>
         </div>
+        <button id="rallyRecenterFab" class="rally-recenter-fab" type="button" aria-label="Start GPS tracking">START</button>
         <section id="rallyMoreSheet" class="rally-more-sheet" aria-hidden="true">
           <div class="rally-status-strip">
             <span id="rallyHotelEta">Hotel ETA —</span>
-            <span id="rallyFuelStatus">Fuel range not configured</span>
             <span id="rallyFeedAge">Feed never updated</span>
           </div>
           <div class="rally-more-actions">
             <button id="rallyRestoreButton" type="button">Restore deferred</button>
             <button id="rallySkipButton" type="button">Skip checkpoint</button>
-            <button id="rallyFuelButton" type="button">Fuel settings</button>
             <button id="rallyWeatherButton" type="button">Weather</button>
             <button id="rallyHotelButton" type="button">Show hotel</button>
             <button id="goHotelButton" class="rally-hotel-action" type="button">GO TO HOTEL</button>
@@ -312,12 +299,10 @@
           </details>
         </section>
         <nav class="rally-actions" aria-label="Rally actions">
-          <button id="rallyNextButton" type="button">Next</button>
-          <button id="rallyCompleteButton" type="button">Complete</button>
-          <button id="rallyDeferButton" type="button">Defer</button>
-          <button id="rallyIntelButton" type="button">Intel</button>
-          <button id="rallyCenterButton" type="button">Center</button>
-          <button id="rallyMoreButton" type="button" aria-expanded="false">More</button>
+          <button id="rallyNextButton" type="button">NEXT</button>
+          <button id="rallyCompleteButton" type="button">COMPLETE</button>
+          <button id="rallyDeferButton" type="button">DEFER</button>
+          <button id="rallyMoreButton" type="button" aria-expanded="false">MORE</button>
         </nav>
       </section>
       <div class="map-status">
@@ -361,7 +346,6 @@
             <option value="backbone">Backbone (reference)</option>
             <option value="waypoint">Waypoint</option>
             <option value="checkpoint">Checkpoint</option>
-            <option value="fuel">Fuel</option>
             <option value="hotel">Hotel</option>
           </select>
         </label>
@@ -383,7 +367,6 @@
     </form>
   </dialog>
 
-
   <dialog id="importDialog">
     <form method="dialog" id="importForm" class="dialog-form">
       <h2>GPX import report</h2>
@@ -402,19 +385,6 @@
     </form>
   </dialog>
 
-  <dialog id="fuelDialog">
-    <form method="dialog" id="fuelForm" class="dialog-form">
-      <h2>Fuel foundation</h2>
-      <p class="notice muted">Planning estimate only. Calibrate against actual ride data before relying on it.</p>
-      <label class="field"><span>Usable fuel capacity (gal)</span><input id="usableFuelCapacity" type="number" min="0" step="0.1"></label>
-      <label class="field"><span>Expected paved range (mi)</span><input id="expectedPavedRange" type="number" min="0" step="1"></label>
-      <label class="field"><span>Expected mixed/off-road range (mi)</span><input id="expectedMixedRange" type="number" min="0" step="1"></label>
-      <label class="field"><span>Reserve distance (mi)</span><input id="reserveDistance" type="number" min="0" step="1"></label>
-      <label class="field"><span>Current riding profile</span><select id="fuelProfile"><option value="paved">Paved</option><option value="mixed">Mixed/off-road</option></select></label>
-      <div class="dialog-actions"><button value="cancel" class="button secondary">Cancel</button><button id="saveFuelButton" value="default" class="button primary">Save estimates</button></div>
-    </form>
-  </dialog>
-
   <script src="vendor/leaflet/leaflet.js"></script>
   <script src="vendor/leaflet-geoman/leaflet-geoman.min.js"></script>
   <script src="vendor/xlsx/xlsx.full.min.js"></script>
@@ -424,6 +394,6 @@
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260726-07"></script>
+  <script type="module" src="app.js?v=20260727-m11g"></script>
 </body>
 </html>

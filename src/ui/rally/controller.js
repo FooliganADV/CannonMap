@@ -1,16 +1,27 @@
 export function wireRallyController({getElement,actions,windowTarget=window}){
   const on=(id,event,handler)=>getElement(id)?.addEventListener(event,handler);
   on('rallyNextButton','click',actions.selectNext);
-  on('rallyIntelButton','click',()=>actions.setIntelOpen(true));
   on('rallyDeferButton','click',actions.defer);
-  on('rallyFuelButton','click',actions.openFuel);
   on('rallyWeatherButton','click',()=>actions.setIntelOpen(true));
   on('rallyHotelButton','click',actions.focusHotel);
-  on('rallyCenterButton','click',actions.center);
+  on('rallyRecenterFab','click',()=>{
+    const status=getElement('gpsStatus');
+    const text=(status?.textContent||'').toLowerCase();
+    const isOff=!status||text.includes('off')||text.includes('starting')||text.includes('error');
+    if(isOff){
+      if(typeof actions.startGps==='function'){
+        actions.startGps();
+      }else{
+        const gpsBtn=getElement('gpsButton');
+        if(gpsBtn)gpsBtn.click();
+      }
+    }else if(typeof actions.center==='function'){
+      actions.center();
+    }
+  });
   on('rallyMoreButton','click',actions.toggleMore);
   on('rallyPlannerButton','click',actions.openPlanner);
   on('goHotelButton','click',actions.toggleHotelBailout);
-  on('fuelForm','submit',actions.saveFuel);
   on('rallyCompleteButton','click',actions.complete);
   on('rallyRestoreButton','click',actions.restore);
   on('rallySkipButton','click',actions.skip);
