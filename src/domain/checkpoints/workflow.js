@@ -1,32 +1,60 @@
 export const CHECKPOINT_STATUSES=Object.freeze(new Set(['planned','next','completed','deferred','skipped','unreachable']));
 
 export function rallyCheckpointNumber(value){
-  const match=String(value||'').trim().match(/^(?:day\s*)?([1-8])\s*[.\-_]\s*(\d{1,3})\b/i);
-  return match?{day:Number(match[1]),sequence:Number(match[2])}:null;
+  const match=String(value||'').trim().match(/^(?:day\s*)?([1-9]\d*)\s*[.\-_]\s*(\d+)\b/i);
+  if(!match)return null;
+  const day=Number(match[1]),sequence=Number(match[2]);
+  return Number.isSafeInteger(day)&&day>0&&Number.isSafeInteger(sequence)&&sequence>0?{day,sequence}:null;
 }
 
 export function normalizeCheckpoint(feature,index=0){
-  if(feature?.type!=='checkpoint')return feature;
+  if(feature?.type!=='checkpoint'&&feature?.type!=='hotel'&&feature?.dayFinish!==true)return feature;
+  const numbered=feature.type==='checkpoint'?rallyCheckpointNumber(feature.name):null;
+  if(numbered){
+    feature.day=numbered.day;
+    feature.sequence=numbered.sequence;
+    feature.originalSequence=numbered.sequence;
+    feature.sequenceSource='name';
+    feature.sequenceNeedsReview=false;
+  }else if(feature.type==='checkpoint'){
+    feature.sequence=Number.isFinite(Number(feature.sequence))&&Number(feature.sequence)>0?Number(feature.sequence):null;
+    feature.originalSequence=Number.isFinite(Number(feature.originalSequence))&&Number(feature.originalSequence)>0?Number(feature.originalSequence):feature.sequence;
+    feature.sequenceSource=feature.sequenceSource||'manual';
+    feature.sequenceNeedsReview=true;
+  }
   feature.extreme=feature.extreme===true||/\bextreme\b/i.test(`${feature.name||''} ${feature.notes||''}`);
-  feature.points=Number.isFinite(Number(feature.points))?Number(feature.points):(feature.extreme?21:10);
+  feature.points=Number.isFinite(Number(feature.points))?Number(feature.points):(feature.type==='hotel'?0:feature.extreme?21:10);
   feature.status=CHECKPOINT_STATUSES.has(feature.status)?feature.status:'planned';
-  feature.sequence=Number.isFinite(Number(feature.sequence))?Number(feature.sequence):(Number(feature.sourceOrder)||index)+1;
-  feature.originalSequence=Number.isFinite(Number(feature.originalSequence))?Number(feature.originalSequence):feature.sequence;
   for(const key of ['completedAt','deferredAt','deferReason','restoredAt'])feature[key]=feature[key]??null;
   return feature;
 }
 
 export function activeRallyDay(settings){
   const value=Number(settings?.dayFilter);
-  return value>=1&&value<=8?value:0;
+  return Number.isSafeInteger(value)&&value>0?value:0;
 }
 
 export function dayCheckpoints(project,settings){
   const day=activeRallyDay(settings);
   return (project?.features||[])
-    .filter(feature=>feature.type==='checkpoint'&&(!day||Number(feature.day)===day))
+    .filter(feature=>(feature.type==='checkpoint'||isDayFinish(feature))&&(!day||Number(feature.day)===day))
     .map(normalizeCheckpoint)
-    .sort((a,b)=>(Number(a.sequence)||9999)-(Number(b.sequence)||9999));
+    .sort((a,b)=>{
+      if(isDayFinish(a)!==isDayFinish(b))return isDayFinish(a)?1:-1;
+      const aSequence=Number(a.sequence),bSequence=Number(b.sequence);
+      if(Number.isFinite(aSequence)!==Number.isFinite(bSequence))return Number.isFinite(aSequence)?-1:1;
+      if(Number.isFinite(aSequence)&&aSequence!==bSequence)return aSequence-bSequence;
+      return String(a.name||a.id||'').localeCompare(String(b.name||b.id||''),undefined,{numeric:true});
+    });
+}
+
+export function isDayFinish(feature){
+  return feature?.type==='hotel'||feature?.dayFinish===true;
+}
+
+export function nextRallyDay(project,currentDay){
+  const expected=Number(currentDay)+1;
+  return (project?.features||[]).some(feature=>Number(feature.day)===expected)?expected:0;
 }
 
 export function currentCheckpoint(project,settings){
@@ -78,9 +106,12 @@ export function activateNextPlanned(rows){
 }
 
 export function selectNext(rows){
-  const current=rows.find(feature=>feature.status==='next');
+  const currentIndex=rows.findIndex(feature=>feature.status==='next');
+  const current=currentIndex>=0?rows[currentIndex]:null;
   if(current)current.status='planned';
-  const next=rows.find(feature=>feature.status==='planned')||null;
+  const next=rows.slice(currentIndex+1).find(feature=>feature.status==='planned')
+    ||rows.slice(0,currentIndex+1).find(feature=>feature.status==='planned')
+    ||null;
   if(next)next.status='next';
   return next;
 }

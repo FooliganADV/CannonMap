@@ -1,0 +1,16 @@
+{
+  "version": "0.7.1",
+  "name": "Rally Day Transition",
+  "createdAt": "2026-07-29T00:00:00.000Z",
+  "updatedAt": "2026-07-29T00:00:00.000Z",
+  "features": [
+    {"id":"d4-cp","name":"4.16 Day Four Control","type":"checkpoint","day":4,"status":"planned","points":10,"notes":"Day four checkpoint notes.","visible":true,"geometry":{"kind":"point","coordinates":[{"lat":38.0,"lon":-105.0}]}},
+    {"id":"d4-hotel","name":"Day Four Hotel","type":"hotel","day":4,"status":"planned","notes":"Overnight finish.","visible":true,"geometry":{"kind":"point","coordinates":[{"lat":38.1,"lon":-105.1}]}},
+    {"id":"d4-route","name":"Day Four Route","type":"route","day":4,"visible":true,"geometry":{"kind":"line","coordinates":[{"lat":38.0,"lon":-105.0},{"lat":38.1,"lon":-105.1}]}},
+    {"id":"d5-cp2","name":"5.10 Day Five Later","type":"checkpoint","day":5,"status":"planned","points":10,"notes":"Later checkpoint.","visible":true,"geometry":{"kind":"point","coordinates":[{"lat":39.3,"lon":-104.3}]}},
+    {"id":"d5-cp1","name":"5.2 Day Five Start","type":"checkpoint","day":5,"status":"planned","points":10,"notes":"Start day five here.","visible":true,"geometry":{"kind":"point","coordinates":[{"lat":39.0,"lon":-104.0}]}},
+    {"id":"d5-hotel","name":"Day Five Hotel","type":"hotel","day":5,"status":"planned","notes":"Day five finish.","visible":true,"geometry":{"kind":"point","coordinates":[{"lat":39.4,"lon":-104.4}]}},
+    {"id":"d5-route","name":"Day Five Route","type":"route","day":5,"visible":true,"geometry":{"kind":"line","coordinates":[{"lat":39.0,"lon":-104.0},{"lat":39.2,"lon":-104.6},{"lat":39.4,"lon":-104.4}]}}
+  ],
+  "competitors": []
+}
