@@ -18,3 +18,4 @@ export {
   createProjectDeletionRepository,PROJECT_DELETION_BOUNDARIES
 } from './project-deletion-repository.js';
 export {createBackupRepository,BACKUP_IMPORT_BOUNDARIES} from './backup-repository.js';
+export {createTemplateRepository} from './template-repository.js';
