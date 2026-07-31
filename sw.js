@@ -1,4 +1,4 @@
-const CACHE = 'cannonmap-v0.7.1-20260730-search-foundation-01';
+const CACHE = 'cannonmap-v0.7.1-20260730-project-lifecycle-foundation-01';
 const APP_SHELL = [
   './',
   './index.html',
@@ -15,6 +15,7 @@ const APP_SHELL = [
   './src/core/state-store.js',
   './src/domain/geo/geometry.js',
   './src/domain/projects/model.js',
+  './src/domain/projects/lifecycle.js',
   './src/domain/journal/model.js',
   './src/domain/search/index.js',
   './src/domain/checkpoints/workflow.js',
@@ -29,6 +30,8 @@ const APP_SHELL = [
   './src/application/rally-analytics-service.js',
   './src/application/rally-journal-service.js',
   './src/application/search-service.js',
+  './src/application/project-repository-scope.js',
+  './src/application/project-lifecycle-manager.js',
   './src/application/secure-observation-upload.js',
   './src/infrastructure/indexeddb/index.js',
   './src/infrastructure/indexeddb/analytics-repository.js',
@@ -36,6 +39,8 @@ const APP_SHELL = [
   './src/infrastructure/indexeddb/intelligence-repository.js',
   './src/infrastructure/indexeddb/journal-repository.js',
   './src/infrastructure/indexeddb/search-repository.js',
+  './src/infrastructure/indexeddb/project-lifecycle-repository.js',
+  './src/infrastructure/indexeddb/legacy-current-project-repository.js',
   './src/infrastructure/indexeddb/migration-runner.js',
   './src/infrastructure/indexeddb/observation-capture-repository.js',
   './src/infrastructure/indexeddb/observation-outbox.js',

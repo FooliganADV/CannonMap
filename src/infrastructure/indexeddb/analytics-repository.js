@@ -22,11 +22,12 @@ export function createAnalyticsRepository(database){
     appendSampleAndStats:write,
     appendEventAndStats:write,
     async saveStats(records){await write(records);},
-    async findActiveSession(rallyEventId){
+    async findActiveSession(rallyEventId,projectId){
       const transaction=database.transaction('analyticsSessions','readonly'),done=transactionDone(transaction);
       const rows=await requestResult(transaction.objectStore('analyticsSessions').index('eventStatus').getAll([rallyEventId,'active']));
       await done;
-      return rows.sort((a,b)=>String(b.updatedAt).localeCompare(String(a.updatedAt)))[0]||null;
+      const candidates=projectId===undefined?rows:rows.filter(row=>row.projectId===String(projectId));
+      return candidates.sort((a,b)=>String(b.updatedAt).localeCompare(String(a.updatedAt)))[0]||null;
     },
     async getDaily(sessionId,dayKey){
       const transaction=database.transaction('analyticsDailyStats','readonly'),done=transactionDone(transaction);
@@ -46,6 +47,18 @@ export function createAnalyticsRepository(database){
       const rows=await requestResult(transaction.objectStore('telemetrySamples').index('sessionTime').getAll(range));
       await done;
       return rows;
+    },
+    async deleteProjectAnalytics(projectId){
+      const transaction=database.transaction(STORES,'readwrite'),done=transactionDone(transaction);
+      let count=0;
+      for(const storeName of STORES){
+        const store=transaction.objectStore(storeName);
+        const keys=await requestResult(store.index('projectId').getAllKeys(String(projectId)));
+        count+=keys.length;
+        for(const key of keys)store.delete(key);
+      }
+      await done;
+      return count;
     }
   });
 }

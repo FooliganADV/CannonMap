@@ -82,6 +82,14 @@ ranking service are documented in
 [`architecture/SEARCH_FOUNDATION.md`](architecture/SEARCH_FOUNDATION.md).
 Search stores source references rather than full records and has no UI or
 automatic indexing integration.
+
+## Project Lifecycle foundation
+
+The serialized active-Project manager, project-scoped repository handles,
+legacy-current compatibility adapter, durable transition recovery, and
+lifecycle event contract are documented in
+[`architecture/PROJECT_LIFECYCLE_FOUNDATION.md`](architecture/PROJECT_LIFECYCLE_FOUNDATION.md).
+No switching UI or existing workflow integration is included.
 # M8 Route Family Engine
 
 `src/domain/routes` deterministically derives immutable Route Variant and Route Family revisions from validated route-traversal evidence. A Variant owns its `independentStats`; a Family owns a separately calculated `aggregateStats` projection. Family reconciliation never writes into or replaces Variant statistics.

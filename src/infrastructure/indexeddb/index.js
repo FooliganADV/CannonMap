@@ -12,3 +12,5 @@ export {createAnalyticsRepository} from './analytics-repository.js';
 export {createProjectRepository} from './project-repository.js';
 export {createJournalRepository} from './journal-repository.js';
 export {createSearchRepository} from './search-repository.js';
+export {createProjectLifecycleRepository} from './project-lifecycle-repository.js';
+export {createLegacyCurrentProjectRepository} from './legacy-current-project-repository.js';

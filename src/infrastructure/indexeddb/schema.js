@@ -1,7 +1,7 @@
 import {normalizeProject} from '../../domain/projects/model.js';
 
 export const DATABASE_NAME='CannonMapDB';
-export const DATABASE_VERSION=6;
+export const DATABASE_VERSION=7;
 export const V2_FEATURE_FLAG='architecture.indexeddb.v2';
 
 const stores=[
@@ -22,6 +22,9 @@ const stores=[
   ]},
   {name:'searchIndexState',keyPath:'projectId',indexes:[
     ['status','status'],['builtAt','builtAt'],['indexVersion','indexVersion']
+  ]},
+  {name:'projectLifecycleState',keyPath:'key',indexes:[
+    ['projectId','projectId'],['updatedAt','updatedAt'],['stage','stage']
   ]},
   {name:'observations',keyPath:['eventId','observationId'],indexes:[
     ['riderTime',['eventId','riderId','occurredAt']],
@@ -54,16 +57,16 @@ const stores=[
   {name:'intelligenceNetwork',keyPath:['uid','memberId'],indexes:[['updatedAt','updatedAt']]},
   {name:'syncMeta',keyPath:'key'},
   {name:'telemetrySamples',keyPath:['sessionId','sampleId'],indexes:[
-    ['sessionTime',['sessionId','occurredAt']],['eventDay',['rallyEventId','occurredAt']]
+    ['sessionTime',['sessionId','occurredAt']],['eventDay',['rallyEventId','occurredAt']],['projectId','projectId']
   ]},
   {name:'telemetryEvents',keyPath:['sessionId','telemetryEventId'],indexes:[
-    ['sessionTime',['sessionId','occurredAt']],['eventType',['rallyEventId','type','occurredAt']]
+    ['sessionTime',['sessionId','occurredAt']],['eventType',['rallyEventId','type','occurredAt']],['projectId','projectId']
   ]},
   {name:'analyticsSessions',keyPath:['rallyEventId','sessionId'],indexes:[
-    ['eventStatus',['rallyEventId','status']],['updatedAt','updatedAt']
+    ['eventStatus',['rallyEventId','status']],['updatedAt','updatedAt'],['projectId','projectId']
   ]},
   {name:'analyticsDailyStats',keyPath:['sessionId','dayKey'],indexes:[
-    ['eventDay',['rallyEventId','dayKey']],['updatedAt','updatedAt']
+    ['eventDay',['rallyEventId','dayKey']],['updatedAt','updatedAt'],['projectId','projectId']
   ]}
 ];
 
