@@ -1,7 +1,7 @@
 import {normalizeProject} from '../../domain/projects/model.js';
 
 export const DATABASE_NAME='CannonMapDB';
-export const DATABASE_VERSION=7;
+export const DATABASE_VERSION=8;
 export const V2_FEATURE_FLAG='architecture.indexeddb.v2';
 
 const stores=[
@@ -25,6 +25,9 @@ const stores=[
   ]},
   {name:'projectLifecycleState',keyPath:'key',indexes:[
     ['projectId','projectId'],['updatedAt','updatedAt'],['stage','stage']
+  ]},
+  {name:'projectTemplates',keyPath:'templateId',indexes:[
+    ['name','name'],['templateType','templateType'],['updatedAt','updatedAt'],['isBuiltIn','isBuiltIn']
   ]},
   {name:'observations',keyPath:['eventId','observationId'],indexes:[
     ['riderTime',['eventId','riderId','occurredAt']],

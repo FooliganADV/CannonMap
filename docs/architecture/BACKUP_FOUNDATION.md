@@ -23,7 +23,7 @@ Archive version 1 is canonical JSON with two top-level members:
   "manifest": {
     "archiveVersion": 1,
     "applicationVersion": "0.7.0",
-    "schemaVersion": 7,
+    "schemaVersion": 8,
     "exportedAt": "ISO-8601 timestamp",
     "projectId": "...",
     "projectName": "...",

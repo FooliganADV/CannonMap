@@ -61,12 +61,19 @@ test('service-worker shell contains the complete local startup module graph',asy
     'src/application/project-backup-service.js',
     'src/infrastructure/indexeddb/backup-repository.js'
   ])assert.ok(shell.has(backupModule),`${backupModule} must be cached for offline Backup consumers`);
+  for(const templateModule of [
+    'src/domain/templates/model.js',
+    'src/domain/templates/errors.js',
+    'src/domain/templates/built-ins.js',
+    'src/application/project-template-service.js',
+    'src/infrastructure/indexeddb/template-repository.js'
+  ])assert.ok(shell.has(templateModule),`${templateModule} must be cached for offline Template consumers`);
 });
 
 test('post-M10 cache identifier advances without deleting IndexedDB data',async()=>{
   const {cache,source}=await cacheManifest();
   assert.notEqual(cache,'cannonmap-v0.7.1-20260726-06');
-  assert.equal(cache,'cannonmap-v0.7.1-20260731-backup-foundation-01');
+  assert.equal(cache,'cannonmap-v0.7.1-20260731-template-foundation-01');
   assert.doesNotMatch(source,/indexedDB\.deleteDatabase|deleteDatabase\s*\(/);
   assert.doesNotMatch(source,/localStorage\.clear|caches\.delete\([^)]*CannonMapDB/);
 });
