@@ -1,5 +1,6 @@
 import {
-  analyticsSnapshot,applyAnalyticsEvent,createAnalyticsAccumulator,dayKeyFor,reduceGpsSample
+  analyticsSnapshot,applyAnalyticsEvent,createAnalyticsAccumulator,dayKeyFor,
+  finalizeAnalyticsAccumulator,reduceGpsSample
 } from '../domain/analytics/engine.js';
 
 export const RALLY_ANALYTICS_FEATURE_FLAG='architecture.analytics.telemetry';
@@ -24,12 +25,14 @@ export function createRallyAnalyticsService({clock,createId,featureFlags,persist
     queue=result.catch(()=>{});
     return result;
   };
-  const records=()=>({
-    session:{...session,currentDayKey,updatedAt:sessionAccumulator.updatedAt,accumulator:analyticsSnapshot(sessionAccumulator)},
+  const records=(nextSessionAccumulator=sessionAccumulator,nextDailyAccumulator=dailyAccumulator,{
+    sessionRecord=session,dayKey=currentDayKey
+  }={})=>({
+    session:{...sessionRecord,currentDayKey:dayKey,updatedAt:nextSessionAccumulator.updatedAt,accumulator:analyticsSnapshot(nextSessionAccumulator)},
     daily:{
-      schemaVersion:1,rallyEventId:session.rallyEventId,sessionId:session.sessionId,
-      dayKey:currentDayKey,createdAt:dailyAccumulator.startedAt,updatedAt:dailyAccumulator.updatedAt,
-      accumulator:analyticsSnapshot(dailyAccumulator),extensions:{}
+      schemaVersion:1,rallyEventId:sessionRecord.rallyEventId,sessionId:sessionRecord.sessionId,
+      dayKey,createdAt:nextDailyAccumulator.startedAt,updatedAt:nextDailyAccumulator.updatedAt,
+      accumulator:analyticsSnapshot(nextDailyAccumulator),extensions:{}
     }
   });
   const ensureActive=()=>{
@@ -41,20 +44,12 @@ export function createRallyAnalyticsService({clock,createId,featureFlags,persist
       telemetryEventId:createId(),occurredAt:event.occurredAt||clock.iso(),type:event.type,
       payload:clone(event.payload||{}),extensions:clone(event.extensions||{})
     };
-    sessionAccumulator=applyAnalyticsEvent(sessionAccumulator,{...event,occurredAt:raw.occurredAt});
-    dailyAccumulator=applyAnalyticsEvent(dailyAccumulator,{...event,occurredAt:raw.occurredAt});
-    const derived=records();
+    const nextSession=applyAnalyticsEvent(sessionAccumulator,{...event,occurredAt:raw.occurredAt});
+    const nextDaily=applyAnalyticsEvent(dailyAccumulator,{...event,occurredAt:raw.occurredAt});
+    const derived=records(nextSession,nextDaily);
     await persistence.appendEventAndStats({event:raw,...derived});
+    sessionAccumulator=nextSession;dailyAccumulator=nextDaily;
     return raw;
-  };
-  const changeDay=async(dayKey,occurredAt)=>{
-    if(dayKey===currentDayKey)return;
-    const prior=currentDayKey;
-    currentDayKey=dayKey;
-    dailyAccumulator=createAnalyticsAccumulator({
-      sessionId:session.sessionId,rallyEventId:session.rallyEventId,startedAt:occurredAt,dayKey
-    });
-    await appendEvent({type:'day-boundary',occurredAt,payload:{previousDayKey:prior,dayKey}});
   };
 
   return Object.freeze({
@@ -90,14 +85,18 @@ export function createRallyAnalyticsService({clock,createId,featureFlags,persist
         currentDayKey=dayKeyFor(timestamp,{timeZone});
         sessionAccumulator=createAnalyticsAccumulator({sessionId,rallyEventId,startedAt:timestamp});
         dailyAccumulator=createAnalyticsAccumulator({sessionId,rallyEventId,startedAt:timestamp,dayKey:currentDayKey});
-        session={
+        const nextSession={
           schemaVersion:1,rallyEventId:String(rallyEventId),sessionId,riderId:String(riderId),
           status:'active',startedAt:timestamp,createdAt:timestamp,updatedAt:timestamp,
           endedAt:null,currentDayKey,extensions:clone(extensions),accumulator:analyticsSnapshot(sessionAccumulator)
         };
-        const derived=records();
-        await persistence.saveStats(derived);
-        await appendEvent({type:'session-started',occurredAt:timestamp});
+        const event={
+          schemaVersion:1,rallyEventId:String(rallyEventId),sessionId,
+          telemetryEventId:createId(),occurredAt:timestamp,type:'session-started',payload:{},extensions:{}
+        };
+        const derived=records(sessionAccumulator,dailyAccumulator,{sessionRecord:nextSession,dayKey:currentDayKey});
+        await persistence.appendEventAndStats({event,...derived});
+        session=nextSession;
         return {status:'active',sessionId};
       });
     },
@@ -106,10 +105,25 @@ export function createRallyAnalyticsService({clock,createId,featureFlags,persist
       return enqueue(async()=>{
         if(!session)return {status:'idle'};
         ensureActive();
-        await appendEvent({type:'session-ended',occurredAt:endedAt,payload:{reason}});
-        session={...session,status:'completed',endedAt:new Date(endedAt).toISOString(),updatedAt:new Date(endedAt).toISOString(),currentDayKey};
-        const derived=records();derived.session.status='completed';derived.session.endedAt=session.endedAt;derived.session.currentDayKey=currentDayKey;
-        await persistence.saveStats(derived);
+        const timestamp=new Date(endedAt).toISOString();
+        const finalizedSession=finalizeAnalyticsAccumulator(sessionAccumulator,timestamp,policy);
+        const finalizedDaily=finalizeAnalyticsAccumulator(dailyAccumulator,timestamp,policy);
+        const nextSessionAccumulator=applyAnalyticsEvent(finalizedSession.state,{type:'session-ended',occurredAt:timestamp});
+        const nextDailyAccumulator=applyAnalyticsEvent(finalizedDaily.state,{type:'session-ended',occurredAt:timestamp});
+        const nextSession={...session,status:'completed',endedAt:timestamp,updatedAt:timestamp,currentDayKey};
+        const events=[
+          ...finalizedSession.events.map(event=>({
+            schemaVersion:1,rallyEventId:session.rallyEventId,sessionId:session.sessionId,
+            telemetryEventId:createId(),occurredAt:event.occurredAt,type:event.type,payload:clone(event),extensions:{}
+          })),
+          {
+            schemaVersion:1,rallyEventId:session.rallyEventId,sessionId:session.sessionId,
+            telemetryEventId:createId(),occurredAt:timestamp,type:'session-ended',payload:{reason},extensions:{}
+          }
+        ];
+        const derived=records(nextSessionAccumulator,nextDailyAccumulator,{sessionRecord:nextSession,dayKey:currentDayKey});
+        await persistence.appendSampleAndStats({events,...derived});
+        session=nextSession;sessionAccumulator=nextSessionAccumulator;dailyAccumulator=nextDailyAccumulator;
         return {status:'completed',sessionId:session.sessionId};
       });
     },
@@ -118,26 +132,42 @@ export function createRallyAnalyticsService({clock,createId,featureFlags,persist
       return enqueue(async()=>{
         ensureActive();
         const timestamp=new Date(position?.timestamp??position?.occurredAt??clock.now()).toISOString();
-        await changeDay(dayKeyFor(timestamp,{timeZone}),timestamp);
-        const sessionResult=reduceGpsSample(sessionAccumulator,position,policy);
-        const dailyResult=reduceGpsSample(dailyAccumulator,position,policy);
-        sessionAccumulator=sessionResult.state;dailyAccumulator=dailyResult.state;
+        const nextDayKey=dayKeyFor(timestamp,{timeZone}),dayChanged=nextDayKey!==currentDayKey;
+        let sessionBase=sessionAccumulator;
+        let dailyBase=dayChanged?createAnalyticsAccumulator({
+          sessionId:session.sessionId,rallyEventId:session.rallyEventId,startedAt:timestamp,dayKey:nextDayKey
+        }):dailyAccumulator;
+        const events=[];
+        if(dayChanged){
+          const boundary={type:'day-boundary',occurredAt:timestamp,payload:{previousDayKey:currentDayKey,dayKey:nextDayKey}};
+          sessionBase=applyAnalyticsEvent(sessionBase,boundary);
+          dailyBase=applyAnalyticsEvent(dailyBase,boundary);
+          events.push({
+            schemaVersion:1,rallyEventId:session.rallyEventId,sessionId:session.sessionId,
+            telemetryEventId:createId(),occurredAt:timestamp,type:boundary.type,
+            payload:boundary.payload,extensions:{}
+          });
+        }
+        const sessionResult=reduceGpsSample(sessionBase,position,policy);
+        const dailyResult=reduceGpsSample(dailyBase,position,policy);
+        let nextSessionAccumulator=sessionResult.state,nextDailyAccumulator=dailyResult.state;
         if(routeProgress){
-          sessionAccumulator=applyAnalyticsEvent(sessionAccumulator,{type:'route-progress',occurredAt:timestamp});
-          dailyAccumulator=applyAnalyticsEvent(dailyAccumulator,{type:'route-progress',occurredAt:timestamp});
+          nextSessionAccumulator=applyAnalyticsEvent(nextSessionAccumulator,{type:'route-progress',occurredAt:timestamp});
+          nextDailyAccumulator=applyAnalyticsEvent(nextDailyAccumulator,{type:'route-progress',occurredAt:timestamp});
         }
         const sample={
           schemaVersion:1,rallyEventId:session.rallyEventId,sessionId:session.sessionId,
           sampleId:createId(),occurredAt:timestamp,position:sessionResult.sample,
           movement:sessionResult.movement,routeProgress:clone(routeProgress),extensions:clone(extensions)
         };
-        const events=[...sessionResult.events.map(event=>({
+        events.push(...sessionResult.events.map(event=>({
           schemaVersion:1,rallyEventId:session.rallyEventId,sessionId:session.sessionId,
           telemetryEventId:createId(),occurredAt:event.occurredAt,type:event.type,
-          payload:clone(event),extensions:{algorithmVersion:sessionAccumulator.algorithmVersion}
-        }))];
-        const derived=records();
+          payload:clone(event),extensions:{algorithmVersion:nextSessionAccumulator.algorithmVersion}
+        })));
+        const derived=records(nextSessionAccumulator,nextDailyAccumulator,{dayKey:nextDayKey});
         await persistence.appendSampleAndStats({sample,events,...derived});
+        sessionAccumulator=nextSessionAccumulator;dailyAccumulator=nextDailyAccumulator;currentDayKey=nextDayKey;
         return {status:'recorded',sampleId:sample.sampleId,movement:sample.movement,events:events.map(event=>event.type)};
       });
     },

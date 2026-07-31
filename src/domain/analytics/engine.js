@@ -29,7 +29,6 @@ export function createAnalyticsAccumulator({sessionId,rallyEventId,startedAt,day
     sessionId:String(sessionId),rallyEventId:String(rallyEventId),dayKey,
     startedAt:timestamp,updatedAt:timestamp,lastSample:null,
     currentPeriod:emptyPeriod(),currentRide:{startedAt:null,durationMs:0,distanceMeters:0},
-    pendingStop:null,
     metrics:{
       sampleCount:0,totalDistanceMeters:0,elapsedMs:0,movingMs:0,stoppedMs:0,
       movingPeriodCount:0,completeStopCount:0,fuelStopCandidateCount:0,
@@ -105,7 +104,7 @@ export function reduceGpsSample(accumulator,input,policyOverrides={}){
     if(intervalMs>policy.maximumSampleGapMs){
       state.metrics.trackingGapCount++;
       events.push({type:'tracking-gap',startedAt:previous.occurredAt,occurredAt:sample.occurredAt,durationMs:intervalMs});
-      intervalMs=0;distanceMeters=0;finishRide(state);
+      intervalMs=0;distanceMeters=0;finishRide(state);state.currentPeriod=emptyPeriod();
     }
     if(speed!==null&&speed>policy.maximumPlausibleSpeedMetersPerSecond)speed=null;
   }
@@ -182,6 +181,34 @@ export function applyAnalyticsEvent(accumulator,event){
   if(type==='offline-started')state.metrics.offlinePeriodCount++;
   state.updatedAt=iso(event?.occurredAt??Date.now());
   return state;
+}
+
+/**
+ * Closes a terminal stationary period when a session ends. Without this step,
+ * a hotel-arrival stop would only be counted if another moving sample arrived.
+ */
+export function finalizeAnalyticsAccumulator(accumulator,endedAt,policyOverrides={}){
+  const policy={...DEFAULT_ANALYTICS_POLICY,...policyOverrides};
+  const state=structuredClone(accumulator),events=[];
+  if(state.currentPeriod.kind!=='stopped')return {state,events};
+  const timestamp=iso(endedAt);
+  const durationMs=Math.max(
+    state.currentPeriod.durationMs,
+    Date.parse(timestamp)-Date.parse(state.currentPeriod.startedAt)
+  );
+  if(durationMs<policy.completeStopMs)return {state,events};
+  state.metrics.completeStopCount++;
+  state.metrics.longestStopMs=Math.max(state.metrics.longestStopMs,durationMs);
+  const fuelStopCandidate=durationMs>=policy.fuelStopCandidateMs;
+  if(fuelStopCandidate)state.metrics.fuelStopCandidateCount++;
+  events.push({
+    type:'stop-completed',startedAt:state.currentPeriod.startedAt,occurredAt:timestamp,
+    durationMs,fuelStopCandidate,location:state.currentPeriod.location,reason:'session-ended'
+  });
+  finishRide(state);
+  state.currentPeriod=emptyPeriod();
+  state.updatedAt=timestamp;
+  return {state,events};
 }
 
 export function analyticsSnapshot(accumulator){

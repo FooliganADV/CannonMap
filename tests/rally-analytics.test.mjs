@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  analyticsSnapshot,applyAnalyticsEvent,createAnalyticsAccumulator,dayKeyFor,reduceGpsSample
+  analyticsSnapshot,applyAnalyticsEvent,createAnalyticsAccumulator,dayKeyFor,
+  finalizeAnalyticsAccumulator,reduceGpsSample
 } from '../src/domain/analytics/engine.js';
 import {createRallyAnalyticsService,RALLY_ANALYTICS_FEATURE_FLAG} from '../src/application/rally-analytics-service.js';
 
@@ -15,8 +16,8 @@ test('incremental reducer derives motion, complete stops, fuel candidates, eleva
     sample('2026-07-29T10:00:00Z',35,-85,10,100),
     sample('2026-07-29T10:01:00Z',35.005,-85,10,120),
     sample('2026-07-29T10:02:00Z',35.005,-85,0,120),
-    sample('2026-07-29T10:07:01Z',35.005,-85,0,120),
-    sample('2026-07-29T10:07:02Z',35.006,-85,10,110)
+    sample('2026-07-29T10:06:59Z',35.005,-85,0,120),
+    sample('2026-07-29T10:07:00Z',35.006,-85,10,110)
   ];
   const events=[];
   for(const input of inputs){
@@ -48,6 +49,30 @@ test('tracking gaps are counted but not converted into implausible distance or r
   assert.ok(result.events.some(event=>event.type==='tracking-gap'));
 });
 
+test('tracking gaps break movement and stop continuity instead of creating false completed stops',()=>{
+  let state=createAnalyticsAccumulator({sessionId:'s',rallyEventId:'e',startedAt:'2026-07-29T10:00:00Z'});
+  for(const input of [
+    sample('2026-07-29T10:00:00Z',35,-85,10),
+    sample('2026-07-29T10:01:00Z',35,-85,0),
+    sample('2026-07-29T11:00:00Z',35,-85,0),
+    sample('2026-07-29T11:01:00Z',35.001,-85,10)
+  ])state=reduceGpsSample(state,input).state;
+  assert.equal(state.metrics.trackingGapCount,1);
+  assert.equal(state.metrics.completeStopCount,0);
+  assert.equal(state.metrics.movingPeriodCount,2);
+});
+
+test('session finalization captures a terminal complete stop and fuel-stop candidate',()=>{
+  let state=createAnalyticsAccumulator({sessionId:'s',rallyEventId:'e',startedAt:'2026-07-29T10:00:00Z'});
+  state=reduceGpsSample(state,sample('2026-07-29T10:00:00Z',35,-85,0)).state;
+  state=reduceGpsSample(state,sample('2026-07-29T10:03:00Z',35,-85,0)).state;
+  state=reduceGpsSample(state,sample('2026-07-29T10:06:00Z',35,-85,0)).state;
+  const result=finalizeAnalyticsAccumulator(state,'2026-07-29T10:06:01Z');
+  assert.equal(result.state.metrics.completeStopCount,1);
+  assert.equal(result.state.metrics.fuelStopCandidateCount,1);
+  assert.deepEqual(result.events.map(event=>event.type),['stop-completed']);
+});
+
 test('event metrics and local daily keys remain separate from raw evidence',()=>{
   let state=createAnalyticsAccumulator({sessionId:'s',rallyEventId:'e',startedAt:'2026-07-29T10:00:00Z'});
   state=applyAnalyticsEvent(state,{type:'checkpoint-completed',occurredAt:'2026-07-29T10:01:00Z'});
@@ -66,7 +91,7 @@ test('analytics service serializes raw writes and compact statistics through the
     async getDaily(sessionId,key){return daily.get(`${sessionId}:${key}`)||null;},
     async saveStats({session, daily:day}){sessions.set(session.sessionId,structuredClone(session));daily.set(`${day.sessionId}:${day.dayKey}`,structuredClone(day));},
     async appendEventAndStats({event,session,daily:day}){events.push(structuredClone(event));await this.saveStats({session,daily:day});},
-    async appendSampleAndStats({sample,events:items,session,daily:day}){samples.push(structuredClone(sample));events.push(...structuredClone(items));await this.saveStats({session,daily:day});}
+    async appendSampleAndStats({sample,events:items,session,daily:day}){if(sample)samples.push(structuredClone(sample));events.push(...structuredClone(items));await this.saveStats({session,daily:day});}
   };
   let id=0;
   const service=createRallyAnalyticsService({
@@ -81,7 +106,7 @@ test('analytics service serializes raw writes and compact statistics through the
   ]);
   await service.recordCheckpointEvent({checkpointId:'cp-1'});
   await service.recordWeatherSnapshot({temperature_2m:80});
-  await service.stopSession();
+  await service.stopSession({endedAt:'2026-07-29T10:02:00Z'});
   assert.equal(samples.length,2);
   assert.equal(samples[0].position.latitude,35);
   assert.equal(samples[0].routeProgress.checkpointId,'cp-1');
@@ -91,6 +116,33 @@ test('analytics service serializes raw writes and compact statistics through the
   assert.equal(persisted.status,'completed');
   assert.equal(persisted.accumulator.metrics.sampleCount,2);
   assert.equal(persisted.accumulator.metrics.routeProgressSampleCount,2);
+});
+
+test('failed persistence does not advance the in-memory derived projection',async()=>{
+  let id=0,failSample=true,storedSession=null,storedDaily=null;
+  const persistence={
+    async findActiveSession(){return null;},
+    async getDaily(){return null;},
+    async appendEventAndStats({session,daily}){storedSession=structuredClone(session);storedDaily=structuredClone(daily);},
+    async appendSampleAndStats({session,daily}){
+      if(failSample){failSample=false;throw new Error('quota exceeded');}
+      storedSession=structuredClone(session);storedDaily=structuredClone(daily);
+    }
+  };
+  const service=createRallyAnalyticsService({
+    clock:{now:()=>Date.parse('2026-07-29T10:00:00Z'),iso:()=>'2026-07-29T10:00:00.000Z'},
+    createId:()=>`id-${++id}`,featureFlags:{isEnabled:key=>key===RALLY_ANALYTICS_FEATURE_FLAG},persistence
+  });
+  await service.startSession({rallyEventId:'event-1'});
+  await assert.rejects(
+    service.recordGpsSample(sample('2026-07-29T10:01:00Z',35,-85,10)),
+    /quota exceeded/
+  );
+  assert.equal(service.snapshot().metrics.sampleCount,0);
+  await service.recordGpsSample(sample('2026-07-29T10:02:00Z',35.001,-85,10));
+  assert.equal(service.snapshot().metrics.sampleCount,1);
+  assert.equal(storedSession.accumulator.metrics.sampleCount,1);
+  assert.equal(storedDaily.accumulator.metrics.sampleCount,1);
 });
 
 test('feature flag absence keeps the service inert and backward-compatible',async()=>{
