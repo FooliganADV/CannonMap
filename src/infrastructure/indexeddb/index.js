@@ -11,3 +11,4 @@ export {createMigrationRunner} from './migration-runner.js';
 export {createAnalyticsRepository} from './analytics-repository.js';
 export {createProjectRepository} from './project-repository.js';
 export {createJournalRepository} from './journal-repository.js';
+export {createSearchRepository} from './search-repository.js';

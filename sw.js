@@ -1,4 +1,4 @@
-const CACHE = 'cannonmap-v0.7.1-20260730-rally-journal-foundation-01';
+const CACHE = 'cannonmap-v0.7.1-20260730-search-foundation-01';
 const APP_SHELL = [
   './',
   './index.html',
@@ -16,6 +16,7 @@ const APP_SHELL = [
   './src/domain/geo/geometry.js',
   './src/domain/projects/model.js',
   './src/domain/journal/model.js',
+  './src/domain/search/index.js',
   './src/domain/checkpoints/workflow.js',
   './src/domain/observations/contract.js',
   './src/domain/observations/ingestion-contract.js',
@@ -27,12 +28,14 @@ const APP_SHELL = [
   './src/application/observation-capture.js',
   './src/application/rally-analytics-service.js',
   './src/application/rally-journal-service.js',
+  './src/application/search-service.js',
   './src/application/secure-observation-upload.js',
   './src/infrastructure/indexeddb/index.js',
   './src/infrastructure/indexeddb/analytics-repository.js',
   './src/infrastructure/indexeddb/confidence-vector-repository.js',
   './src/infrastructure/indexeddb/intelligence-repository.js',
   './src/infrastructure/indexeddb/journal-repository.js',
+  './src/infrastructure/indexeddb/search-repository.js',
   './src/infrastructure/indexeddb/migration-runner.js',
   './src/infrastructure/indexeddb/observation-capture-repository.js',
   './src/infrastructure/indexeddb/observation-outbox.js',
