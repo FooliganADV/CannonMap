@@ -1,9 +1,14 @@
+import {normalizeProject} from '../../domain/projects/model.js';
+
 export const DATABASE_NAME='CannonMapDB';
-export const DATABASE_VERSION=3;
+export const DATABASE_VERSION=4;
 export const V2_FEATURE_FLAG='architecture.indexeddb.v2';
 
 const stores=[
   {name:'projects',legacy:true,indexes:[['updatedAt','updatedAt']]},
+  {name:'projectRecords',keyPath:'projectId',indexes:[
+    ['updatedAt','updatedAt'],['name','name'],['schemaVersion','schemaVersion']
+  ]},
   {name:'observations',keyPath:['eventId','observationId'],indexes:[
     ['riderTime',['eventId','riderId','occurredAt']],
     ['checkpointTime',['eventId','checkpointId','occurredAt']],
@@ -71,6 +76,20 @@ export function applySchemaUpgrade(database,transaction){
       addIndexes(transaction.objectStore(definition.name),definition);
     }
   }
+  migrateLegacyCurrentProject(database,transaction);
+}
+
+function migrateLegacyCurrentProject(database,transaction){
+  if(!database.objectStoreNames.contains('projects')||!database.objectStoreNames.contains('projectRecords'))return;
+  const legacyStore=transaction.objectStore('projects');
+  const projectStore=transaction.objectStore('projectRecords');
+  const request=legacyStore.get('current');
+  request.onsuccess=()=>{
+    if(!request.result)return;
+    const record=normalizeProject(request.result);
+    const existing=projectStore.get(record.projectId);
+    existing.onsuccess=()=>{if(!existing.result)projectStore.add(record);};
+  };
 }
 
 export function readV2FeatureFlag(featureFlags){

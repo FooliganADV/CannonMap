@@ -43,9 +43,74 @@ test('upgrades the legacy database additively and preserves the authoritative pr
     return {project,stores,version,registry:module.SCHEMA_REGISTRY.map(store=>store.name)};
   },databaseName);
 
-  expect(result.version).toBe(3);
+  expect(result.version).toBe(4);
   expect(result.project).toEqual({id:'legacy',name:'Preserved'});
   expect(result.stores).toEqual(expect.arrayContaining(result.registry));
+  await deleteDatabase(page,databaseName);
+});
+
+test('v4 copies the legacy current project into first-class project storage without changing the legacy record',async({page},testInfo)=>{
+  const databaseName=uniqueName(testInfo);
+  const result=await page.evaluate(async name=>{
+    const legacyProject={name:'Preserved Rally',features:[{id:'route-1',type:'route'}],customField:'keep-me'};
+    const legacy=await new Promise((resolve,reject)=>{
+      const request=indexedDB.open(name,3);
+      request.onupgradeneeded=()=>request.result.createObjectStore('projects');
+      request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);
+    });
+    await new Promise((resolve,reject)=>{
+      const transaction=legacy.transaction('projects','readwrite');
+      transaction.objectStore('projects').put(legacyProject,'current');
+      transaction.oncomplete=resolve;transaction.onerror=()=>reject(transaction.error);
+    });
+    legacy.close();
+    const module=await import('/src/infrastructure/indexeddb/index.js');
+    const database=await module.openIndexedDbV2({
+      indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name
+    });
+    const transaction=database.transaction(['projects','projectRecords'],'readonly');
+    const read=(store,key)=>new Promise((resolve,reject)=>{
+      const request=transaction.objectStore(store).get(key);
+      request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);
+    });
+    const [legacyAfter,record]=await Promise.all([
+      read('projects','current'),read('projectRecords','legacy-current')
+    ]);
+    database.close();
+    return {legacyAfter,record};
+  },databaseName);
+  expect(result.legacyAfter).toEqual({name:'Preserved Rally',features:[{id:'route-1',type:'route'}],customField:'keep-me'});
+  expect(result.record).toMatchObject({
+    projectId:'legacy-current',id:'legacy-current',schemaVersion:1,name:'Preserved Rally',
+    features:[{id:'route-1',type:'route'}],customField:'keep-me',
+    journal:[],analytics:{},photos:[],videos:[],notes:[],offlineMapConfiguration:{},settings:{}
+  });
+  await deleteDatabase(page,databaseName);
+});
+
+test('project repository stores and lists isolated first-class projects',async({page},testInfo)=>{
+  const databaseName=uniqueName(testInfo);
+  const result=await page.evaluate(async name=>{
+    const module=await import('/src/infrastructure/indexeddb/index.js');
+    const database=await module.openIndexedDbV2({
+      indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name
+    });
+    let clock=0;
+    const repository=module.createProjectRepository({
+      database,createId:()=>`project-${++clock}`,now:()=>`2026-07-30T12:00:0${clock}.000Z`
+    });
+    const first=await repository.save({name:'Weekend Ride',features:[{id:'track-1',type:'track'}]});
+    const second=await repository.save({name:'TAT',features:[{id:'route-1',type:'route'}]});
+    const restored=await repository.get(first.projectId);
+    const projects=await repository.list();
+    database.close();
+    return {first,second,restored,projects};
+  },databaseName);
+  expect(result.first.projectId).not.toBe(result.second.projectId);
+  expect(result.restored).toEqual(result.first);
+  expect(result.projects.map(project=>project.name)).toEqual(['TAT','Weekend Ride']);
+  expect(result.projects[0].features).toEqual([{id:'route-1',type:'route'}]);
+  expect(result.projects[1].features).toEqual([{id:'track-1',type:'track'}]);
   await deleteDatabase(page,databaseName);
 });
 
