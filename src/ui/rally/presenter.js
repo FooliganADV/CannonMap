@@ -11,23 +11,12 @@ function checkpointKind(next){
   return 'checkpoint';
 }
 
-function checkpointTypeLabel(next){
-  if(!next)return 'NEXT CHECKPOINT';
-  if(next.extreme)return 'EXTREME CHECKPOINT';
-  const type=String(next.type||'checkpoint').toLowerCase();
-  if(type==='hotel')return 'NEXT HOTEL';
-  return 'NEXT CHECKPOINT';
-}
-
-function checkpointHint(next){
-  if(!next)return 'Select Next to load the active day checkpoint.';
-  const notes=String(next.notes||'').trim();
-  if(notes)return notes.length>72?`${notes.slice(0,69)}…`:notes;
-  if(next.extreme)return 'High-value extreme checkpoint — confirm approach carefully.';
-  if(next.status==='deferred')return 'Previously deferred — still counts when completed.';
-  if(next.status==='next')return 'Active target — complete or defer when ready.';
-  return `${next.points||10} points · ${next.status||'planned'}`;
-}
+const text=value=>String(value||'').trim();
+const operationalWarnings=model=>[
+  ...(model.warnings||[]),
+  ...(!model.online?['Offline — live intelligence is paused.']:[]),
+  ...(/error/i.test(model.gpsStatus||'')?['GPS unavailable — automatic capture may require manual completion.']:[])
+].filter(Boolean);
 
 export function renderRally({getElement,model,escapeHtml}){
   if(!getElement('rallyMode'))return;
@@ -36,11 +25,14 @@ export function renderRally({getElement,model,escapeHtml}){
   set('rallyDay',model.day?`DAY ${model.day}`:'SELECT A DAY');
   set('rallyConnectivity',`${model.online?'Online':'Offline'} · ${model.gpsStatus}`);
   set('rallyScore',model.score);
-  set('rallyNextType',checkpointTypeLabel(model.next));
   set('rallyNextName',model.next?.name||'No checkpoint selected');
   set('rallyNextDistance',model.distance===null?'Distance unavailable':`${model.distance.toFixed(1)} mi away`);
-  set('rallyNextPoints',model.next?`${model.next.extreme?'EXTREME · ':''}${model.next.points} points · ${model.next.status}`:'—');
-  set('rallyNextHint',checkpointHint(model.next));
+  set('rallyRiderNotes',text(model.next?.notes)||'No rider notes.');
+  set('rallyRouteIntelligence',text(model.routeIntelligence)||'Backbone route active. Live route intelligence is not yet available.');
+  const warnings=operationalWarnings(model),warningList=getElement('rallyWarnings');
+  if(warningList)warningList.innerHTML=(warnings.length?warnings:['No active operational warnings.'])
+    .map(item=>`<li>${escapeHtml(item)}</li>`).join('');
+  getElement('rallyWarningsSection')?.classList.toggle('has-warnings',warnings.length>0);
   set('rallyHotelEta',model.hotelLabel);
   set('rallyFeedAge',model.feedAge);
   const card=getElement('rallyPrimaryCard')||getElement('rallyMode')?.querySelector?.('.rally-primary-card');
@@ -55,7 +47,7 @@ export function renderRally({getElement,model,escapeHtml}){
     fab.classList.toggle('is-active',active);
     fab.setAttribute('aria-label',active?'Recenter map on GPS':'Start GPS tracking');
   }
-  for(const id of ['rallyDeferButton','rallyCompleteButton','rallySkipButton']){
+  for(const id of ['rallyDeferIcon','rallyCompleteButton','rallySkipButton']){
     const el=getElement(id);if(el)el.disabled=!model.next;
   }
   const restore=getElement('rallyRestoreButton');
@@ -65,6 +57,8 @@ export function renderRally({getElement,model,escapeHtml}){
     goHotel.disabled=!model.hasHotel&&!model.hotelBailoutActive;
     goHotel.textContent=model.hotelBailoutActive?'UNDO HOTEL BAILOUT':'GO TO HOTEL';
   }
+  const nextButton=getElement('rallyNextButton');
+  if(nextButton)nextButton.hidden=Boolean(model.next)||!model.hasPlanned;
   if(getElement('autoCompleteCheckpoints'))getElement('autoCompleteCheckpoints').checked=model.autoComplete;
   if(getElement('checkpointArrivalRadius'))getElement('checkpointArrivalRadius').value=model.arrivalRadius;
   if(getElement('checkpointMaxAccuracy'))getElement('checkpointMaxAccuracy').value=model.maxAccuracy;

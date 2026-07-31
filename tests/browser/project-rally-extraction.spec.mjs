@@ -42,5 +42,10 @@ test('cached offline Rally Mode retains checkpoint operation',async({page,contex
   await expect(page.locator('#rallyNextName')).toContainText('Checkpoint One');
   await page.evaluate(()=>window.CannonMapTest.deferCurrentCheckpoint());
   await expect(page.locator('#rallyNextName')).toContainText('Extreme Checkpoint Two');
+  await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(true));
+  await page.waitForFunction(async()=>{
+    const events=await window.CannonMapTest.missionControlJournalEvents();
+    return events.some(event=>event.eventType==='checkpoint_completed'&&event.source==='gps_capture');
+  });
   await context.setOffline(false);
 });

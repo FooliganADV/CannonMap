@@ -43,9 +43,8 @@ test('mileage deduplicates matching geometry but retains partial, parallel and a
 test('checkpoint defer, restore, complete, scoring, hotel bailout and undo',async({page},testInfo)=>{
   test.skip(testInfo.project.name==='desktop');
   await loadProject(page);
-  await page.locator('#rallyNextButton').click();
   await expect(page.locator('#rallyNextName')).toContainText('Checkpoint One');
-  await page.locator('#rallyDeferButton').click();
+  await page.locator('#rallyDeferIcon').click();
   await expect(page.locator('#rallyNextName')).toContainText('Extreme Checkpoint Two');
   await page.locator('#rallyMoreButton').click();
   await page.locator('#rallyRestoreButton').click();
@@ -63,6 +62,30 @@ test('checkpoint defer, restore, complete, scoring, hotel bailout and undo',asyn
   await expect(page.locator('#status')).toContainText('undone');
 });
 
+test('hotel completion advances the rally day and survives restart',async({page},testInfo)=>{
+  test.skip(testInfo.project.name==='desktop');
+  await loadProject(page);
+  await page.waitForTimeout(100);
+  await page.reload();
+  await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
+  await page.evaluate(()=>{
+    window.CannonMapTest.completeCurrentCheckpoint(true);
+    window.CannonMapTest.completeCurrentCheckpoint(true);
+    window.CannonMapTest.completeCurrentCheckpoint(true);
+  });
+  await expect(page.locator('#rallyDay')).toHaveText('DAY 2');
+  await expect(page.locator('#rallyNextName')).toContainText('Day 2 Checkpoint');
+  await page.waitForFunction(async()=>{
+    const events=await window.CannonMapTest.missionControlJournalEvents();
+    return events.some(event=>event.eventType==='hotel_arrival');
+  });
+  await page.waitForTimeout(100);
+  await page.reload();
+  await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
+  await expect(page.locator('#rallyDay')).toHaveText('DAY 2');
+  await expect(page.locator('#rallyNextName')).toContainText('Day 2 Checkpoint');
+});
+
 test('mobile Rally Mode controls do not overlap and meet 48px targets',async({page},testInfo)=>{
   test.skip(testInfo.project.name==='desktop');
   await page.goto('/?e2e=layout');
@@ -73,8 +96,14 @@ test('mobile Rally Mode controls do not overlap and meet 48px targets',async({pa
   const boxes=await controls.evaluateAll(elements=>elements.map(element=>{const r=element.getBoundingClientRect();return {id:element.id,x:r.x,y:r.y,w:r.width,h:r.height};}));
   const viewport=page.viewportSize();for(const box of boxes){expect(box.w,`${box.id} width`).toBeGreaterThanOrEqual(48);expect(box.h,`${box.id} height`).toBeGreaterThanOrEqual(48);expect(box.x,`${box.id} left edge`).toBeGreaterThanOrEqual(0);expect(box.x+box.w,`${box.id} right edge`).toBeLessThanOrEqual(viewport.width);expect(box.y+box.h,`${box.id} bottom edge`).toBeLessThanOrEqual(viewport.height);}
   for(let i=0;i<boxes.length;i++)for(let j=i+1;j<boxes.length;j++){const a=boxes[i],b=boxes[j],overlap=a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;expect(overlap,`${a.id} overlaps ${b.id}`).toBeFalsy();}
-  expect(await page.locator('#rallyPrimaryCard, .rally-primary-card').first().evaluate(element=>element.getBoundingClientRect().height)).toBeLessThan(100);
+  const card=page.locator('#rallyPrimaryCard, .rally-primary-card').first();
+  await expect(card.locator('#rallyRiderNotes')).toBeVisible();
+  await expect(card.locator('#rallyRouteIntelligence')).toBeVisible();
+  await expect(card.locator('#rallyWarnings')).toBeVisible();
+  const cardBox=await card.evaluate(element=>{const r=element.getBoundingClientRect();return {top:r.top,bottom:r.bottom};});
+  expect(cardBox.top).toBeGreaterThanOrEqual(0);expect(cardBox.bottom).toBeLessThan(viewport.height-72);
   await page.evaluate(()=>document.getElementById('intelSheet').classList.add('open'));
+  await expect(page.locator('#rallyRecenterFab')).toBeHidden();
   const intelBox=await page.locator('#intelSheet').evaluate(element=>{const r=element.getBoundingClientRect();return {bottom:r.bottom};});
   const dockBox=await page.locator('.rally-actions').evaluate(element=>{const r=element.getBoundingClientRect();return {top:r.top};});
   expect(intelBox.bottom,'Intel sheet must stay above the action dock').toBeLessThanOrEqual(dockBox.top);

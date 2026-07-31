@@ -1,4 +1,4 @@
-const CACHE = 'cannonmap-v0.7.1-20260731-template-foundation-01';
+const CACHE = 'cannonmap-v0.7.1-20260731-mission-control-2-phase1-01';
 const APP_SHELL = [
   './',
   './index.html',

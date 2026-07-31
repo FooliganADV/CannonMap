@@ -1,7 +1,7 @@
 export function wireRallyController({getElement,actions,windowTarget=window}){
   const on=(id,event,handler)=>getElement(id)?.addEventListener(event,handler);
   on('rallyNextButton','click',actions.selectNext);
-  on('rallyDeferButton','click',actions.defer);
+  on('rallyDeferIcon','click',actions.defer);
   on('rallyWeatherButton','click',()=>actions.setIntelOpen(true));
   on('rallyHotelButton','click',actions.focusHotel);
   on('rallyRecenterFab','click',()=>{

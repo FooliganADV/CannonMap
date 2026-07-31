@@ -107,6 +107,13 @@ The versioned Template domain, immutable built-in registry, user-defined
 Template repository, and unpersisted Project-draft service are documented in
 [`architecture/PROJECT_TEMPLATE_FOUNDATION.md`](architecture/PROJECT_TEMPLATE_FOUNDATION.md).
 Templates are not connected to Project creation or any user-facing workflow.
+
+## Mission Control 2.0
+
+The first operational slice redesigns Current Objective execution and consumes
+Project Lifecycle, Journal, and Analytics without exposing foundation UI.
+See [`architecture/MISSION_CONTROL_2_PHASE_1.md`](architecture/MISSION_CONTROL_2_PHASE_1.md).
+
 # M8 Route Family Engine
 
 `src/domain/routes` deterministically derives immutable Route Variant and Route Family revisions from validated route-traversal evidence. A Variant owns its `independentStats`; a Family owns a separately calculated `aggregateStats` projection. Family reconciliation never writes into or replaces Variant statistics.
