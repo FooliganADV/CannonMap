@@ -1,6 +1,7 @@
 import {haversineMeters} from '../geo/geometry.js';
 
 export const ANALYTICS_ALGORITHM_VERSION='rally-analytics.incremental.v1';
+export const ANALYTICS_SCHEMA_VERSION=1;
 export const DEFAULT_ANALYTICS_POLICY=Object.freeze({
   movingSpeedMetersPerSecond:1.5,
   completeStopMs:3*60*1000,
@@ -25,7 +26,7 @@ const emptyPeriod=()=>({kind:null,startedAt:null,lastAt:null,durationMs:0,distan
 export function createAnalyticsAccumulator({sessionId,rallyEventId,startedAt,dayKey=null}){
   const timestamp=iso(startedAt);
   return {
-    schemaVersion:1,algorithmVersion:ANALYTICS_ALGORITHM_VERSION,
+    schemaVersion:ANALYTICS_SCHEMA_VERSION,algorithmVersion:ANALYTICS_ALGORITHM_VERSION,
     sessionId:String(sessionId),rallyEventId:String(rallyEventId),dayKey,
     startedAt:timestamp,updatedAt:timestamp,lastSample:null,
     currentPeriod:emptyPeriod(),currentRide:{startedAt:null,durationMs:0,distanceMeters:0},

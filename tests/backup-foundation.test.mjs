@@ -43,9 +43,59 @@ test('exports and validates a complete versioned deterministic archive',async()=
   assert.equal(result.valid,true);
   assert.equal(result.archive.manifest.archiveVersion,BACKUP_ARCHIVE_VERSION);
   assert.equal(result.archive.manifest.generator.format,'cmap');
+  assert.equal(first.startsWith('{"manifest":'),true);
+  assert.equal(result.archive.manifest.projectType,'project');
+  assert.deepEqual(result.archive.manifest.contains,{
+    routes:1,tracks:1,waypoints:1,checkpoints:1,journalEvents:2,
+    analyticsRecords:1,photos:1,videos:0,voiceNotes:0,notes:0
+  });
+  assert.deepEqual(result.archive.manifest.schemaVersions,{project:1,journal:1,analytics:1});
   assert.deepEqual(result.archive.data.templateReference,{templateId:'template-1'});
   assert.deepEqual(result.archive.data.settings,{units:'miles'});
   assert.deepEqual(result.archive.data.mediaReferences.photos,[{id:'photo-1',uri:'media://photo-1'}]);
+});
+
+test('exports deterministic inventory manifests for empty and large Projects',async()=>{
+  const empty=sampleSnapshot();
+  for(const name of ['routes','tracks','waypoints','checkpoints'])empty.data[name]=[];
+  empty.data.featureOrder=[];empty.data.journal={embedded:[],events:[]};
+  empty.data.analytics={embedded:{},telemetrySamples:[],telemetryEvents:[],sessions:[],dailyStats:[]};
+  empty.data.mediaReferences={photos:[],videos:[]};
+  const emptyArchive=JSON.parse(await makeArchive({snapshot:empty}));
+  assert.deepEqual(Object.values(emptyArchive.manifest.contains),Array(10).fill(0));
+
+  const large=sampleSnapshot(),size=2000;
+  large.data.routes=Array.from({length:size},(_,index)=>({id:`route-${index}`,type:'route'}));
+  large.data.tracks=[];large.data.waypoints=[];large.data.checkpoints=[];
+  large.data.featureOrder=large.data.routes.map((_,index)=>({collection:'routes',index}));
+  large.data.journal={embedded:[],events:Array.from({length:size},(_,index)=>({
+    eventId:`event-${index}`,projectId:PROJECT_ID,eventType:index%10===0?'voice_note':'rider_note',schemaVersion:1
+  }))};
+  large.data.analytics.telemetrySamples=Array.from({length:size},(_,index)=>({
+    projectId:PROJECT_ID,sessionId:'large-session',sampleId:`sample-${index}`,schemaVersion:1
+  }));
+  const first=await makeArchive({snapshot:large}),second=await makeArchive({snapshot:large});
+  assert.equal(first,second);
+  const manifest=JSON.parse(first).manifest;
+  assert.equal(manifest.contains.routes,size);
+  assert.equal(manifest.contains.journalEvents,size);
+  assert.equal(manifest.contains.analyticsRecords,size);
+  assert.equal(manifest.contains.voiceNotes,size/10);
+});
+
+test('rejects corrupt or inconsistent manifests and includes manifest metadata in checksum',async()=>{
+  const corrupt=JSON.parse(await makeArchive());corrupt.manifest.contains=null;
+  await assert.rejects(()=>validateProjectArchive(corrupt,{crypto:webcrypto,maxSchemaVersion:7}),
+    error=>error.code==='BACKUP_MANIFEST_INVALID');
+  const mismatch=JSON.parse(await makeArchive());mismatch.manifest.contains.routes=99;
+  await assert.rejects(()=>validateProjectArchive(mismatch,{crypto:webcrypto,maxSchemaVersion:7}),
+    error=>error.code==='BACKUP_MANIFEST_COUNT_MISMATCH'&&error.details.field==='routes');
+  const schema=JSON.parse(await makeArchive());schema.manifest.schemaVersions.journal=99;
+  await assert.rejects(()=>validateProjectArchive(schema,{crypto:webcrypto,maxSchemaVersion:7}),
+    error=>error.code==='BACKUP_MANIFEST_SCHEMA_MISMATCH');
+  const checksum=JSON.parse(await makeArchive());checksum.manifest.contains.futureRecords=1;
+  await assert.rejects(()=>validateProjectArchive(checksum,{crypto:webcrypto,maxSchemaVersion:7}),
+    error=>error.code==='BACKUP_CHECKSUM_INVALID');
 });
 
 test('identical data changes only exportedAt while retaining the content checksum',async()=>{

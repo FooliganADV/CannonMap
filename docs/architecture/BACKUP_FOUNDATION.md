@@ -27,13 +27,44 @@ Archive version 1 is canonical JSON with two top-level members:
     "exportedAt": "ISO-8601 timestamp",
     "projectId": "...",
     "projectName": "...",
+    "projectType": "project",
     "exportType": "project",
     "generator": { "name": "CannonMap", "format": "cmap" },
+    "contains": {
+      "routes": 0,
+      "tracks": 0,
+      "waypoints": 0,
+      "checkpoints": 0,
+      "journalEvents": 0,
+      "analyticsRecords": 0,
+      "photos": 0,
+      "videos": 0,
+      "voiceNotes": 0,
+      "notes": 0
+    },
+    "schemaVersions": {
+      "project": 1,
+      "journal": 1,
+      "analytics": 1
+    },
     "checksum": { "algorithm": "SHA-256", "value": "..." }
   },
   "data": { ... }
 }
 ```
+
+The manifest is the canonical lightweight inventory for archive inspection. It
+is serialized first in the JSON envelope, before `data`, so future preview,
+cloud-listing, and streaming readers can inspect Project identity, type,
+versions, and counts without traversing the full payload. Inventory generation
+uses the same normalized `data` collections written to the archive; it does not
+perform a second repository traversal.
+
+`journalEvents` includes embedded and persisted Journal entries.
+`analyticsRecords` totals raw telemetry samples/events plus persisted session
+and daily-stat records. `voiceNotes` counts Journal entries whose type is
+`voice_note`; `notes` counts Project note records. Photos and videos count media
+references, not media bytes.
 
 `data` contains Project and lifecycle metadata; route, track, waypoint, and
 checkpoint collections; embedded and append-only Journal data; embedded and
@@ -75,6 +106,11 @@ exported.
 Validation parses without mutation, verifies the supported archive and schema
 versions, checks every required collection and Project identity, validates
 Journal/Analytics project scoping and Settings shape, and verifies SHA-256.
+It regenerates the canonical inventory from validated contents and rejects a
+missing or malformed manifest, any count mismatch, or any component-schema
+version mismatch. Every nonvolatile manifest field participates in SHA-256
+(the export timestamp remains intentionally excluded), including
+forward-compatible inventory fields unknown to the current reader.
 Failures use domain-specific `BACKUP_*` error codes. Dry-run also performs a
 read-only create/replace identity check, then returns the validated identity and
 selected mode without opening a write transaction. The write transaction
@@ -125,3 +161,9 @@ strategies, cloud-provider transports, sharing, templates, scheduled backup,
 conflict resolution, and embedded media. Google Drive, Dropbox, OneDrive,
 iCloud, automatic backup, scheduling, encryption UI, and merge import are all
 explicitly deferred.
+
+Future archive versions may add inventory counters or component schema-version
+entries without changing the data traversal contract. Readers validate the
+fields they understand while checksum verification protects the complete
+manifest, allowing archive previews and cloud catalogs to evolve independently
+from restore implementation details.

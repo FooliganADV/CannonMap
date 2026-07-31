@@ -88,6 +88,10 @@ test('export and replace round-trip preserves Project-owned data and marks Searc
   expect(result.archive.data.templateReference).toEqual({templateId:'template-1'});
   expect(result.archive.data.offlineMapMetadata).toEqual({region:'north'});
   expect(result.archive.data.mediaReferences.photos).toEqual([{id:'photo-1',uri:'media://one'}]);
+  expect(result.archive.manifest.contains).toMatchObject({
+    routes:1,tracks:1,waypoints:1,checkpoints:1,journalEvents:2,
+    analyticsRecords:4,photos:1,videos:0,voiceNotes:0
+  });
 });
 
 test('create import rejects duplicate identity without changing either Project',async({page},testInfo)=>{

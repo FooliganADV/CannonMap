@@ -1,4 +1,6 @@
 import {PROJECT_SCHEMA_VERSION} from '../projects/model.js';
+import {JOURNAL_SCHEMA_VERSION} from '../journal/model.js';
+import {ANALYTICS_SCHEMA_VERSION} from '../analytics/engine.js';
 import {
   BackupChecksumError,BackupValidationError,UnsupportedArchiveVersionError
 } from './errors.js';
@@ -27,6 +29,58 @@ export function canonicalJson(value){
     return input;
   };
   return JSON.stringify(visit(value));
+}
+
+/** Keeps the lightweight manifest physically before the potentially large data payload. */
+export function serializeProjectArchive(archive){
+  return `{"manifest":${canonicalJson(archive.manifest)},"data":${canonicalJson(archive.data)}}`;
+}
+
+const count=value=>Array.isArray(value)?value.length:0;
+const positiveVersion=(value,fallback)=>{
+  const version=Number(value);
+  return Number.isInteger(version)&&version>0?version:fallback;
+};
+const inventoryOf=(values,fallback)=>{
+  let schemaVersion=fallback,voiceNotes=0;
+  for(const value of values){
+    schemaVersion=Math.max(schemaVersion,positiveVersion(value?.schemaVersion,fallback));
+    if((value?.eventType||value?.type)==='voice_note')voiceNotes+=1;
+  }
+  return {count:values.length,schemaVersion,voiceNotes};
+};
+
+/** One traversal contract generates and validates the canonical archive inventory. */
+export function createArchiveInventory(data){
+  const embeddedJournal=Array.isArray(data?.journal?.embedded)?data.journal.embedded:[];
+  const journalEvents=Array.isArray(data?.journal?.events)?data.journal.events:[];
+  const analyticsGroups=['telemetrySamples','telemetryEvents','sessions','dailyStats']
+    .map(name=>Array.isArray(data?.analytics?.[name])?data.analytics[name]:[]);
+  const embeddedInventory=inventoryOf(embeddedJournal,JOURNAL_SCHEMA_VERSION);
+  const journalInventory=inventoryOf(journalEvents,JOURNAL_SCHEMA_VERSION);
+  let analyticsRecordCount=0,analyticsSchemaVersion=positiveVersion(
+    data?.analytics?.embedded?.schemaVersion,ANALYTICS_SCHEMA_VERSION
+  );
+  for(const group of analyticsGroups){
+    const inventory=inventoryOf(group,ANALYTICS_SCHEMA_VERSION);
+    analyticsRecordCount+=inventory.count;
+    analyticsSchemaVersion=Math.max(analyticsSchemaVersion,inventory.schemaVersion);
+  }
+  return Object.freeze({
+    contains:Object.freeze({
+      routes:count(data?.routes),tracks:count(data?.tracks),waypoints:count(data?.waypoints),
+      checkpoints:count(data?.checkpoints),journalEvents:embeddedInventory.count+journalInventory.count,
+      analyticsRecords:analyticsRecordCount,photos:count(data?.mediaReferences?.photos),
+      videos:count(data?.mediaReferences?.videos),
+      voiceNotes:embeddedInventory.voiceNotes+journalInventory.voiceNotes,
+      notes:count(data?.project?.notes)
+    }),
+    schemaVersions:Object.freeze({
+      project:positiveVersion(data?.project?.schemaVersion,PROJECT_SCHEMA_VERSION),
+      journal:Math.max(embeddedInventory.schemaVersion,journalInventory.schemaVersion),
+      analytics:analyticsSchemaVersion
+    })
+  });
 }
 
 export async function sha256(value,{crypto=globalThis.crypto}={}){
@@ -97,6 +151,7 @@ export async function createProjectArchive({
   validation(object(snapshot?.project),'Project snapshot is required.','BACKUP_PROJECT_REQUIRED');
   const projectId=String(snapshot.project.projectId||'');
   validation(projectId,'Project identity is required.','BACKUP_PROJECT_ID_INVALID');
+  const data=clone(snapshot.data),inventory=createArchiveInventory(data);
   const archive={
     manifest:{
       archiveVersion:BACKUP_ARCHIVE_VERSION,
@@ -104,14 +159,34 @@ export async function createProjectArchive({
       schemaVersion:Number(schemaVersion),
       exportedAt:new Date(exportedAt).toISOString(),
       projectId,projectName:String(snapshot.project.name||'CannonMap Project'),
+      projectType:String(snapshot.project.projectType||snapshot.project.type||'project'),
       exportType:BACKUP_EXPORT_TYPE,
       generator:{...BACKUP_GENERATOR,...generator},
+      contains:inventory.contains,schemaVersions:inventory.schemaVersions,
       checksum:{algorithm:'SHA-256',value:''}
     },
-    data:clone(snapshot.data)
+    data
   };
   archive.manifest.checksum.value=await sha256(checksumSource(archive),{crypto});
-  return canonicalJson(archive);
+  return serializeProjectArchive(archive);
+}
+
+function validateInventory(manifest,data){
+  validation(object(manifest.contains)&&object(manifest.schemaVersions),
+    'Archive inventory manifest is invalid.','BACKUP_MANIFEST_INVALID');
+  const expected=createArchiveInventory(data);
+  for(const [name,value] of Object.entries(expected.contains)){
+    validation(Number.isInteger(manifest.contains[name])&&manifest.contains[name]>=0,
+      `Archive manifest count is invalid: ${name}`,'BACKUP_MANIFEST_INVALID',{field:name});
+    validation(manifest.contains[name]===value,
+      `Archive manifest count does not match contents: ${name}`,
+      'BACKUP_MANIFEST_COUNT_MISMATCH',{field:name,expected:value,actual:manifest.contains[name]});
+  }
+  for(const [name,value] of Object.entries(expected.schemaVersions)){
+    validation(manifest.schemaVersions[name]===value,
+      `Archive manifest schema version does not match contents: ${name}`,
+      'BACKUP_MANIFEST_SCHEMA_MISMATCH',{field:name,expected:value,actual:manifest.schemaVersions[name]});
+  }
 }
 
 export async function validateProjectArchive(input,{
@@ -140,6 +215,8 @@ export async function validateProjectArchive(input,{
     'Archive Project identity is invalid.','BACKUP_PROJECT_ID_INVALID');
   validation(typeof manifest.projectName==='string'&&manifest.projectName,
     'Archive Project name is required.','BACKUP_PROJECT_NAME_INVALID');
+  validation(typeof manifest.projectType==='string'&&manifest.projectType,
+    'Archive Project type is required.','BACKUP_PROJECT_TYPE_INVALID');
   validation(!Number.isNaN(Date.parse(manifest.exportedAt)),
     'Archive export timestamp is invalid.','BACKUP_TIMESTAMP_INVALID');
   validation(manifest.checksum?.algorithm==='SHA-256'&&/^[0-9a-f]{64}$/.test(manifest.checksum?.value||''),
@@ -171,6 +248,7 @@ export async function validateProjectArchive(input,{
     Array.isArray(archive.data.mediaReferences.videos),'Media references are invalid.','BACKUP_MEDIA_REFERENCES_INVALID');
   validateJournal(archive.data.journal,projectId);
   validateAnalytics(archive.data.analytics,projectId);
+  validateInventory(manifest,archive.data);
   const expected=await sha256(checksumSource(archive),{crypto});
   if(expected!==manifest.checksum.value)throw new BackupChecksumError();
   return Object.freeze({archive:clone(archive),projectId,archiveVersion:version,valid:true});
