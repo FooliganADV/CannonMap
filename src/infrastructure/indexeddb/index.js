@@ -9,3 +9,4 @@ export {appendObservationWithOutbox,acknowledgeOutboxItem} from './observation-o
 export {createObservationCaptureRepository} from './observation-capture-repository.js';
 export {createMigrationRunner} from './migration-runner.js';
 export {createAnalyticsRepository} from './analytics-repository.js';
+export {createProjectRepository} from './project-repository.js';
