@@ -3,7 +3,11 @@ import {requestResult,transactionDone} from './request.js';
 
 export function createProjectRepository({database,createId,now}={}){
   if(!database)throw new TypeError('database is required.');
-  const normalize=project=>normalizeProject(project,{createId,now});
+  const timestamp=()=>typeof now==='function'?now():new Date().toISOString();
+  const normalize=project=>{
+    const updatedAt=timestamp();
+    return normalizeProject({...project,updatedAt},{createId,now:()=>updatedAt});
+  };
   return Object.freeze({
     async save(project){
       const record=normalize(project);

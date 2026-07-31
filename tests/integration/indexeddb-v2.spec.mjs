@@ -95,22 +95,26 @@ test('project repository stores and lists isolated first-class projects',async({
     const database=await module.openIndexedDbV2({
       indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name
     });
+    let idSequence=0;
     let clock=0;
     const repository=module.createProjectRepository({
-      database,createId:()=>`project-${++clock}`,now:()=>`2026-07-30T12:00:0${clock}.000Z`
+      database,createId:()=>`project-${++idSequence}`,now:()=>`2026-07-30T12:00:0${clock++}.000Z`
     });
     const first=await repository.save({name:'Weekend Ride',features:[{id:'track-1',type:'track'}]});
     const second=await repository.save({name:'TAT',features:[{id:'route-1',type:'route'}]});
+    const updatedFirst=await repository.save({...first,name:'Weekend Ride Updated'});
     const restored=await repository.get(first.projectId);
     const projects=await repository.list();
     database.close();
-    return {first,second,restored,projects};
+    return {first,second,updatedFirst,restored,projects};
   },databaseName);
   expect(result.first.projectId).not.toBe(result.second.projectId);
-  expect(result.restored).toEqual(result.first);
-  expect(result.projects.map(project=>project.name)).toEqual(['TAT','Weekend Ride']);
-  expect(result.projects[0].features).toEqual([{id:'route-1',type:'route'}]);
-  expect(result.projects[1].features).toEqual([{id:'track-1',type:'track'}]);
+  expect(result.updatedFirst.createdAt).toBe(result.first.createdAt);
+  expect(result.updatedFirst.updatedAt).not.toBe(result.first.updatedAt);
+  expect(result.restored).toEqual(result.updatedFirst);
+  expect(result.projects.map(project=>project.name)).toEqual(['Weekend Ride Updated','TAT']);
+  expect(result.projects[0].features).toEqual([{id:'track-1',type:'track'}]);
+  expect(result.projects[1].features).toEqual([{id:'route-1',type:'route'}]);
   await deleteDatabase(page,databaseName);
 });
 
