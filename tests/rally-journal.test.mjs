@@ -78,4 +78,3 @@ test('service composes validation, repository operations, and type registration 
   assert.equal(await service.deleteProjectJournal('project-1'),2);
   assert.equal((await service.getProjectJournal('project-1')).events.length,0);
 });
-

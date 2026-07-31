@@ -108,4 +108,3 @@ visualization, and ride replay remain deferred.
 - Register plugin event types in the composition scope that owns the plugin.
 - Build full-text, attachment, and AI projections from immutable event IDs in
   separate stores rather than mutating Journal history.
-

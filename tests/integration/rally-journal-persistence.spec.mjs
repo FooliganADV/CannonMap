@@ -125,4 +125,3 @@ test('deleting a project journal leaves every other project untouched',async({pa
   },{name:uniqueName(testInfo),ids:[id(20),id(21)]});
   expect(result).toEqual({deleted:1,remaining:['project-2']});
 });
-
