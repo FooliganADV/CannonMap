@@ -66,6 +66,14 @@ The browser application, Rally presenters, routes, publications, and notificatio
 The opt-in Rally Analytics telemetry architecture and service API are documented
 in [`architecture/RALLY_ANALYTICS_FOUNDATION.md`](architecture/RALLY_ANALYTICS_FOUNDATION.md).
 It adds no analytics UI and does not change Planner or Mission Control behavior.
+
+## Rally Journal foundation
+
+The immutable, project-scoped Rally Journal event contract, additive IndexedDB
+v5 store, repository, and service API are documented in
+[`architecture/RALLY_JOURNAL_FOUNDATION.md`](architecture/RALLY_JOURNAL_FOUNDATION.md).
+The foundation creates no historical events and has no UI or runtime producer
+integration.
 # M8 Route Family Engine
 
 `src/domain/routes` deterministically derives immutable Route Variant and Route Family revisions from validated route-traversal evidence. A Variant owns its `independentStats`; a Family owns a separately calculated `aggregateStats` projection. Family reconciliation never writes into or replaces Variant statistics.
