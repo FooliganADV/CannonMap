@@ -43,7 +43,7 @@ test('upgrades the legacy database additively and preserves the authoritative pr
     return {project,stores,version,registry:module.SCHEMA_REGISTRY.map(store=>store.name)};
   },databaseName);
 
-  expect(result.version).toBe(4);
+  expect(result.version).toBe(5);
   expect(result.project).toEqual({id:'legacy',name:'Preserved'});
   expect(result.stores).toEqual(expect.arrayContaining(result.registry));
   await deleteDatabase(page,databaseName);

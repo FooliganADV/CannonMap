@@ -1,13 +1,19 @@
 import {normalizeProject} from '../../domain/projects/model.js';
 
 export const DATABASE_NAME='CannonMapDB';
-export const DATABASE_VERSION=4;
+export const DATABASE_VERSION=5;
 export const V2_FEATURE_FLAG='architecture.indexeddb.v2';
 
 const stores=[
   {name:'projects',legacy:true,indexes:[['updatedAt','updatedAt']]},
   {name:'projectRecords',keyPath:'projectId',indexes:[
     ['updatedAt','updatedAt'],['name','name'],['schemaVersion','schemaVersion']
+  ]},
+  {name:'journalEvents',keyPath:'eventId',indexes:[
+    ['projectId','projectId'],['timestamp','timestamp'],['eventType','eventType'],['createdAt','createdAt'],
+    ['projectTimestamp',['projectId','timestamp']],
+    ['projectTypeTimestamp',['projectId','eventType','timestamp']],
+    ['projectCreatedAt',['projectId','createdAt']]
   ]},
   {name:'observations',keyPath:['eventId','observationId'],indexes:[
     ['riderTime',['eventId','riderId','occurredAt']],
