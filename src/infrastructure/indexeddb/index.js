@@ -17,3 +17,4 @@ export {createLegacyCurrentProjectRepository} from './legacy-current-project-rep
 export {
   createProjectDeletionRepository,PROJECT_DELETION_BOUNDARIES
 } from './project-deletion-repository.js';
+export {createBackupRepository,BACKUP_IMPORT_BOUNDARIES} from './backup-repository.js';
