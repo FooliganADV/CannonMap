@@ -93,6 +93,13 @@ Creation is create-only, deletion is atomic across Project-owned stores, stale
 active identities are repaired before use, and consumer repositories are
 writable only while their scope is open.
 No switching UI or existing workflow integration is included.
+
+## Backup foundation
+
+The versioned, deterministic `.cmap` Project archive, validation pipeline, and
+atomic create/replace restore contract are documented in
+[`architecture/BACKUP_FOUNDATION.md`](architecture/BACKUP_FOUNDATION.md).
+The foundation has no UI, scheduling, cloud provider, or workflow integration.
 # M8 Route Family Engine
 
 `src/domain/routes` deterministically derives immutable Route Variant and Route Family revisions from validated route-traversal evidence. A Variant owns its `independentStats`; a Family owns a separately calculated `aggregateStats` projection. Family reconciliation never writes into or replaces Variant statistics.
