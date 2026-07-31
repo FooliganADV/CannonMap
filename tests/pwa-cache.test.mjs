@@ -48,17 +48,19 @@ test('service-worker shell contains the complete local startup module graph',asy
   ])assert.ok(shell.has(searchModule),`${searchModule} must be cached for offline search consumers`);
   for(const lifecycleModule of [
     'src/domain/projects/lifecycle.js',
+    'src/domain/projects/errors.js',
     'src/application/project-repository-scope.js',
     'src/application/project-lifecycle-manager.js',
     'src/infrastructure/indexeddb/project-lifecycle-repository.js',
-    'src/infrastructure/indexeddb/legacy-current-project-repository.js'
+    'src/infrastructure/indexeddb/legacy-current-project-repository.js',
+    'src/infrastructure/indexeddb/project-deletion-repository.js'
   ])assert.ok(shell.has(lifecycleModule),`${lifecycleModule} must be cached for offline Project lifecycle consumers`);
 });
 
 test('post-M10 cache identifier advances without deleting IndexedDB data',async()=>{
   const {cache,source}=await cacheManifest();
   assert.notEqual(cache,'cannonmap-v0.7.1-20260726-06');
-  assert.equal(cache,'cannonmap-v0.7.1-20260730-project-lifecycle-foundation-01');
+  assert.equal(cache,'cannonmap-v0.7.1-20260731-project-lifecycle-foundation-02');
   assert.doesNotMatch(source,/indexedDB\.deleteDatabase|deleteDatabase\s*\(/);
   assert.doesNotMatch(source,/localStorage\.clear|caches\.delete\([^)]*CannonMapDB/);
 });

@@ -14,3 +14,6 @@ export {createJournalRepository} from './journal-repository.js';
 export {createSearchRepository} from './search-repository.js';
 export {createProjectLifecycleRepository} from './project-lifecycle-repository.js';
 export {createLegacyCurrentProjectRepository} from './legacy-current-project-repository.js';
+export {
+  createProjectDeletionRepository,PROJECT_DELETION_BOUNDARIES
+} from './project-deletion-repository.js';

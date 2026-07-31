@@ -1,4 +1,5 @@
 import {normalizeProject} from '../../domain/projects/model.js';
+import {DuplicateProjectError} from '../../domain/projects/errors.js';
 import {requestResult,transactionDone} from './request.js';
 
 export function createProjectRepository({database,createId,now}={}){
@@ -23,8 +24,25 @@ export function createProjectRepository({database,createId,now}={}){
     await done;
     return record;
   };
+  const create=async project=>{
+    const record=normalize(project);
+    const transaction=database.transaction('projectRecords','readwrite');
+    const done=transactionDone(transaction);
+    try{
+      await requestResult(transaction.objectStore('projectRecords').add(record));
+      await done;
+      return record;
+    }catch(error){
+      try{transaction.abort();}catch(_){ }
+      try{await done;}catch(_){ }
+      if(error?.name==='ConstraintError'||transaction.error?.name==='ConstraintError'){
+        throw new DuplicateProjectError(record.projectId,{cause:error});
+      }
+      throw error;
+    }
+  };
   return Object.freeze({
-    save,get,
+    create,save,get,
     async list(){
       const transaction=database.transaction('projectRecords','readonly');
       const done=transactionDone(transaction);
@@ -36,14 +54,6 @@ export function createProjectRepository({database,createId,now}={}){
       const existing=await get(projectId);
       if(!existing)throw new Error(`Project not found: ${projectId}`);
       return save({...existing,lifecycleStatus:'archived',archivedAt});
-    },
-    async delete(projectId){
-      const transaction=database.transaction('projectRecords','readwrite');
-      const done=transactionDone(transaction),store=transaction.objectStore('projectRecords');
-      const existing=await requestResult(store.get(String(projectId)));
-      if(existing)store.delete(String(projectId));
-      await done;
-      return Boolean(existing);
     }
   });
 }

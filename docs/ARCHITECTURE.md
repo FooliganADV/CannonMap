@@ -89,6 +89,9 @@ The serialized active-Project manager, project-scoped repository handles,
 legacy-current compatibility adapter, durable transition recovery, and
 lifecycle event contract are documented in
 [`architecture/PROJECT_LIFECYCLE_FOUNDATION.md`](architecture/PROJECT_LIFECYCLE_FOUNDATION.md).
+Creation is create-only, deletion is atomic across Project-owned stores, stale
+active identities are repaired before use, and consumer repositories are
+writable only while their scope is open.
 No switching UI or existing workflow integration is included.
 # M8 Route Family Engine
 

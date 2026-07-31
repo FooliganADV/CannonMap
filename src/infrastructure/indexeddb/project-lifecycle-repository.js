@@ -36,6 +36,13 @@ export function createProjectLifecycleRepository({database}={}){
       store.delete(TRANSITION);
       await done;
     },
+    async clearActiveProject(){
+      const transaction=database.transaction([STORE,'projects'],'readwrite'),done=transactionDone(transaction);
+      const store=transaction.objectStore(STORE);
+      store.delete(ACTIVE);store.delete(TRANSITION);
+      transaction.objectStore('projects').delete('current');
+      await done;
+    },
     async clearTransition(){await write([null]);}
   });
 }

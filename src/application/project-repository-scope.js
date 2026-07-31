@@ -6,82 +6,102 @@ const assertProject=(projectId,value)=>{
 const withProject=(projectId,value)=>value?{...value,projectId}:value;
 
 /**
- * Converts compatibility repositories into a project-bound handle. Closing the
- * scope invalidates every method so stale consumers fail instead of writing to
- * the newly active Project.
+ * Creates separate consumer and lifecycle capabilities for one Project. The
+ * manager exposes only `repositories`; transition controls remain private to
+ * composition code through `lifecycle`.
  */
 export function createProjectRepositoryScope({
   projectId,journalRepository,analyticsRepository,searchRepository,hooks={}
 }={}){
   const id=String(projectId||'').trim();
   if(!id)throw new TypeError('projectId is required.');
-  let closed=false;
-  const open=()=>{if(closed)throw new Error(`Project repository scope is closed: ${id}`);};
-  const journal=journalRepository&&Object.freeze({
-    appendEvent(event){open();assertProject(id,event);return journalRepository.appendEvent(withProject(id,event));},
-    appendEvents(events){open();for(const event of events)assertProject(id,event);return journalRepository.appendEvents(events.map(event=>withProject(id,event)));},
+  let state='opening';
+  const consumer=()=>{
+    if(state!=='open')throw new Error(`Project repository scope is ${state}: ${id}`);
+  };
+  const controlled=()=>{
+    if(!['opening','draining'].includes(state))throw new Error(`Project repository scope is ${state}: ${id}`);
+  };
+  const draining=()=>{
+    if(state!=='draining')throw new Error(`Project repository scope is ${state}: ${id}`);
+  };
+  const buildJournal=guard=>journalRepository&&Object.freeze({
+    appendEvent(event){guard();assertProject(id,event);return journalRepository.appendEvent(withProject(id,event));},
+    appendEvents(events){guard();for(const event of events)assertProject(id,event);return journalRepository.appendEvents(events.map(event=>withProject(id,event)));},
     async getEvent(eventId){
-      open();
-      const event=await journalRepository.getEvent(eventId);
+      guard();const event=await journalRepository.getEvent(eventId);
       return event?.projectId===id?event:null;
     },
-    getEvents:()=>{open();return journalRepository.getEventsByProject(id);},
-    query:query=>{open();return journalRepository.queryEvents({...query,projectId:id});}
+    getEvents:()=>{guard();return journalRepository.getEventsByProject(id);},
+    query:query=>{guard();return journalRepository.queryEvents({...query,projectId:id});}
   });
-  const search=searchRepository&&Object.freeze({
-    replace(index){open();assertProject(id,index);return searchRepository.replaceProjectIndex({...index,projectId:id});},
-    find(terms){open();return searchRepository.findCandidates({terms,projectId:id,allProjects:false});},
-    getState(){open();return searchRepository.getIndexState(id);},
-    delete(){open();return searchRepository.deleteProjectIndex(id);}
+  const buildSearch=guard=>searchRepository&&Object.freeze({
+    replace(index){guard();assertProject(id,index);return searchRepository.replaceProjectIndex({...index,projectId:id});},
+    find(terms){guard();return searchRepository.findCandidates({terms,projectId:id,allProjects:false});},
+    getState(){guard();return searchRepository.getIndexState(id);},
+    delete(){guard();return searchRepository.deleteProjectIndex(id);}
   });
-  const writeAnalytics=records=>{
-    open();
-    const scoped={...records};
-    for(const key of ['sample','session','daily','event'])if(scoped[key])scoped[key]=withProject(id,scoped[key]);
-    if(scoped.events)scoped.events=scoped.events.map(event=>withProject(id,event));
-    return analyticsRepository.appendSampleAndStats(scoped);
+  const buildAnalytics=guard=>{
+    if(!analyticsRepository)return undefined;
+    const write=records=>{
+      guard();const scoped={...records};
+      for(const key of ['sample','session','daily','event'])if(scoped[key])scoped[key]=withProject(id,scoped[key]);
+      if(scoped.events)scoped.events=scoped.events.map(event=>withProject(id,event));
+      return analyticsRepository.appendSampleAndStats(scoped);
+    };
+    return Object.freeze({
+      appendSampleAndStats:write,appendEventAndStats:write,saveStats:write,
+      async findActiveSession(rallyEventId){
+        guard();const value=await analyticsRepository.findActiveSession(rallyEventId,id);
+        return value?.projectId===id?value:null;
+      },
+      async getDaily(sessionId,dayKey){
+        guard();const value=await analyticsRepository.getDaily(sessionId,dayKey);
+        return value?.projectId===id?value:null;
+      },
+      async getSession(sessionId,rallyEventId){
+        guard();const value=await analyticsRepository.getSession(sessionId,rallyEventId);
+        return value?.projectId===id?value:null;
+      },
+      async listSamples(sessionId){
+        guard();return (await analyticsRepository.listSamples(sessionId)).filter(value=>value.projectId===id);
+      }
+    });
   };
-  const analytics=analyticsRepository&&Object.freeze({
-    appendSampleAndStats:writeAnalytics,
-    appendEventAndStats:writeAnalytics,
-    saveStats:writeAnalytics,
-    async findActiveSession(rallyEventId){
-      open();const value=await analyticsRepository.findActiveSession(rallyEventId,id);
-      return value?.projectId===id?value:null;
-    },
-    async getDaily(sessionId,dayKey){
-      open();const value=await analyticsRepository.getDaily(sessionId,dayKey);
-      return value?.projectId===id?value:null;
-    },
-    async getSession(sessionId,rallyEventId){
-      open();const value=await analyticsRepository.getSession(sessionId,rallyEventId);
-      return value?.projectId===id?value:null;
-    },
-    async listSamples(sessionId){
-      open();return (await analyticsRepository.listSamples(sessionId)).filter(value=>value.projectId===id);
-    }
+  const repositories=Object.freeze({
+    projectId:id,journal:buildJournal(consumer),analytics:buildAnalytics(consumer),search:buildSearch(consumer),
+    getState:()=>state,isClosed:()=>state==='closed'
   });
-  return Object.freeze({
-    projectId:id,journal,analytics,search,
-    async flushPendingWrites(){open();await hooks.flushPendingWrites?.();},
-    async commitJournal(){open();await hooks.commitJournal?.(journal);},
-    async commitAnalytics(){open();await hooks.commitAnalytics?.(analytics);},
-    async commitSearch(){open();await hooks.commitSearch?.(search);},
-    async rebuildCaches(){open();await hooks.rebuildCaches?.({journal,analytics,search});},
-    async destroy(){
-      open();
-      if(hooks.destroy)await hooks.destroy({journal,analytics,search});
-      else await Promise.all([
-        journalRepository?.deleteProjectJournal?.(id),
-        analyticsRepository?.deleteProjectAnalytics?.(id),
-        searchRepository?.deleteProjectIndex?.(id)
-      ]);
+  const internal=Object.freeze({
+    journal:buildJournal(controlled),analytics:buildAnalytics(controlled),search:buildSearch(controlled)
+  });
+  const lifecycle=Object.freeze({
+    async rebuildCaches(){
+      if(state!=='opening')throw new Error(`Project repository scope cannot rebuild from ${state}: ${id}`);
+      await hooks.rebuildCaches?.(internal);
+    },
+    activate(){
+      if(state!=='opening')throw new Error(`Project repository scope cannot activate from ${state}: ${id}`);
+      state='open';
+    },
+    beginDrain(){
+      if(state!=='open')throw new Error(`Project repository scope cannot drain from ${state}: ${id}`);
+      state='draining';
+    },
+    async flushPendingWrites(){draining();await hooks.flushPendingWrites?.();},
+    async commitJournal(){draining();await hooks.commitJournal?.(internal.journal);},
+    async commitAnalytics(){draining();await hooks.commitAnalytics?.(internal.analytics);},
+    async commitSearch(){draining();await hooks.commitSearch?.(internal.search);},
+    restoreAfterFailedDrain(){
+      if(state!=='draining')throw new Error(`Project repository scope cannot restore from ${state}: ${id}`);
+      state='open';
     },
     async close(){
-      if(closed)return;
-      await hooks.close?.({journal,analytics,search});
-      closed=true;
+      if(state==='closed')return;
+      if(!['opening','draining'].includes(state))throw new Error(`Project repository scope cannot close from ${state}: ${id}`);
+      try{await hooks.close?.(internal);}finally{state='closed';}
     },
-    isClosed:()=>closed
+    getState:()=>state
   });
+  return Object.freeze({repositories,lifecycle});
 }

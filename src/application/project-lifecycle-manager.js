@@ -1,6 +1,10 @@
 import {createProjectLifecycleEvent,projectIdentity} from '../domain/projects/lifecycle.js';
 
 const clone=value=>value?structuredClone(value):value;
+const identityOrNull=project=>{
+  try{return project?projectIdentity(project):null;}catch(_){return null;}
+};
+const sameSnapshot=(left,right)=>JSON.stringify(left)===JSON.stringify(right);
 
 /**
  * Authoritative application-facing Project lifecycle. Operations are queued to
@@ -8,10 +12,10 @@ const clone=value=>value?structuredClone(value):value;
  * recovery while `projects/current` remains a compatibility mirror.
  */
 export function createProjectLifecycleManager({
-  projectRepository,lifecycleRepository,legacyCurrentRepository,scopeFactory,
-  eventBus,clock,createId
+  projectRepository,projectDeletionRepository,lifecycleRepository,legacyCurrentRepository,
+  scopeFactory,eventBus,clock,createId
 }={}){
-  if(!projectRepository||!lifecycleRepository||!legacyCurrentRepository||
+  if(!projectRepository||!projectDeletionRepository||!lifecycleRepository||!legacyCurrentRepository||
     typeof scopeFactory!=='function'||!eventBus||!clock||typeof createId!=='function'){
     throw new TypeError('Project lifecycle dependencies are required.');
   }
@@ -23,6 +27,7 @@ export function createProjectLifecycleManager({
   };
   const publish=(type,projectId,previousProjectId,payload)=>
     eventBus.publish(createProjectLifecycleEvent({type,projectId,previousProjectId,payload,clock,createId}));
+  const usable=project=>project&&project.lifecycleStatus!=='archived';
   const projectById=async projectId=>{
     const project=await projectRepository.get(String(projectId));
     if(!project)throw new Error(`Project not found: ${projectId}`);
@@ -31,58 +36,85 @@ export function createProjectLifecycleManager({
   };
   const openScope=async project=>{
     const scope=await scopeFactory(project.projectId);
-    await scope.rebuildCaches?.();
-    return scope;
+    if(!scope?.repositories||!scope?.lifecycle)throw new TypeError('scopeFactory must return repositories and lifecycle capabilities.');
+    try{await scope.lifecycle.rebuildCaches();return scope;}
+    catch(error){try{await scope.lifecycle.close();}catch(_){ }throw error;}
+  };
+  const reconcileNoActive=async()=>{
+    await lifecycleRepository.clearActiveProject();
+    activeProject=null;activeScope=null;
+    return null;
   };
   const recoverTransition=async transition=>{
-    const legacy=await legacyCurrentRepository.get();
-    const legacyId=legacy?projectIdentity(legacy):null;
+    const legacy=await legacyCurrentRepository.get(),legacyId=identityOrNull(legacy);
     const finishTarget=transition.stage==='legacyCommitted'||
       (transition.stage==='committingLegacy'&&legacyId===transition.toProjectId);
     const recoveredId=finishTarget?transition.toProjectId:transition.fromProjectId;
     if(recoveredId){
       const project=await projectRepository.get(recoveredId);
-      if(project){
-        if(!finishTarget&&legacyId!==recoveredId)await legacyCurrentRepository.save(project);
+      if(usable(project)){
+        if(legacyId!==recoveredId)await legacyCurrentRepository.save(project);
         await lifecycleRepository.completeTransition(recoveredId,clock.iso());
         return recoveredId;
       }
     }
-    await lifecycleRepository.completeTransition(null,clock.iso());
+    await lifecycleRepository.clearActiveProject();
     return null;
   };
   const initializeInternal=async()=>{
     if(initialized)return activeProject;
-    let activeId;
     const transition=await lifecycleRepository.getTransition();
-    if(transition)activeId=await recoverTransition(transition);
-    else activeId=await lifecycleRepository.getActiveProjectId();
-    if(!activeId){
-      const legacy=await legacyCurrentRepository.get();
-      if(legacy){
-        const saved=await projectRepository.save(legacy);
-        activeId=saved.projectId;
-        await lifecycleRepository.completeTransition(activeId,clock.iso());
-      }
-    }
+    let activeId=transition?await recoverTransition(transition):await lifecycleRepository.getActiveProjectId();
     if(activeId){
-      activeProject=await projectRepository.get(activeId);
-      if(activeProject)activeScope=await openScope(activeProject);
+      const project=await projectRepository.get(activeId);
+      if(!usable(project)){
+        await reconcileNoActive();initialized=true;return null;
+      }
+      const legacy=await legacyCurrentRepository.get();
+      if(identityOrNull(legacy)!==project.projectId||!sameSnapshot(legacy,project)){
+        await legacyCurrentRepository.save(project);
+      }
+      activeProject=project;activeScope=await openScope(project);
+      activeScope.lifecycle.activate();initialized=true;
+      return activeProject;
     }
-    initialized=true;
-    return activeProject;
+
+    const legacy=await legacyCurrentRepository.get();
+    if(legacy){
+      const legacyId=identityOrNull(legacy);
+      if(!legacyId){await reconcileNoActive();initialized=true;return null;}
+      const stored=await projectRepository.get(legacyId);
+      if(stored?.lifecycleStatus==='archived'){
+        await reconcileNoActive();initialized=true;return null;
+      }
+      const project=stored||await projectRepository.save(legacy);
+      await lifecycleRepository.completeTransition(project.projectId,clock.iso());
+      activeProject=project;activeScope=await openScope(project);
+      activeScope.lifecycle.activate();initialized=true;
+      return activeProject;
+    }
+    initialized=true;return null;
   };
-  const closeActive=async()=>{
+  const drainActive=async()=>{
     if(!activeProject)return null;
     const previous=activeProject,scope=activeScope;
-    await scope?.flushPendingWrites?.();
-    await scope?.commitJournal?.();
-    await scope?.commitAnalytics?.();
-    await scope?.commitSearch?.();
-    await scope?.close?.();
-    activeProject=null;activeScope=null;
-    publish('projectClosed',null,previous.projectId);
+    scope.lifecycle.beginDrain();
+    try{
+      await scope.lifecycle.flushPendingWrites();
+      await scope.lifecycle.commitJournal();
+      await scope.lifecycle.commitAnalytics();
+      await scope.lifecycle.commitSearch();
+    }catch(error){
+      scope.lifecycle.restoreAfterFailedDrain();
+      throw error;
+    }
+    try{await scope.lifecycle.close();}
+    finally{activeProject=null;activeScope=null;}
     return previous;
+  };
+  const recoverAfterClosedFailure=async()=>{
+    initialized=false;
+    try{await initializeInternal();}catch(_){initialized=false;}
   };
   const switchInternal=async projectId=>{
     await initializeInternal();
@@ -95,7 +127,7 @@ export function createProjectLifecycleManager({
     await lifecycleRepository.beginTransition(transition);
     let nextScope=null;
     try{
-      await closeActive();
+      await drainActive();
       transition.stage='opening';transition.updatedAt=clock.iso();
       await lifecycleRepository.updateTransition(transition);
       nextScope=await openScope(target);
@@ -105,14 +137,15 @@ export function createProjectLifecycleManager({
       transition.stage='legacyCommitted';transition.updatedAt=clock.iso();
       await lifecycleRepository.updateTransition(transition);
       await lifecycleRepository.completeTransition(target.projectId,clock.iso());
-      activeProject=target;activeScope=nextScope;
+      nextScope.lifecycle.activate();activeProject=target;activeScope=nextScope;
+      if(previous)publish('projectClosed',null,previous.projectId);
       publish('projectOpened',target.projectId,previous?.projectId||null);
       publish('activeProjectChanged',target.projectId,previous?.projectId||null);
       return activeProject;
     }catch(error){
-      await nextScope?.close?.().catch(()=>{});
+      if(nextScope)try{await nextScope.lifecycle.close();}catch(_){ }
       if(activeProject)await lifecycleRepository.clearTransition();
-      else initialized=false;
+      else await recoverAfterClosedFailure();
       throw error;
     }
   };
@@ -120,21 +153,24 @@ export function createProjectLifecycleManager({
   return Object.freeze({
     initialize:()=>enqueue(initializeInternal),
     getActiveProject:()=>clone(activeProject),
-    getActiveRepositories:()=>activeScope,
+    getActiveRepositories:()=>activeScope?.repositories||null,
     listProjects:()=>projectRepository.list(),
     openProject:projectId=>enqueue(()=>switchInternal(projectId)),
     setActiveProject:projectId=>enqueue(()=>switchInternal(projectId)),
     closeProject:()=>enqueue(async()=>{
       await initializeInternal();
-      const previous=await closeActive();
-      await lifecycleRepository.completeTransition(null,clock.iso());
-      await legacyCurrentRepository.clear();
-      if(previous)publish('activeProjectChanged',null,previous.projectId);
+      const previous=await drainActive();
+      try{await lifecycleRepository.clearActiveProject();}
+      catch(error){await recoverAfterClosedFailure();throw error;}
+      if(previous){
+        publish('projectClosed',null,previous.projectId);
+        publish('activeProjectChanged',null,previous.projectId);
+      }
       return previous;
     }),
     createProject:(input,{activate=false}={})=>enqueue(async()=>{
       await initializeInternal();
-      const project=await projectRepository.save({...input,lifecycleStatus:'active',archivedAt:null});
+      const project=await projectRepository.create({...input,lifecycleStatus:'active',archivedAt:null});
       publish('projectCreated',project.projectId,null);
       if(activate)await switchInternal(project.projectId);
       return clone(project);
@@ -146,36 +182,46 @@ export function createProjectLifecycleManager({
       const project=await projectById(projectId);
       const renamed=await projectRepository.save({...project,name:normalizedName});
       if(activeProject?.projectId===renamed.projectId){
-        activeProject=renamed;await legacyCurrentRepository.save(renamed);
+        await legacyCurrentRepository.save(renamed);activeProject=renamed;
       }
       return clone(renamed);
     }),
     archiveProject:projectId=>enqueue(async()=>{
       await initializeInternal();
-      if(activeProject?.projectId===String(projectId)){
-        const previous=await closeActive();await lifecycleRepository.completeTransition(null,clock.iso());
-        await legacyCurrentRepository.clear();
-        publish('activeProjectChanged',null,previous.projectId);
+      const id=String(projectId),wasActive=activeProject?.projectId===id;
+      const previous=wasActive?await drainActive():null;
+      try{
+        const archived=await projectRepository.archive(id,clock.iso());
+        if(wasActive)await lifecycleRepository.clearActiveProject();
+        if(previous){
+          publish('projectClosed',null,previous.projectId);
+          publish('activeProjectChanged',null,previous.projectId);
+        }
+        publish('projectArchived',archived.projectId,null);
+        return clone(archived);
+      }catch(error){
+        if(wasActive)await recoverAfterClosedFailure();
+        throw error;
       }
-      const archived=await projectRepository.archive(projectId,clock.iso());
-      publish('projectArchived',archived.projectId,null);
-      return clone(archived);
     }),
     deleteProject:projectId=>enqueue(async()=>{
       await initializeInternal();
-      const id=String(projectId);
-      let scope;
-      if(activeProject?.projectId===id){
-        const previous=await closeActive();await lifecycleRepository.completeTransition(null,clock.iso());
-        await legacyCurrentRepository.clear();
-        publish('activeProjectChanged',null,previous.projectId);
-        scope=await scopeFactory(id);
+      const id=String(projectId),wasActive=activeProject?.projectId===id;
+      const previous=wasActive?await drainActive():null;
+      try{
+        const deleted=await projectDeletionRepository.deleteProject(id);
+        if(deleted){
+          if(previous){
+            publish('projectClosed',null,previous.projectId);
+            publish('activeProjectChanged',null,previous.projectId);
+          }
+          publish('projectDeleted',id,null);
+        }else if(wasActive)await recoverAfterClosedFailure();
+        return deleted;
+      }catch(error){
+        if(wasActive)await recoverAfterClosedFailure();
+        throw error;
       }
-      else scope=await scopeFactory(id);
-      await scope.destroy?.();await scope.close?.();
-      const deleted=await projectRepository.delete(id);
-      if(deleted)publish('projectDeleted',id,null);
-      return deleted;
     }),
     flush:async()=>{await queue;return {status:'flushed'};}
   });
