@@ -1,7 +1,7 @@
 import {normalizeProject} from '../../domain/projects/model.js';
 
 export const DATABASE_NAME='CannonMapDB';
-export const DATABASE_VERSION=5;
+export const DATABASE_VERSION=6;
 export const V2_FEATURE_FLAG='architecture.indexeddb.v2';
 
 const stores=[
@@ -14,6 +14,14 @@ const stores=[
     ['projectTimestamp',['projectId','timestamp']],
     ['projectTypeTimestamp',['projectId','eventType','timestamp']],
     ['projectCreatedAt',['projectId','createdAt']]
+  ]},
+  {name:'searchDocuments',keyPath:['projectId','sourceType','sourceId'],indexes:[
+    ['projectId','projectId'],['sourceType','sourceType'],
+    ['terms','terms',{multiEntry:true}],['scopedTerms','scopedTerms',{multiEntry:true}],
+    ['sourceUpdatedAt','sourceUpdatedAt']
+  ]},
+  {name:'searchIndexState',keyPath:'projectId',indexes:[
+    ['status','status'],['builtAt','builtAt'],['indexVersion','indexVersion']
   ]},
   {name:'observations',keyPath:['eventId','observationId'],indexes:[
     ['riderTime',['eventId','riderId','occurredAt']],
@@ -63,13 +71,14 @@ export const SCHEMA_REGISTRY=Object.freeze(stores.map(store=>Object.freeze({
   ...store,
   keyPath:Array.isArray(store.keyPath)?Object.freeze([...store.keyPath]):store.keyPath,
   indexes:Object.freeze((store.indexes||[]).map(index=>Object.freeze([
-    index[0],Array.isArray(index[1])?Object.freeze([...index[1]]):index[1]
+    index[0],Array.isArray(index[1])?Object.freeze([...index[1]]):index[1],
+    Object.freeze({...index[2]})
   ])))
 })));
 
 function addIndexes(store,definition){
-  for(const [name,keyPath] of definition.indexes){
-    if(!store.indexNames.contains(name))store.createIndex(name,keyPath);
+  for(const [name,keyPath,options] of definition.indexes){
+    if(!store.indexNames.contains(name))store.createIndex(name,keyPath,options);
   }
 }
 

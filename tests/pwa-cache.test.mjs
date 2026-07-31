@@ -41,12 +41,17 @@ test('service-worker shell contains the complete local startup module graph',asy
     'src/application/rally-journal-service.js',
     'src/infrastructure/indexeddb/journal-repository.js'
   ])assert.ok(shell.has(foundationModule),`${foundationModule} must be cached for offline journal consumers`);
+  for(const searchModule of [
+    'src/domain/search/index.js',
+    'src/application/search-service.js',
+    'src/infrastructure/indexeddb/search-repository.js'
+  ])assert.ok(shell.has(searchModule),`${searchModule} must be cached for offline search consumers`);
 });
 
 test('post-M10 cache identifier advances without deleting IndexedDB data',async()=>{
   const {cache,source}=await cacheManifest();
   assert.notEqual(cache,'cannonmap-v0.7.1-20260726-06');
-  assert.equal(cache,'cannonmap-v0.7.1-20260730-rally-journal-foundation-01');
+  assert.equal(cache,'cannonmap-v0.7.1-20260730-search-foundation-01');
   assert.doesNotMatch(source,/indexedDB\.deleteDatabase|deleteDatabase\s*\(/);
   assert.doesNotMatch(source,/localStorage\.clear|caches\.delete\([^)]*CannonMapDB/);
 });

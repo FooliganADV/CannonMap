@@ -74,6 +74,14 @@ v5 store, repository, and service API are documented in
 [`architecture/RALLY_JOURNAL_FOUNDATION.md`](architecture/RALLY_JOURNAL_FOUNDATION.md).
 The foundation creates no historical events and has no UI or runtime producer
 integration.
+
+## Search foundation
+
+The project-scoped, rebuildable IndexedDB search projection and deterministic
+ranking service are documented in
+[`architecture/SEARCH_FOUNDATION.md`](architecture/SEARCH_FOUNDATION.md).
+Search stores source references rather than full records and has no UI or
+automatic indexing integration.
 # M8 Route Family Engine
 
 `src/domain/routes` deterministically derives immutable Route Variant and Route Family revisions from validated route-traversal evidence. A Variant owns its `independentStats`; a Family owns a separately calculated `aggregateStats` projection. Family reconciliation never writes into or replaces Variant statistics.
