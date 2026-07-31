@@ -1,5 +1,5 @@
 export const DATABASE_NAME='CannonMapDB';
-export const DATABASE_VERSION=2;
+export const DATABASE_VERSION=3;
 export const V2_FEATURE_FLAG='architecture.indexeddb.v2';
 
 const stores=[
@@ -33,7 +33,19 @@ const stores=[
     ['evaluatedAt','evaluatedAt'],['modelVersion','modelVersion']
   ]},
   {name:'intelligenceNetwork',keyPath:['uid','memberId'],indexes:[['updatedAt','updatedAt']]},
-  {name:'syncMeta',keyPath:'key'}
+  {name:'syncMeta',keyPath:'key'},
+  {name:'telemetrySamples',keyPath:['sessionId','sampleId'],indexes:[
+    ['sessionTime',['sessionId','occurredAt']],['eventDay',['rallyEventId','occurredAt']]
+  ]},
+  {name:'telemetryEvents',keyPath:['sessionId','telemetryEventId'],indexes:[
+    ['sessionTime',['sessionId','occurredAt']],['eventType',['rallyEventId','type','occurredAt']]
+  ]},
+  {name:'analyticsSessions',keyPath:['rallyEventId','sessionId'],indexes:[
+    ['eventStatus',['rallyEventId','status']],['updatedAt','updatedAt']
+  ]},
+  {name:'analyticsDailyStats',keyPath:['sessionId','dayKey'],indexes:[
+    ['eventDay',['rallyEventId','dayKey']],['updatedAt','updatedAt']
+  ]}
 ];
 
 export const SCHEMA_REGISTRY=Object.freeze(stores.map(store=>Object.freeze({

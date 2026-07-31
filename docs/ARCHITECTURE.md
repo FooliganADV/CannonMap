@@ -60,6 +60,12 @@ The Cloud Function authenticates the caller, verifies App Check, validates the c
 The `inferCommitment` Realtime Database create trigger reads validated observations and checkpoint geometry through a server repository, evaluates all relevant checkpoints, persists the strongest explainable inference and immutable evidence, and records a shadow diagnostic. Deterministic trace, evidence, and inference IDs make trigger replay idempotent. A head pointer and `supersededBy`/`supersedes` links preserve revision history without rewriting evidence.
 
 The browser application, Rally presenters, routes, publications, and notification paths do not import or read commitment output. The Cloud Functions deployment packages an exact validated copy of the canonical domain modules so the deployed source remains self-contained.
+
+## Rally Analytics foundation
+
+The opt-in Rally Analytics telemetry architecture and service API are documented
+in [`architecture/RALLY_ANALYTICS_FOUNDATION.md`](architecture/RALLY_ANALYTICS_FOUNDATION.md).
+It adds no analytics UI and does not change Planner or Mission Control behavior.
 # M8 Route Family Engine
 
 `src/domain/routes` deterministically derives immutable Route Variant and Route Family revisions from validated route-traversal evidence. A Variant owns its `independentStats`; a Family owns a separately calculated `aggregateStats` projection. Family reconciliation never writes into or replaces Variant statistics.
