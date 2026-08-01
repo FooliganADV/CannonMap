@@ -23,8 +23,13 @@ export function wireRallyController({getElement,actions,windowTarget=window}){
   on('rallyPlannerButton','click',actions.openPlanner);
   on('goHotelButton','click',actions.toggleHotelBailout);
   on('rallyCompleteButton','click',actions.complete);
-  on('rallyRestoreButton','click',actions.restore);
-  on('rallySkipButton','click',actions.skip);
+  on('rallyResumeDeferredButton','click',actions.resumeDeferred);
+  on('rallyFinishDayButton','click',actions.finishDay);
+  on('rallyCameraInput','change',event=>actions.addCameraFiles?.(event.target.files));
+  on('rallyWarnings','click',event=>{
+    const button=event.target.closest('button[data-warning-action]'),row=event.target.closest('[data-warning-id]');
+    if(button&&row)actions.warning(row.dataset.warningId,button.dataset.warningAction);
+  });
   for(const id of ['autoCompleteCheckpoints','checkpointArrivalRadius','checkpointMaxAccuracy'])on(id,'change',actions.saveArrivalSettings);
   on('checkpointOrderList','click',event=>{
     const button=event.target.closest('button[data-order-action]'),row=event.target.closest('[data-checkpoint-id]');

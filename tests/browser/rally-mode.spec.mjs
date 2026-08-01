@@ -40,20 +40,21 @@ test('mileage deduplicates matching geometry but retains partial, parallel and a
   expect(result.match).toBeTruthy();expect(result.parallelMatch).toBeFalsy();expect(result.partialMatch).toBeFalsy();expect(result.actual).toBeCloseTo(result.expected,5);
 });
 
-test('checkpoint defer, restore, complete, scoring, hotel bailout and undo',async({page},testInfo)=>{
+test('checkpoint defer queue, completion, scoring, mandatory hotel bailout and undo',async({page},testInfo)=>{
   test.skip(testInfo.project.name==='desktop');
   await loadProject(page);
   await expect(page.locator('#rallyNextName')).toContainText('Checkpoint One');
   await page.locator('#rallyDeferIcon').click();
   await expect(page.locator('#rallyNextName')).toContainText('Extreme Checkpoint Two');
-  await page.locator('#rallyMoreButton').click();
-  await page.locator('#rallyRestoreButton').click();
-  await page.locator('#rallyMoreButton').click();
   await page.locator('#rallyCompleteButton').click();
-  await expect(page.locator('#rallyScore')).toHaveText('10');
-  await expect(page.locator('#rallyNextName')).toContainText('Extreme Checkpoint Two');
+  await expect(page.locator('#rallyScore')).toHaveText('21');
+  await expect(page.locator('#rallyDeferredMessage')).toContainText('1 deferred checkpoint');
+  await page.locator('#rallyResumeDeferredButton').click();
+  await expect(page.locator('#rallyNextName')).toContainText('Checkpoint One');
   await page.locator('#rallyCompleteButton').click();
   await expect(page.locator('#rallyScore')).toHaveText('31');
+  await expect(page.locator('#rallyNextName')).toContainText('Hotel');
+  await expect(page.locator('#rallyDeferIcon')).toBeHidden();
   page.once('dialog',dialog=>dialog.accept());
   await page.locator('#rallyMoreButton').click();
   await page.locator('#goHotelButton').click();
@@ -73,8 +74,9 @@ test('hotel completion advances the rally day and survives restart',async({page}
     window.CannonMapTest.completeCurrentCheckpoint(true);
     window.CannonMapTest.completeCurrentCheckpoint(true);
   });
-  await expect(page.locator('#rallyDay')).toHaveText('DAY 2');
+  await expect(page.locator('#rallyDay')).toHaveCount(0);
   await expect(page.locator('#rallyNextName')).toContainText('Day 2 Checkpoint');
+  await expect(page.locator('#rallyDayComplete')).toContainText('Day Complete');
   await page.waitForFunction(async()=>{
     const events=await window.CannonMapTest.missionControlJournalEvents();
     return events.some(event=>event.eventType==='hotel_arrival');
@@ -82,8 +84,22 @@ test('hotel completion advances the rally day and survives restart',async({page}
   await page.waitForTimeout(100);
   await page.reload();
   await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
-  await expect(page.locator('#rallyDay')).toHaveText('DAY 2');
+  await expect(page.locator('#rallyDay')).toHaveCount(0);
   await expect(page.locator('#rallyNextName')).toContainText('Day 2 Checkpoint');
+});
+
+test('automatic checkpoint capture opens camera and attaches photo references to Journal',async({page},testInfo)=>{
+  test.skip(testInfo.project.name==='desktop');
+  await loadProject(page);
+  await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(true));
+  await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();
+  await expect(page.locator('#rallyCameraCountdown')).toHaveText(/^[5-6][0-9]$/);
+  await page.locator('#rallyCameraInput').setInputFiles({name:'checkpoint.jpg',mimeType:'image/jpeg',buffer:Buffer.from('field-photo')});
+  await expect(page.locator('#rallyCameraPhotoCount')).toContainText('1 photo captured');
+  await page.waitForFunction(async()=>{
+    const events=await window.CannonMapTest.missionControlJournalEvents();
+    return events.some(event=>event.eventType==='photo_added'&&event.references.parentEventId&&event.attachments.photos?.[0]?.uri?.startsWith('media://'));
+  });
 });
 
 test('mobile Rally Mode controls do not overlap and meet 48px targets',async({page},testInfo)=>{
@@ -97,9 +113,9 @@ test('mobile Rally Mode controls do not overlap and meet 48px targets',async({pa
   const viewport=page.viewportSize();for(const box of boxes){expect(box.w,`${box.id} width`).toBeGreaterThanOrEqual(48);expect(box.h,`${box.id} height`).toBeGreaterThanOrEqual(48);expect(box.x,`${box.id} left edge`).toBeGreaterThanOrEqual(0);expect(box.x+box.w,`${box.id} right edge`).toBeLessThanOrEqual(viewport.width);expect(box.y+box.h,`${box.id} bottom edge`).toBeLessThanOrEqual(viewport.height);}
   for(let i=0;i<boxes.length;i++)for(let j=i+1;j<boxes.length;j++){const a=boxes[i],b=boxes[j],overlap=a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;expect(overlap,`${a.id} overlaps ${b.id}`).toBeFalsy();}
   const card=page.locator('#rallyPrimaryCard, .rally-primary-card').first();
-  await expect(card.locator('#rallyRiderNotes')).toBeVisible();
-  await expect(card.locator('#rallyRouteIntelligence')).toBeVisible();
-  await expect(card.locator('#rallyWarnings')).toBeVisible();
+  await expect(card.locator('#rallyRiderNotesSection')).toBeHidden();
+  await expect(card.locator('#rallyRouteIntelligenceSection')).toBeHidden();
+  await expect(card.locator('#rallyWarningsSection')).toBeHidden();
   const cardBox=await card.evaluate(element=>{const r=element.getBoundingClientRect();return {top:r.top,bottom:r.bottom};});
   expect(cardBox.top).toBeGreaterThanOrEqual(0);expect(cardBox.bottom).toBeLessThan(viewport.height-72);
   await page.evaluate(()=>document.getElementById('intelSheet').classList.add('open'));

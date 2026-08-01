@@ -31,7 +31,10 @@ export function dayCheckpoints(project,settings){
 
 export function currentCheckpoint(project,settings){
   const rows=dayCheckpoints(project,settings);
-  return rows.find(feature=>feature.status==='next')||rows.find(feature=>feature.status==='planned')||null;
+  return rows.find(feature=>feature.status==='next')||
+    rows.find(feature=>feature.type!=='hotel'&&feature.status==='planned')||
+    (!rows.some(feature=>feature.type!=='hotel'&&feature.status==='deferred')?
+      rows.find(feature=>feature.type==='hotel'&&feature.status==='planned'):null)||null;
 }
 
 export function currentHotel(project,settings){
@@ -72,7 +75,9 @@ export function restoreImportedOrder(rows){
 }
 
 export function activateNextPlanned(rows){
-  const next=rows.find(feature=>feature.status==='planned')||null;
+  const next=rows.find(feature=>feature.type!=='hotel'&&feature.status==='planned')||
+    (!rows.some(feature=>feature.type!=='hotel'&&feature.status==='deferred')?
+      rows.find(feature=>feature.type==='hotel'&&feature.status==='planned'):null)||null;
   if(next)next.status='next';
   return next;
 }
@@ -93,6 +98,15 @@ export function completeCheckpoint(rows,checkpoint,now){
   return activateNextPlanned(rows);
 }
 
+export function resumeDeferred(rows,now){
+  return restoreDeferred(rows,now);
+}
+
+export function finishDayWithHotel(rows,now){
+  const hotel=rows.find(feature=>feature.type==='hotel'&&!['completed','skipped','unreachable'].includes(feature.status));
+  return hotel?makeCheckpointNext(rows,hotel.id,now):null;
+}
+
 export function advanceDayAfterHotel(project,settings,checkpoint){
   const day=activeRallyDay(settings);
   if(checkpoint?.type!=='hotel'||checkpoint.status!=='completed'||Number(checkpoint.day)!==day)return 0;
@@ -103,6 +117,7 @@ export function advanceDayAfterHotel(project,settings,checkpoint){
 }
 
 export function deferCheckpoint(rows,checkpoint,reason,now){
+  if(checkpoint?.type==='hotel')return null;
   checkpoint.status='deferred';
   checkpoint.deferredAt=now;
   checkpoint.deferReason=reason;

@@ -259,21 +259,34 @@
       <div id="map"></div>
       <section id="rallyMode" class="rally-mode" aria-label="Rally Mode">
         <header class="rally-head">
-          <div class="rally-head-day"><strong id="rallyDay">DAY —</strong><small id="rallyConnectivity">Checking connection</small></div>
+          <div class="rally-head-day"><small><span id="rallyOnlineStatus">Checking</span><span id="rallyGpsAccuracy">GPS off</span><span id="rallyElevation">Elev —</span></small></div>
           <div class="rally-score-slot" aria-hidden="true"><span>Score</span><strong id="rallyScore">0</strong></div>
         </header>
         <div id="rallyPrimaryCard" class="rally-primary-card is-none">
           <div class="rally-objective-heading">
-            <div><small>CURRENT OBJECTIVE</small><strong id="rallyNextName">No checkpoint selected</strong></div>
+            <div><strong id="rallyNextName">Preparing objective…</strong></div>
             <button id="rallyDeferIcon" type="button" aria-label="Defer current checkpoint" title="Defer current checkpoint">⇥</button>
           </div>
-          <span id="rallyNextDistance" class="rally-objective-distance">Distance unavailable</span>
+          <span id="rallyNavigationGuidance" class="rally-objective-distance">Preparing navigation…</span>
+          <small id="rallyNextDistance" class="rally-objective-secondary"></small>
           <div class="rally-objective-sections">
-            <section><h3>Rider Notes</h3><p id="rallyRiderNotes">No rider notes.</p></section>
-            <section><h3>CannonRoute Intelligence</h3><p id="rallyRouteIntelligence">Backbone route active. Live route intelligence is not yet available.</p></section>
-            <section id="rallyWarningsSection"><h3>Warnings</h3><ul id="rallyWarnings"><li>No active operational warnings.</li></ul></section>
+            <section id="rallyRiderNotesSection" hidden><h3>Rider Notes</h3><p id="rallyRiderNotes"></p></section>
+            <section id="rallyRouteIntelligenceSection" hidden><p id="rallyRouteIntelligence"></p></section>
+            <section id="rallyWarningsSection" hidden><ul id="rallyWarnings"></ul></section>
           </div>
         </div>
+        <section id="rallyDeferredPrompt" class="rally-deferred-prompt" hidden>
+          <strong id="rallyDeferredMessage">Deferred checkpoints remain.</strong>
+          <div><button id="rallyResumeDeferredButton" type="button">Resume Deferred</button><button id="rallyFinishDayButton" type="button">Finish Day</button></div>
+        </section>
+        <section id="rallyCameraWorkflow" class="rally-camera-workflow" hidden aria-live="polite">
+          <strong>Checkpoint Captured</strong><span id="rallyCameraCountdown">60</span>
+          <p>Capture checkpoint photos. Mission Control continues automatically when the timer expires.</p>
+          <label for="rallyCameraInput">Open Camera</label>
+          <input id="rallyCameraInput" type="file" accept="image/*" capture="environment" multiple />
+          <small id="rallyCameraPhotoCount">No photos captured</small>
+        </section>
+        <div id="rallyDayComplete" class="rally-day-complete" hidden>✓ Day Complete</div>
         <button id="rallyRecenterFab" class="rally-recenter-fab" type="button" aria-label="Start GPS tracking">START</button>
         <section id="rallyMoreSheet" class="rally-more-sheet" aria-hidden="true">
           <div class="rally-status-strip">
@@ -281,8 +294,6 @@
             <span id="rallyFeedAge">Feed never updated</span>
           </div>
           <div class="rally-more-actions">
-            <button id="rallyRestoreButton" type="button">Restore deferred</button>
-            <button id="rallySkipButton" type="button">Skip checkpoint</button>
             <button id="rallyWeatherButton" type="button">Weather</button>
             <button id="rallyHotelButton" type="button">Show hotel</button>
             <button id="goHotelButton" class="rally-hotel-action" type="button">GO TO HOTEL</button>

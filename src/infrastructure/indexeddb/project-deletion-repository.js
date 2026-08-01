@@ -2,7 +2,7 @@ import {requestResult,transactionDone} from './request.js';
 
 const PROJECT_STORES=Object.freeze([
   'journalEvents','telemetrySamples','telemetryEvents','analyticsSessions',
-  'analyticsDailyStats','searchDocuments'
+  'analyticsDailyStats','searchDocuments','missionMedia'
 ]);
 export const PROJECT_DELETION_BOUNDARIES=Object.freeze([
   ...PROJECT_STORES,'searchIndexState','legacyCurrent','activeProject','projectRecord'
