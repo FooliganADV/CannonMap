@@ -48,6 +48,18 @@ export function createAnalyticsRepository(database){
       await done;
       return rows;
     },
+    async listEvents(sessionId){
+      const transaction=database.transaction('telemetryEvents','readonly'),done=transactionDone(transaction);
+      const range=IDBKeyRange.bound([String(sessionId),''],[String(sessionId),'\uffff']);
+      const rows=await requestResult(transaction.objectStore('telemetryEvents').index('sessionTime').getAll(range));
+      await done;return rows.sort((a,b)=>String(a.occurredAt).localeCompare(String(b.occurredAt)));
+    },
+    async listDailyStats(sessionId){
+      const transaction=database.transaction('analyticsDailyStats','readonly'),done=transactionDone(transaction);
+      const range=IDBKeyRange.bound([String(sessionId),''],[String(sessionId),'\uffff']);
+      const rows=await requestResult(transaction.objectStore('analyticsDailyStats').getAll(range));
+      await done;return rows.sort((a,b)=>String(a.dayKey).localeCompare(String(b.dayKey)));
+    },
     async deleteProjectAnalytics(projectId){
       const transaction=database.transaction(STORES,'readwrite'),done=transactionDone(transaction);
       let count=0;

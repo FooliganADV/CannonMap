@@ -6,9 +6,9 @@ export function rallyCheckpointNumber(value){
 }
 
 export function normalizeCheckpoint(feature,index=0){
-  if(feature?.type!=='checkpoint')return feature;
+  if(!['checkpoint','hotel'].includes(feature?.type))return feature;
   feature.extreme=feature.extreme===true||/\bextreme\b/i.test(`${feature.name||''} ${feature.notes||''}`);
-  feature.points=Number.isFinite(Number(feature.points))?Number(feature.points):(feature.extreme?21:10);
+  feature.points=feature.type==='hotel'?0:(Number.isFinite(Number(feature.points))?Number(feature.points):(feature.extreme?21:10));
   feature.status=CHECKPOINT_STATUSES.has(feature.status)?feature.status:'planned';
   feature.sequence=Number.isFinite(Number(feature.sequence))?Number(feature.sequence):(Number(feature.sourceOrder)||index)+1;
   feature.originalSequence=Number.isFinite(Number(feature.originalSequence))?Number(feature.originalSequence):feature.sequence;
@@ -24,14 +24,17 @@ export function activeRallyDay(settings){
 export function dayCheckpoints(project,settings){
   const day=activeRallyDay(settings);
   return (project?.features||[])
-    .filter(feature=>feature.type==='checkpoint'&&(!day||Number(feature.day)===day))
+    .filter(feature=>['checkpoint','hotel'].includes(feature.type)&&(!day||Number(feature.day)===day))
     .map(normalizeCheckpoint)
-    .sort((a,b)=>(Number(a.sequence)||9999)-(Number(b.sequence)||9999));
+    .sort((a,b)=>(a.type==='hotel')-(b.type==='hotel')||(Number(a.sequence)||9999)-(Number(b.sequence)||9999));
 }
 
 export function currentCheckpoint(project,settings){
   const rows=dayCheckpoints(project,settings);
-  return rows.find(feature=>feature.status==='next')||rows.find(feature=>feature.status==='planned')||null;
+  return rows.find(feature=>feature.status==='next')||
+    rows.find(feature=>feature.type!=='hotel'&&feature.status==='planned')||
+    (!rows.some(feature=>feature.type!=='hotel'&&feature.status==='deferred')?
+      rows.find(feature=>feature.type==='hotel'&&feature.status==='planned'):null)||null;
 }
 
 export function currentHotel(project,settings){
@@ -72,7 +75,9 @@ export function restoreImportedOrder(rows){
 }
 
 export function activateNextPlanned(rows){
-  const next=rows.find(feature=>feature.status==='planned')||null;
+  const next=rows.find(feature=>feature.type!=='hotel'&&feature.status==='planned')||
+    (!rows.some(feature=>feature.type!=='hotel'&&feature.status==='deferred')?
+      rows.find(feature=>feature.type==='hotel'&&feature.status==='planned'):null)||null;
   if(next)next.status='next';
   return next;
 }
@@ -93,7 +98,26 @@ export function completeCheckpoint(rows,checkpoint,now){
   return activateNextPlanned(rows);
 }
 
+export function resumeDeferred(rows,now){
+  return restoreDeferred(rows,now);
+}
+
+export function finishDayWithHotel(rows,now){
+  const hotel=rows.find(feature=>feature.type==='hotel'&&!['completed','skipped','unreachable'].includes(feature.status));
+  return hotel?makeCheckpointNext(rows,hotel.id,now):null;
+}
+
+export function advanceDayAfterHotel(project,settings,checkpoint){
+  const day=activeRallyDay(settings);
+  if(checkpoint?.type!=='hotel'||checkpoint.status!=='completed'||Number(checkpoint.day)!==day)return 0;
+  const nextDay=[...(project?.features||[])]
+    .map(feature=>Number(feature.day)).filter(value=>value>day&&value<=8).sort((a,b)=>a-b)[0]||0;
+  if(nextDay)settings.dayFilter=String(nextDay);
+  return nextDay;
+}
+
 export function deferCheckpoint(rows,checkpoint,reason,now){
+  if(checkpoint?.type==='hotel')return null;
   checkpoint.status='deferred';
   checkpoint.deferredAt=now;
   checkpoint.deferReason=reason;
@@ -116,7 +140,7 @@ export function skipCheckpoint(rows,checkpoint){
 }
 
 export function deferForHotel(rows,now){
-  const deferred=rows.filter(feature=>['planned','next'].includes(feature.status));
+  const deferred=rows.filter(feature=>feature.type!=='hotel'&&['planned','next'].includes(feature.status));
   deferred.forEach(feature=>{
     feature.status='deferred';
     feature.deferredAt=now;

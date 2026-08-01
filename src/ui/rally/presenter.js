@@ -11,36 +11,27 @@ function checkpointKind(next){
   return 'checkpoint';
 }
 
-function checkpointTypeLabel(next){
-  if(!next)return 'NEXT CHECKPOINT';
-  if(next.extreme)return 'EXTREME CHECKPOINT';
-  const type=String(next.type||'checkpoint').toLowerCase();
-  if(type==='hotel')return 'NEXT HOTEL';
-  return 'NEXT CHECKPOINT';
-}
-
-function checkpointHint(next){
-  if(!next)return 'Select Next to load the active day checkpoint.';
-  const notes=String(next.notes||'').trim();
-  if(notes)return notes.length>72?`${notes.slice(0,69)}…`:notes;
-  if(next.extreme)return 'High-value extreme checkpoint — confirm approach carefully.';
-  if(next.status==='deferred')return 'Previously deferred — still counts when completed.';
-  if(next.status==='next')return 'Active target — complete or defer when ready.';
-  return `${next.points||10} points · ${next.status||'planned'}`;
-}
+const text=value=>String(value||'').trim();
 
 export function renderRally({getElement,model,escapeHtml}){
   if(!getElement('rallyMode'))return;
   const set=(id,value)=>{const el=getElement(id);if(el)el.textContent=value;};
   const kind=checkpointKind(model.next);
-  set('rallyDay',model.day?`DAY ${model.day}`:'SELECT A DAY');
-  set('rallyConnectivity',`${model.online?'Online':'Offline'} · ${model.gpsStatus}`);
+  set('rallyOnlineStatus',model.online?'Online':'Offline');
+  set('rallyGpsAccuracy',model.gpsAccuracy||'GPS off');
+  set('rallyElevation',model.elevation||'Elev —');
   set('rallyScore',model.score);
-  set('rallyNextType',checkpointTypeLabel(model.next));
-  set('rallyNextName',model.next?.name||'No checkpoint selected');
-  set('rallyNextDistance',model.distance===null?'Distance unavailable':`${model.distance.toFixed(1)} mi away`);
-  set('rallyNextPoints',model.next?`${model.next.extreme?'EXTREME · ':''}${model.next.points} points · ${model.next.status}`:'—');
-  set('rallyNextHint',checkpointHint(model.next));
+  set('rallyNextName',model.next?.name||model.emptyLabel||'Preparing next objective…');
+  set('rallyNavigationGuidance',model.navigationGuidance||'Preparing navigation…');
+  set('rallyNextDistance',model.distance===null?'':`${model.distance.toFixed(1)} mi`);
+  const notes=text(model.next?.notes),intelligence=text(model.routeIntelligence);
+  set('rallyRiderNotes',notes);
+  set('rallyRouteIntelligence',intelligence);
+  const notesSection=getElement('rallyRiderNotesSection');if(notesSection)notesSection.hidden=!notes;
+  const intelligenceSection=getElement('rallyRouteIntelligenceSection');if(intelligenceSection)intelligenceSection.hidden=!intelligence;
+  const warnings=(model.warnings||[]).filter(item=>item?.message),warningList=getElement('rallyWarnings');
+  if(warningList)warningList.innerHTML=warnings.map(item=>`<li data-warning-id="${escapeHtml(item.id)}"><span>${escapeHtml(item.message)}</span><div><button type="button" data-warning-action="dismiss">Dismiss</button><button type="button" data-warning-action="10">10m</button><button type="button" data-warning-action="30">30m</button><button type="button" data-warning-action="checkpoint">Next CP</button></div></li>`).join('');
+  const warningsSection=getElement('rallyWarningsSection');if(warningsSection)warningsSection.hidden=!warnings.length;
   set('rallyHotelEta',model.hotelLabel);
   set('rallyFeedAge',model.feedAge);
   const card=getElement('rallyPrimaryCard')||getElement('rallyMode')?.querySelector?.('.rally-primary-card');
@@ -48,6 +39,7 @@ export function renderRally({getElement,model,escapeHtml}){
     for(const name of ['is-extreme','is-fuel','is-hotel','is-checkpoint','is-none'])card.classList.toggle(name,false);
     card.classList.toggle(`is-${kind}`,true);
   }
+  if(card)card.hidden=Boolean(model.showDeferredPrompt);
   const fab=getElement('rallyRecenterFab');
   if(fab){
     const active=Boolean(model.gpsActive)||(model.gpsStatus&&!/off/i.test(model.gpsStatus));
@@ -55,16 +47,22 @@ export function renderRally({getElement,model,escapeHtml}){
     fab.classList.toggle('is-active',active);
     fab.setAttribute('aria-label',active?'Recenter map on GPS':'Start GPS tracking');
   }
-  for(const id of ['rallyDeferButton','rallyCompleteButton','rallySkipButton']){
+  for(const id of ['rallyDeferIcon','rallyCompleteButton']){
     const el=getElement(id);if(el)el.disabled=!model.next;
   }
-  const restore=getElement('rallyRestoreButton');
-  if(restore){restore.hidden=!model.hasDeferred;restore.disabled=!model.hasDeferred;}
+  const defer=getElement('rallyDeferIcon');if(defer)defer.hidden=!model.next||kind==='hotel';
+  const deferredPrompt=getElement('rallyDeferredPrompt');if(deferredPrompt)deferredPrompt.hidden=!model.showDeferredPrompt;
+  set('rallyDeferredMessage',`You have ${model.deferredCount||0} deferred checkpoint${model.deferredCount===1?'':'s'} remaining.`);
+  const resume=getElement('rallyResumeDeferredButton');if(resume)resume.disabled=!model.showDeferredPrompt;
+  const finish=getElement('rallyFinishDayButton');if(finish)finish.disabled=!model.showDeferredPrompt||!model.hasHotel;
+  const dayComplete=getElement('rallyDayComplete');if(dayComplete)dayComplete.hidden=!model.dayComplete;
   const goHotel=getElement('goHotelButton');
   if(goHotel){
     goHotel.disabled=!model.hasHotel&&!model.hotelBailoutActive;
     goHotel.textContent=model.hotelBailoutActive?'UNDO HOTEL BAILOUT':'GO TO HOTEL';
   }
+  const nextButton=getElement('rallyNextButton');
+  if(nextButton)nextButton.hidden=Boolean(model.next)||!model.hasPlanned||model.showDeferredPrompt;
   if(getElement('autoCompleteCheckpoints'))getElement('autoCompleteCheckpoints').checked=model.autoComplete;
   if(getElement('checkpointArrivalRadius'))getElement('checkpointArrivalRadius').value=model.arrivalRadius;
   if(getElement('checkpointMaxAccuracy'))getElement('checkpointMaxAccuracy').value=model.maxAccuracy;

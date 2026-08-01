@@ -38,7 +38,7 @@ test('v7 migration adds empty lifecycle state without changing existing data',as
     database.close();return answer;
   },uniqueName(testInfo));
   expect(result).toEqual({
-    version:8,legacy:[{id:'p1',name:'Legacy'}],projects:[{projectId:'p1',name:'Project'}],
+    version:9,legacy:[{id:'p1',name:'Legacy'}],projects:[{projectId:'p1',name:'Project'}],
     journal:[{eventId:'e1',projectId:'p1'}],
     search:[{projectId:'p1',sourceType:'project',sourceId:'p1'}],lifecycle:[]
   });
@@ -264,7 +264,7 @@ test('failure at every destructive boundary aborts deletion and leaves the compl
     }
     return outcomes;
   },uniqueName(testInfo));
-  expect(result).toHaveLength(10);
+  expect(result).toHaveLength(11);
   for(const outcome of result){
     expect(outcome.error).toBe(`fail:${outcome.boundary}`);
     expect(Object.values(outcome.counts)).toEqual([1,1,1,1,1,1,1,1]);

@@ -158,6 +158,9 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
      Parent pointer-events:none + fixed/absolute children is a known WebKit quirk.
      Force auto + isolation + compositing layer so touchstart/click reach controls. */
   .rally-primary-card,
+  .rally-deferred-prompt,
+  .rally-camera-workflow,
+  .rally-day-complete,
   .rally-recenter-fab,
   .rally-actions,
   .rally-more-sheet {
@@ -188,11 +191,11 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
     background:rgba(15,23,42,.88);
     border:1px solid #475569;
     border-radius:8px;
-    padding:4px 10px;
+    padding:3px 8px;
     box-shadow:0 4px 12px #0008;
   }
-  .rally-head strong{font-size:.78rem;font-weight:900;letter-spacing:.02em}
-  .rally-head small{font-size:.6rem;color:#94a3b8;margin-left:6px}
+  .rally-head strong{font-size:.7rem;font-weight:900;letter-spacing:.02em}
+  .rally-head small{display:inline-flex;gap:7px;font-size:.58rem;color:#cbd5e1}
   .rally-score-slot{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 
   .rally-primary-card{
@@ -232,6 +235,25 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
     text-overflow:ellipsis;
     white-space:nowrap;
   }
+
+  .rally-objective-heading{display:grid;grid-template-columns:minmax(0,1fr) 48px;gap:10px;align-items:start}
+  .rally-objective-heading>div{min-width:0}
+  .rally-objective-heading #rallyDeferIcon{
+    width:48px;height:48px;padding:0;border:2px solid #f59e0b;border-radius:12px;
+    background:#451a03;color:#fde68a;font-size:1.65rem;font-weight:900;line-height:1;
+  }
+  .rally-objective-distance{display:block;margin-top:2px;color:#fff;font-size:1.25rem;font-weight:900}
+  .rally-objective-secondary{display:block;margin-top:1px;color:#94a3b8!important;font-size:.65rem!important;font-weight:700!important;text-transform:none!important;letter-spacing:0!important}
+  .rally-objective-sections{display:grid;gap:5px;margin-top:8px}
+  .rally-objective-sections section{padding-top:5px;border-top:1px solid #334155}
+  .rally-objective-sections h3{margin:0;color:#cbd5e1;font-size:.62rem;letter-spacing:.06em;text-transform:uppercase}
+  .rally-objective-sections p,.rally-objective-sections ul{margin:2px 0 0;color:#e2e8f0;font-size:.68rem;line-height:1.25}
+  .rally-objective-sections ul{padding:0;list-style:none}
+  .rally-objective-sections li{padding:5px 0;border-bottom:1px solid #334155}
+  .rally-objective-sections li:last-child{border-bottom:0}
+  .rally-objective-sections li div{display:flex;gap:4px;margin-top:5px;flex-wrap:wrap}
+  .rally-objective-sections li button{min-height:34px;padding:3px 8px;border:1px solid #64748b;border-radius:7px;background:#1f2937;color:#fff;font-size:.62rem;font-weight:800}
+  .rally-objective-sections .has-warnings h3,.rally-objective-sections .has-warnings li{color:#fdba74}
 
   .rally-primary-metrics{
     display:flex;
@@ -285,10 +307,27 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
     left:8px;right:8px;
     bottom:calc(8px + env(safe-area-inset-bottom));
     display:grid;
-    grid-template-columns:repeat(4,1fr);
+    grid-template-columns:repeat(2,1fr);
     gap:6px;
     pointer-events:auto;
   }
+
+  .rally-deferred-prompt,.rally-camera-workflow,.rally-day-complete{
+    position:absolute;left:10px;right:10px;top:calc(max(6px,env(safe-area-inset-top)) + 36px);z-index:1080;
+    padding:14px;border:2px solid #f59e0b;border-radius:14px;background:rgba(15,23,42,.97);box-shadow:0 12px 32px #000c;pointer-events:auto;
+  }
+  .rally-deferred-prompt strong,.rally-camera-workflow strong{display:block;font-size:1.05rem}
+  .rally-deferred-prompt>div{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+  .rally-deferred-prompt button,.rally-camera-workflow label{min-height:52px;display:grid;place-items:center;border:1px solid #64748b;border-radius:10px;background:#1f2937;color:#fff;font-weight:900}
+  .rally-camera-workflow{border-color:#38bdf8;text-align:center}
+  .rally-camera-workflow>span{display:block;margin:5px auto;font-size:2rem;font-weight:900;color:#7dd3fc}
+  .rally-camera-workflow p{font-size:.75rem;color:#cbd5e1}
+  .rally-camera-workflow input{position:absolute;width:1px;height:1px;overflow:hidden;opacity:0}
+  .rally-camera-workflow small{display:block;margin-top:8px;color:#cbd5e1}
+  .rally-day-complete{top:42%;left:18%;right:18%;border-color:#22c55e;text-align:center;font-size:1.4rem;font-weight:900;background:rgba(5,46,22,.97)}
+  [hidden]{display:none!important}
+  .rally-actions:has(#rallyNextButton:not([hidden])){grid-template-columns:repeat(3,1fr)}
+  .map-area:has(.intel-sheet.open) .rally-recenter-fab{display:none}
   .rally-actions button{
     min-height:64px;
     padding:6px 4px;
@@ -302,11 +341,8 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
     box-shadow:0 8px 20px #0009;
   }
   .rally-actions #rallyCompleteButton{
-    background:#166534;
-    border-color:#22c55e;
-  }
-  .rally-actions #rallyDeferButton{
-    border-color:#f59e0b;
+    background:rgba(15,23,42,.97);
+    border-color:#64748b;
   }
   .rally-actions #rallyNextButton{
     border-color:#38bdf8;
@@ -380,9 +416,11 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
 
 @media (max-width:900px) and (orientation:landscape){
   .rally-head{right:auto;width:120px}
-  .rally-primary-card{top:8px;left:134px;right:auto;width:320px}
+  .rally-primary-card{top:8px;left:134px;right:auto;width:360px}
+  .rally-objective-sections{grid-template-columns:repeat(3,minmax(0,1fr))}
   .rally-recenter-fab{right:12px;bottom:calc(140px + env(safe-area-inset-bottom))}
   .rally-more-sheet{left:420px;bottom:calc(128px + env(safe-area-inset-bottom))}
   .intel-sheet{left:420px;bottom:calc(128px + env(safe-area-inset-bottom))}
-  .rally-actions{left:420px;grid-template-columns:repeat(2,minmax(80px,1fr))}
+  .rally-actions{left:510px;grid-template-columns:repeat(2,minmax(80px,1fr))}
+  .rally-actions:has(#rallyNextButton:not([hidden])){grid-template-columns:repeat(3,minmax(80px,1fr))}
 }

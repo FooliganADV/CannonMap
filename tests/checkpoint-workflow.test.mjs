@@ -13,10 +13,19 @@ test('checkpoint normalization, ordering, and scoring preserve Rally rules',()=>
     checkpoint('next',3,'next'),
     {id:'hotel',type:'hotel',day:1}
   ]};
-  assert.deepEqual(workflow.dayCheckpoints(project,{dayFilter:'1'}).map(item=>item.id),['extreme','standard','next']);
+  assert.deepEqual(workflow.dayCheckpoints(project,{dayFilter:'1'}).map(item=>item.id),['extreme','standard','next','hotel']);
   assert.equal(workflow.currentCheckpoint(project,{dayFilter:'1'}).id,'next');
   assert.equal(workflow.currentHotel(project,{dayFilter:'1'}).id,'hotel');
   assert.equal(workflow.rallyScore(project),31);
+});
+
+test('completed official hotel advances to the next available rally day',()=>{
+  const hotel=workflow.normalizeCheckpoint({id:'hotel-1',name:'Hotel',type:'hotel',day:1});
+  const project={features:[hotel,{id:'route-2',type:'route',day:2}]},settings={dayFilter:'1'};
+  workflow.completeCheckpoint([hotel],hotel,'2026-01-01T20:00:00.000Z');
+  assert.equal(workflow.advanceDayAfterHotel(project,settings,hotel),2);
+  assert.equal(settings.dayFilter,'2');
+  assert.equal(workflow.advanceDayAfterHotel(project,settings,hotel),0);
 });
 
 test('checkpoint lifecycle transitions retain defer, restore, skip, and completion semantics',()=>{
@@ -32,11 +41,23 @@ test('checkpoint lifecycle transitions retain defer, restore, skip, and completi
 });
 
 test('hotel bailout defers unfinished checkpoints without deleting or completing them',()=>{
-  const rows=[checkpoint('one',1,'next'),checkpoint('two',2),checkpoint('done',3,'completed')];
+  const hotel=workflow.normalizeCheckpoint({id:'hotel',name:'Hotel',type:'hotel',day:1});
+  const rows=[checkpoint('one',1,'next'),checkpoint('two',2),checkpoint('done',3,'completed'),hotel];
   const deferred=workflow.deferForHotel(rows,'2026-01-01T00:00:00.000Z');
   assert.deepEqual(deferred.map(item=>item.id),['one','two']);
-  assert.deepEqual(rows.map(item=>item.status),['deferred','deferred','completed']);
-  assert.equal(rows.length,3);
+  assert.deepEqual(rows.map(item=>item.status),['deferred','deferred','completed','planned']);
+  assert.equal(rows.length,4);
+});
+
+test('mandatory hotel waits for the intelligent deferred queue and cannot be deferred',()=>{
+  const deferred=checkpoint('deferred',1,'deferred'),hotel=workflow.normalizeCheckpoint({id:'hotel',name:'Hotel',type:'hotel',day:1,status:'planned'});
+  const rows=[deferred,hotel];
+  assert.equal(workflow.activateNextPlanned(rows),null);
+  assert.equal(workflow.resumeDeferred(rows,'2026-01-01T00:00:00.000Z').id,'deferred');
+  deferred.status='deferred';
+  assert.equal(workflow.finishDayWithHotel(rows,'2026-01-01T00:01:00.000Z').id,'hotel');
+  assert.equal(workflow.deferCheckpoint(rows,hotel,'invalid','2026-01-01T00:02:00.000Z'),null);
+  assert.equal(hotel.status,'next');
 });
 
 test('checkpoint reordering and make-next preserve imported sequence metadata',()=>{

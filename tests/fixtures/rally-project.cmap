@@ -5,6 +5,9 @@
     {"id":"cp2","name":"Extreme Checkpoint Two","type":"checkpoint","day":1,"sequence":2,"status":"planned","points":21,"extreme":true,"visible":true,"geometry":{"kind":"point","coordinates":[{"lat":38.0500,"lon":-105.0500}]}},
     {"id":"old","name":"Old Coast Road","type":"route","day":1,"visible":true,"geometry":{"kind":"line","coordinates":[{"lat":38,"lon":-105},{"lat":38.1,"lon":-105.1}]}},
     {"id":"near","name":"Nearby Legal Road","type":"route","day":1,"visible":true,"geometry":{"kind":"line","coordinates":[{"lat":38,"lon":-105.01},{"lat":38.1,"lon":-105.11}]}},
-    {"id":"hotel","name":"Day 1 Hotel","type":"hotel","day":1,"visible":true,"geometry":{"kind":"point","coordinates":[{"lat":38.2,"lon":-105.2}]}}
+    {"id":"hotel","name":"Day 1 Hotel","type":"hotel","day":1,"visible":true,"geometry":{"kind":"point","coordinates":[{"lat":38.2,"lon":-105.2}]}},
+    {"id":"cp3","name":"Day 2 Checkpoint","type":"checkpoint","day":2,"sequence":1,"status":"planned","points":10,"visible":true,"geometry":{"kind":"point","coordinates":[{"lat":39.0,"lon":-104.0}]}},
+    {"id":"route2","name":"Day 2 Route","type":"route","day":2,"visible":true,"geometry":{"kind":"line","coordinates":[{"lat":39.0,"lon":-104.0},{"lat":39.1,"lon":-104.1}]}},
+    {"id":"hotel2","name":"Day 2 Hotel","type":"hotel","day":2,"visible":true,"geometry":{"kind":"point","coordinates":[{"lat":39.2,"lon":-104.2}]}}
   ],"competitors":[]}
 }

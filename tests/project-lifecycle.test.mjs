@@ -107,6 +107,17 @@ test('initialization imports legacy current once and exposes an open scoped repo
   assert.equal(setup.steps.filter(step=>step==='rebuild:p1').length,1);
 });
 
+test('active Project save updates the authoritative record and compatibility mirror',async()=>{
+  const setup=harness();
+  await setup.manager.initialize();
+  const saved=await setup.manager.saveActiveProject({...setup.manager.getActiveProject(),name:'Mission Project'});
+  assert.equal(saved.name,'Mission Project');
+  assert.equal(setup.projects.get('p1').name,'Mission Project');
+  assert.equal(setup.state().current.name,'Mission Project');
+  assert.equal(setup.manager.getActiveProject().name,'Mission Project');
+  await assert.rejects(()=>setup.manager.saveActiveProject({projectId:'p2',name:'Wrong'}),/Only the active Project/);
+});
+
 test('rapid switches serialize complete drain/commit/close/open pipelines',async()=>{
   const setup=harness();
   await setup.manager.initialize();

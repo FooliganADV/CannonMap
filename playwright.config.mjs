@@ -15,6 +15,7 @@ export default defineConfig({
     {name:'iPhone 13 landscape',use:{...devices['iPhone 13 landscape'],browserName:'chromium'}},
     {name:'iPhone Pro portrait',use:{viewport:{width:402,height:874},isMobile:true,hasTouch:true,deviceScaleFactor:3}},
     {name:'iPhone Pro landscape',use:{viewport:{width:874,height:402},isMobile:true,hasTouch:true,deviceScaleFactor:3}},
+    {name:'Android portrait',use:{...devices['Pixel 7'],browserName:'chromium'}},
     {name:'desktop',use:{viewport:{width:1440,height:900}}}
   ]
 });

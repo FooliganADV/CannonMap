@@ -1,4 +1,4 @@
-const CACHE = 'cannonmap-v0.7.1-20260731-template-foundation-01';
+const CACHE = 'cannonmap-v0.7.1-20260731-mission-control-2-field-02';
 const APP_SHELL = [
   './',
   './index.html',
@@ -40,6 +40,8 @@ const APP_SHELL = [
   './src/application/project-lifecycle-manager.js',
   './src/application/project-backup-service.js',
   './src/application/project-template-service.js',
+  './src/application/checkpoint-camera-workflow.js',
+  './src/application/ride-export-source.js',
   './src/application/secure-observation-upload.js',
   './src/infrastructure/indexeddb/index.js',
   './src/infrastructure/indexeddb/analytics-repository.js',
@@ -52,6 +54,7 @@ const APP_SHELL = [
   './src/infrastructure/indexeddb/project-deletion-repository.js',
   './src/infrastructure/indexeddb/backup-repository.js',
   './src/infrastructure/indexeddb/template-repository.js',
+  './src/infrastructure/indexeddb/mission-media-repository.js',
   './src/infrastructure/indexeddb/migration-runner.js',
   './src/infrastructure/indexeddb/observation-capture-repository.js',
   './src/infrastructure/indexeddb/observation-outbox.js',

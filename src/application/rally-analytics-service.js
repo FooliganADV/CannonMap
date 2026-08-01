@@ -196,6 +196,13 @@ export function createRallyAnalyticsService({clock,createId,featureFlags,persist
       });
     },
     async flush(){await queue;return {status:'flushed'};},
+    async getExportSnapshot(){
+      await queue;if(!session)return null;
+      const [samples,events,daily]=await Promise.all([
+        persistence.listSamples?.(session.sessionId)||[],persistence.listEvents?.(session.sessionId)||[],persistence.listDailyStats?.(session.sessionId)||[]
+      ]);
+      return Object.freeze({session:clone(session),derived:analyticsSnapshot(sessionAccumulator),samples:clone(samples),events:clone(events),daily:clone(daily)});
+    },
     snapshot(){return sessionAccumulator?analyticsSnapshot(sessionAccumulator):null;}
   });
 }
