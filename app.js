@@ -2,6 +2,7 @@ import {createCoreCompatibility} from './src/core/compatibility.js';
 import * as geometry from './src/domain/geo/geometry.js';
 import {createMapEngine} from './src/ui/map/map-engine.js';
 import {createProjectWorkflows} from './src/application/project-workflows.js';
+import {buildGarminGpx,formatGarminWaypointName,selectGarminFeatures} from './src/domain/gpx/garmin-export.js';
 import * as checkpoints from './src/domain/checkpoints/workflow.js';
 import {renderRally as presentRally} from './src/ui/rally/presenter.js';
 import {wireRallyController} from './src/ui/rally/controller.js';
@@ -688,6 +689,36 @@ function exportGpx() {
   const xml=projectWorkflows.buildGpx({project:state.project,features:fs,appVersion:APP_VERSION,exportedAt:new Date().toISOString()});
   downloadBlob(xml,`${safeFilename(state.project.name)}${state.settings.dayFilter==='all'?'':`-day-${state.settings.dayFilter}`}.gpx`,'application/gpx+xml');setStatus(`Exported ${fs.length} features to GPX.`);
 }
+function garminExportOptions(){
+  const scope=$('garminScope')?.value||'all';
+  return {
+    scope,currentDay:Number(state.settings.dayFilter)||0,
+    selectedDays:[...document.querySelectorAll('[name="garminDay"]:checked')].map(input=>Number(input.value)),
+    namePreset:$('garminNamePreset')?.value||'name',
+    include:Object.fromEntries(['checkpoint','waypoint','fuel','hotel','start','finish','route','track','backbone'].map(type=>[type,$(`garminInclude-${type}`)?.checked!==false]))
+  };
+}
+function renderGarminExportPreview(){
+  const options=garminExportOptions(),features=selectGarminFeatures(state.project.features,options);
+  const example=features.find(feature=>feature.geometry?.kind==='point');
+  if($('garminNamePreview'))$('garminNamePreview').textContent=example?formatGarminWaypointName(example,options.namePreset):'No waypoint matches this selection';
+  if($('garminExportCount'))$('garminExportCount').textContent=`${features.length} feature${features.length===1?'':'s'} selected`;
+  document.querySelectorAll('.garmin-day-options input').forEach(input=>input.disabled=options.scope!=='selected');
+}
+function openGarminExport(){
+  const current=Number(state.settings.dayFilter);if(current>=1&&current<=8){const box=document.querySelector(`[name="garminDay"][value="${current}"]`);if(box)box.checked=true;}
+  renderGarminExportPreview();$('garminExportDialog')?.showModal();
+}
+function exportGarminGpx(){
+  try{
+    const options=garminExportOptions(),selected=selectGarminFeatures(state.project.features,options);
+    const xml=buildGarminGpx({project:state.project,features:state.project.features,appVersion:APP_VERSION,exportedAt:new Date().toISOString(),options});
+    const parsed=new DOMParser().parseFromString(xml,'application/xml');if(parsed.querySelector('parsererror'))throw new Error('Generated Garmin GPX did not pass XML validation.');
+    const daySuffix=options.scope==='current'&&options.currentDay?`-day-${String(options.currentDay).padStart(2,'0')}`:'';
+    downloadBlob(xml,`${safeFilename(state.project.name)}${daySuffix}-garmin.gpx`,'application/gpx+xml');
+    $('garminExportDialog')?.close();setStatus(`Exported ${selected.length} features to Garmin GPX.`);
+  }catch(error){setStatus(`Garmin export failed: ${error.message}`,true);}
+}
 function manifestRows() {
   return projectWorkflows.buildManifestRows(state.project.features.filter(featureMatchesDay));
 }
@@ -1360,8 +1391,10 @@ function wireUi() {
   document.addEventListener('keydown',event=>{if(event.key==='Escape'){setSidebarOpen(false);setIntelSheetOpen(false);}});
   wireProjectController({getElement:$,actions:{
     importGpx:importGpxFiles,openProject:openProjectFile,saveProject,exportProject:exportProjectFile,reassignDays:reassignExistingDays,
-    exportGpx,exportExcel,exportCsv,applyImport:applyPendingImport,cancelImport:()=>state.pendingImport=null
+    exportGpx,exportGarmin:openGarminExport,exportExcel,exportCsv,applyImport:applyPendingImport,cancelImport:()=>state.pendingImport=null
   }});
+  $('garminExportForm')?.addEventListener('input',renderGarminExportPreview);
+  $('garminExportForm')?.addEventListener('submit',event=>{event.preventDefault();if(event.submitter?.value==='cancel')return $('garminExportDialog')?.close();exportGarminGpx();});
   $('missionFitButton')?.addEventListener('click',fitMap);
   $('missionUnassignedButton')?.addEventListener('click',()=>{state.settings.dayFilter='0';if($('dayFilter'))$('dayFilter').value='0';document.querySelector('[data-tab="project"]')?.click();saveProject(false);renderAll();});
   $('missionSnapshotButton')?.addEventListener('click',()=>createNamedSnapshot('Manual snapshot'));

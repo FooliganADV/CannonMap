@@ -36,6 +36,7 @@ test('service-worker shell contains the complete local startup module graph',asy
     'src/infrastructure/indexeddb/confidence-vector-repository.js',
     'src/infrastructure/indexeddb/intelligence-repository.js'
   ])assert.ok(graph.has(required),`${required} must be reachable and cached for fresh offline startup`);
+  assert.ok(graph.has('src/domain/gpx/garmin-export.js'),'Garmin GPX serializer must be reachable and cached for offline Planner export');
   for(const foundationModule of [
     'src/domain/journal/model.js',
     'src/application/rally-journal-service.js',
@@ -73,7 +74,7 @@ test('service-worker shell contains the complete local startup module graph',asy
 test('post-M10 cache identifier advances without deleting IndexedDB data',async()=>{
   const {cache,source}=await cacheManifest();
   assert.notEqual(cache,'cannonmap-v0.7.1-20260726-06');
-  assert.equal(cache,'cannonmap-v0.7.1-20260731-template-foundation-01');
+  assert.equal(cache,'cannonmap-v0.7.1-20260802-garmin-export-01');
   assert.doesNotMatch(source,/indexedDB\.deleteDatabase|deleteDatabase\s*\(/);
   assert.doesNotMatch(source,/localStorage\.clear|caches\.delete\([^)]*CannonMapDB/);
 });

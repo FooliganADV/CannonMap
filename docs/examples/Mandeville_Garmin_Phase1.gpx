@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="CannonMap 0.7.1"
+  xmlns="http://www.topografix.com/GPX/1/1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:gpxx="http://www.garmin.com/xmlschemas/GpxExtensions/v3"
+  xmlns:wptx1="http://www.garmin.com/xmlschemas/WaypointExtension/v1"
+  xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd http://www.garmin.com/xmlschemas/GpxExtensions/v3 http://www8.garmin.com/xmlschemas/GpxExtensionsv3.xsd http://www.garmin.com/xmlschemas/WaypointExtension/v1 http://www8.garmin.com/xmlschemas/WaypointExtensionv1.xsd">
+  <metadata><name>Mandeville Test</name><time>2026-08-02T12:00:00.000Z</time></metadata>
+  <wpt lat="30.40132400" lon="-90.12064600">
+    <name>1.1</name>
+    <cmt>Don’t stop</cmt><desc>Checkpoint | 1.1 | Day 1 | 10 points</desc>
+    <sym>Flag, Blue</sym><type>Checkpoint</type>
+    <extensions><gpxx:WaypointExtension><gpxx:Categories>
+      <gpxx:Category>Day 1</gpxx:Category><gpxx:Category>Checkpoint</gpxx:Category>
+    </gpxx:Categories></gpxx:WaypointExtension></extensions>
+  </wpt>
+  <wpt lat="30.40500000" lon="-90.12500000">
+    <name>Gas</name>
+    <cmt>Fuel stop</cmt><desc>Fuel | Gas | Day 1</desc>
+    <sym>Gas Station</sym><type>Fuel</type>
+    <extensions><gpxx:WaypointExtension><gpxx:Categories>
+      <gpxx:Category>Day 1</gpxx:Category><gpxx:Category>Fuel</gpxx:Category>
+    </gpxx:Categories></gpxx:WaypointExtension></extensions>
+  </wpt>
+  <rte>
+    <name>Test</name><desc>Route | Test | Day 1</desc>
+    <rtept lat="30.40000000" lon="-90.12000000" />
+    <rtept lat="30.41000000" lon="-90.13000000" />
+    <rtept lat="30.42000000" lon="-90.14000000" />
+  </rte>
+  <trk>
+    <name>Day 1 Backbone</name><desc>Backbone | Day 1 Backbone | Day 1</desc>
+    <trkseg>
+      <trkpt lat="30.40000000" lon="-90.12000000" />
+      <trkpt lat="30.42000000" lon="-90.14000000" />
+    </trkseg>
+  </trk>
+</gpx>

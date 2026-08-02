@@ -1,4 +1,4 @@
-const CACHE = 'cannonmap-v0.7.1-20260731-template-foundation-01';
+const CACHE = 'cannonmap-v0.7.1-20260802-garmin-export-01';
 const APP_SHELL = [
   './',
   './index.html',
@@ -14,6 +14,7 @@ const APP_SHELL = [
   './src/core/ids.js',
   './src/core/state-store.js',
   './src/domain/geo/geometry.js',
+  './src/domain/gpx/garmin-export.js',
   './src/domain/projects/model.js',
   './src/domain/projects/lifecycle.js',
   './src/domain/projects/errors.js',
