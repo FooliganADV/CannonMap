@@ -46,6 +46,7 @@ test('GPX export retains checkpoint extensions and route/track geometry',()=>{
   assert.match(xml,/<cannonmap:points>21<\/cannonmap:points>/);
   assert.match(xml,/<rtept lat="38.00000000" lon="-105.00000000"/);
   assert.match(xml,/<trkpt lat="40.00000000" lon="-107.00000000"/);
+  assert.doesNotMatch(xml,/xmlns:gpxx|WaypointExtension/);
 });
 
 test('portable project and duplication workflows preserve compatibility and strip secrets',()=>{
