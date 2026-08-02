@@ -12,6 +12,7 @@ export function wireProjectController({getElement,actions}){
   getElement('saveProjectFileButton').addEventListener('click',actions.exportProject);
   getElement('reassignDaysButton').addEventListener('click',actions.reassignDays);
   getElement('exportAllButton').addEventListener('click',actions.exportGpx);
+  getElement('exportGarminButton').addEventListener('click',actions.exportGarmin);
   getElement('exportExcelButton').addEventListener('click',actions.exportExcel);
   getElement('exportCsvButton').addEventListener('click',actions.exportCsv);
   getElement('importForm').addEventListener('submit',event=>{

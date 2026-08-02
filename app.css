@@ -75,6 +75,13 @@ dialog { width: min(480px, calc(100% - 24px)); border: 1px solid var(--border); 
 dialog::backdrop { background: rgba(0,0,0,.65); }
 .dialog-form h2 { margin-top: 0; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.garmin-export-form fieldset{margin:12px 0;border:1px solid var(--border);border-radius:9px;padding:10px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.garmin-export-form legend{padding:0 5px;color:#cbd5e1;font-size:.78rem;font-weight:800}
+.garmin-export-form fieldset label{display:flex;align-items:center;gap:6px;font-size:.76rem}
+.garmin-export-form fieldset input{width:18px;height:18px;margin:0}
+.garmin-preview{display:grid;gap:3px;padding:10px;border:1px solid var(--border);border-radius:9px;background:#0f172a}
+.garmin-preview span,.garmin-preview small{color:var(--muted);font-size:.7rem}.garmin-preview strong{font-size:1rem}
+@media(max-width:520px){.garmin-export-form fieldset{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .leaflet-container { font-family: inherit; }
 .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: #111827; color: white; }
 .leaflet-bar a { background: #111827; color: white; border-color: var(--border); }
