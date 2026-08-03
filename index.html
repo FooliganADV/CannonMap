@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260803-stabilization-04" />
+  <link rel="stylesheet" href="app.css?v=20260803-stabilization-05" />
 </head>
 <body>
   <header class="topbar">
@@ -300,13 +300,13 @@
             <span id="rallyFeedAge">Feed never updated</span>
           </div>
           <div class="rally-more-actions">
+            <button id="rallyPhotoViewerButton" class="rally-photos-entry" type="button">Checkpoint Photos</button>
             <button id="rallyWeatherButton" type="button">Weather</button>
             <button id="rallyHotelButton" type="button">Show hotel</button>
             <button id="goHotelButton" class="rally-hotel-action" type="button">GO TO HOTEL</button>
             <button id="rallyPlannerButton" type="button">Open Planner</button>
             <button id="rallyDebugExportButton" type="button">Export Rally Debug Log</button>
             <button id="rallyJournalExportButton" type="button">Export Daily Journal</button>
-            <button id="rallyPhotoViewerButton" type="button">Checkpoint Photos</button>
           </div>
           <details class="rally-arrival-settings">
             <summary>Automatic checkpoint arrival</summary>
@@ -329,9 +329,10 @@
       </section>
       <section id="rallyPhotoViewer" class="rally-photo-viewer" hidden role="dialog" aria-modal="true" aria-label="Checkpoint photo evidence">
         <header><strong>Checkpoint Photos</strong><button id="rallyPhotoViewerClose" type="button" aria-label="Close photo viewer">×</button></header>
-        <div id="rallyPhotoGallery" class="rally-photo-gallery"></div>
+        <div id="rallyPhotoGalleryShell" class="rally-photo-gallery-shell"><p class="rally-photo-storage-warning">Checkpoint photos are stored locally on this device until exported. Clearing CannonMap or Safari website data may remove them.</p><div id="rallyPhotoGallery" class="rally-photo-gallery"></div><div class="rally-photo-batch"><button id="rallyExportDayPhotos" type="button">Export All Photos for Active Day</button><button id="rallyExportRallyPhotos" type="button">Export Entire Rally</button></div></div>
         <div id="rallyPhotoStage" class="rally-photo-stage" hidden>
           <div class="rally-photo-toolbar">
+            <button id="rallyPhotoBack" type="button">Gallery</button>
             <button id="rallyPhotoPrevious" type="button" aria-label="Previous photo">‹</button>
             <button id="rallyPhotoOriginal" type="button">Original</button><button id="rallyPhotoEvidence" type="button">Evidence</button>
             <button id="rallyPhotoZoomOut" type="button" aria-label="Zoom out">−</button><button id="rallyPhotoZoomIn" type="button" aria-label="Zoom in">+</button>
@@ -339,7 +340,7 @@
           </div>
           <div class="rally-photo-canvas"><img id="rallyPhotoImage" alt="Checkpoint evidence" /></div>
           <pre id="rallyPhotoMetadata"></pre>
-          <div class="rally-photo-exports"><button id="rallyExportPhoto" type="button">Export Selected</button><button id="rallyExportDayPhotos" type="button">Export Day</button><button id="rallyExportRallyPhotos" type="button">Export Rally</button></div>
+          <div class="rally-photo-exports"><button id="rallyExportOriginal" type="button">Export Original</button><button id="rallyExportEvidence" type="button">Export Evidence</button></div>
         </div>
       </section>
       <div class="map-status">
@@ -431,6 +432,6 @@
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260803-stabilization-04"></script>
+  <script type="module" src="app.js?v=20260803-stabilization-05"></script>
 </body>
 </html>
