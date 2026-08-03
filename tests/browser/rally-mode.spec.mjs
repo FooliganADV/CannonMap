@@ -2,6 +2,7 @@ import {test,expect} from '@playwright/test';
 import path from 'node:path';
 
 const fixture=path.resolve('tests/fixtures/rally-project.cmap');
+const photoBuffer=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64');
 
 async function loadProject(page){
   await page.goto('/?e2e=1');
@@ -96,7 +97,7 @@ test('automatic checkpoint capture opens camera and attaches photo references to
   await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(true));
   await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();
   await expect(page.locator('#rallyCameraCountdown')).toHaveText(/^[5-6][0-9]$/);
-  await page.locator('#rallyCameraInput').setInputFiles({name:'checkpoint.jpg',mimeType:'image/jpeg',buffer:Buffer.from('field-photo')});
+  await page.locator('#rallyCameraInput').setInputFiles({name:'checkpoint.jpg',mimeType:'image/jpeg',buffer:photoBuffer});
   await expect(page.locator('#rallyCameraPhotoCount')).toContainText('1 photo captured');
   await page.waitForFunction(async()=>{
     const events=await window.CannonMapTest.missionControlJournalEvents();

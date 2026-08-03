@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260803-stabilization-03" />
+  <link rel="stylesheet" href="app.css?v=20260803-stabilization-04" />
 </head>
 <body>
   <header class="topbar">
@@ -306,6 +306,7 @@
             <button id="rallyPlannerButton" type="button">Open Planner</button>
             <button id="rallyDebugExportButton" type="button">Export Rally Debug Log</button>
             <button id="rallyJournalExportButton" type="button">Export Daily Journal</button>
+            <button id="rallyPhotoViewerButton" type="button">Checkpoint Photos</button>
           </div>
           <details class="rally-arrival-settings">
             <summary>Automatic checkpoint arrival</summary>
@@ -325,6 +326,21 @@
           <button id="rallyCompleteButton" type="button" title="Manual completion fallback">COMPLETE</button>
           <button id="rallyMoreButton" type="button" aria-expanded="false">MORE</button>
         </nav>
+      </section>
+      <section id="rallyPhotoViewer" class="rally-photo-viewer" hidden role="dialog" aria-modal="true" aria-label="Checkpoint photo evidence">
+        <header><strong>Checkpoint Photos</strong><button id="rallyPhotoViewerClose" type="button" aria-label="Close photo viewer">×</button></header>
+        <div id="rallyPhotoGallery" class="rally-photo-gallery"></div>
+        <div id="rallyPhotoStage" class="rally-photo-stage" hidden>
+          <div class="rally-photo-toolbar">
+            <button id="rallyPhotoPrevious" type="button" aria-label="Previous photo">‹</button>
+            <button id="rallyPhotoOriginal" type="button">Original</button><button id="rallyPhotoEvidence" type="button">Evidence</button>
+            <button id="rallyPhotoZoomOut" type="button" aria-label="Zoom out">−</button><button id="rallyPhotoZoomIn" type="button" aria-label="Zoom in">+</button>
+            <button id="rallyPhotoNext" type="button" aria-label="Next photo">›</button>
+          </div>
+          <div class="rally-photo-canvas"><img id="rallyPhotoImage" alt="Checkpoint evidence" /></div>
+          <pre id="rallyPhotoMetadata"></pre>
+          <div class="rally-photo-exports"><button id="rallyExportPhoto" type="button">Export Selected</button><button id="rallyExportDayPhotos" type="button">Export Day</button><button id="rallyExportRallyPhotos" type="button">Export Rally</button></div>
+        </div>
       </section>
       <div class="map-status">
         <span id="cursorCoordinates">—</span>
@@ -415,6 +431,6 @@
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260803-stabilization-03"></script>
+  <script type="module" src="app.js?v=20260803-stabilization-04"></script>
 </body>
 </html>

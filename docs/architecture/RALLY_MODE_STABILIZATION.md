@@ -59,6 +59,19 @@ Cancellation, denial/timeout, storage failure, and retry retain the pending
 checkpoint. Optional photos never block completion and record whether media was
 added.
 
+### Court-quality evidence pairs
+
+Each successful capture is persisted atomically as one untouched camera JPEG
+(`role="original"`) and one generated JPEG (`role="evidence"`) sharing a stable
+`mediaGroupId`. The evidence footer is rendered entirely offline from the
+capture-time GPS, Journal, checkpoint, Project, and already-loaded weather
+snapshot; missing values are labeled `Unavailable` and are never estimated.
+Journal photo events reference both media identities and the export filename.
+Blobs remain project-scoped in `missionMedia`, while Journal records contain
+references only. This reference-based contract is also the future cloud-sync
+boundary: a provider can transfer media records without changing Project or
+Journal schemas.
+
 ## Field diagnostics
 
 The bounded Rally Debug Log retains the latest 400 structured entries in local

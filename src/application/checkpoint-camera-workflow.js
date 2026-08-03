@@ -1,5 +1,5 @@
 /** Durable checkpoint photo gate. Required photos never auto-finish without media. */
-export function createCheckpointCameraWorkflow({mediaRepository,journal,clock,timeoutMs=60000,setTimer=setTimeout,clearTimer=clearTimeout,onState=()=>{},onRequested=()=>{}}={}){
+export function createCheckpointCameraWorkflow({mediaRepository,photoEvidence,journal,clock,timeoutMs=60000,setTimer=setTimeout,clearTimer=clearTimeout,onState=()=>{},onRequested=()=>{}}={}){
   if(!mediaRepository||!journal||!clock)throw new TypeError('Camera workflow dependencies are required.');
   let active=null,timer=null;
   const snapshot=()=>active?{...active,photos:[...active.photos]}:{status:'idle'};
@@ -12,8 +12,8 @@ export function createCheckpointCameraWorkflow({mediaRepository,journal,clock,ti
   };
   const arm=()=>{clear();active.deadline=Date.now()+timeoutMs;timer=setTimer(expire,timeoutMs);publish();};
   return Object.freeze({
-    start({projectId,checkpoint,journalEvent,required=Boolean(checkpoint?.photoRequired)}){
-      clear();active={status:'requesting',required:Boolean(required),projectId,checkpoint,journalEvent,photos:[],startedAt:clock.iso(),deadline:0,error:''};
+    start({projectId,checkpoint,journalEvent,required=Boolean(checkpoint?.photoRequired),evidenceContext={}}){
+      clear();active={status:'requesting',required:Boolean(required),projectId,checkpoint,journalEvent,evidenceContext,photos:[],startedAt:clock.iso(),deadline:0,error:''};
       arm();onRequested(snapshot());return snapshot();
     },
     async addFiles(files){
@@ -22,12 +22,16 @@ export function createCheckpointCameraWorkflow({mediaRepository,journal,clock,ti
       active.status='saving';active.error='';publish();
       try{
         for(const file of [...files]){
-          const reference=await mediaRepository.addPhoto({projectId:active.projectId,checkpointId:active.checkpoint.id,journalEventId:active.journalEvent.eventId,file});
-          await journal.appendEvent({
+          const pair=photoEvidence?await photoEvidence.capture({projectId:active.projectId,checkpointId:active.checkpoint.id,journalEventId:active.journalEvent.eventId,file,context:active.evidenceContext}):null;
+          const reference=pair||await mediaRepository.addPhoto({projectId:active.projectId,checkpointId:active.checkpoint.id,journalEventId:active.journalEvent.eventId,file});
+          const photos=pair?[pair.original,pair.evidence]:[reference];
+          try{await journal.appendEvent({
             projectId:active.projectId,eventType:'photo_added',source:'checkpoint_camera',title:`Photo · ${active.checkpoint.name}`,
-            summary:'Photo captured during checkpoint arrival.',metadata:{checkpointId:active.checkpoint.id,required:active.required,status:'recorded'},
-            references:{checkpointId:active.checkpoint.id,parentEventId:active.journalEvent.eventId},attachments:{photos:[reference]}
-          });
+            summary:'Photo captured during checkpoint arrival.',
+            references:{checkpointId:active.checkpoint.id,parentEventId:active.journalEvent.eventId,mediaGroupId:pair?.mediaGroupId||reference.mediaId,
+              originalMediaId:pair?.original?.mediaId||reference.mediaId,evidenceMediaId:pair?.evidence?.mediaId||null},
+            attachments:{photos,original:pair?.original||reference,evidence:pair?.evidence||null},metadata:{checkpointId:active.checkpoint.id,required:active.required,status:'recorded',exportFilename:pair?.evidence?.name||reference.name}
+          });}catch(error){if(pair)await mediaRepository.deleteEvidencePair?.(pair);throw error;}
           active.photos.push(reference);
         }
         active.status='ready';active.error='';clear();publish();return [...active.photos];
