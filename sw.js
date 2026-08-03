@@ -1,11 +1,12 @@
-const CACHE = 'cannonmap-v0.7.1-20260803-rally-stabilization-05';
+const CACHE = 'cannonmap-v0.7.1-20260803-rally-stabilization-06';
+const RADAR_CACHE='cannonmap-radar-v1',RADAR_CACHE_LIMIT=96;
 const APP_SHELL = [
   './',
   './index.html',
-  './app.css?v=20260803-stabilization-05',
+  './app.css?v=20260803-stabilization-06',
   './gps-checkpoints-feed.js?v=20260725-02',
   './stationary-events.js?v=20260725-01',
-  './app.js?v=20260803-stabilization-05',
+  './app.js?v=20260803-stabilization-06',
   './src/core/clock.js',
   './src/core/compatibility.js',
   './src/core/errors.js',
@@ -44,6 +45,8 @@ const APP_SHELL = [
   './src/application/checkpoint-camera-workflow.js',
   './src/application/photo-evidence-service.js',
   './src/application/photo-export-service.js',
+  './src/application/arrival-evidence.js',
+  './src/application/weather-maintenance.js',
   './src/application/gps-follow-controller.js',
   './src/application/rally-debug-log.js',
   './src/application/ride-export-source.js',
@@ -93,12 +96,15 @@ self.addEventListener('install', event => {
 
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())
+    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE&&k !== RADAR_CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())
   );
 });
 
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
+  if(/rainviewer\.com/.test(event.request.url)){
+    event.respondWith(caches.open(RADAR_CACHE).then(async cache=>{try{const response=await fetch(event.request);if(response.ok||response.type==='opaque'){await cache.put(event.request,response.clone());const keys=await cache.keys();await Promise.all(keys.slice(0,Math.max(0,keys.length-RADAR_CACHE_LIMIT)).map(key=>cache.delete(key)));}return response;}catch{return (await cache.match(event.request))||Response.error();}}));return;
+  }
   if(event.request.mode==='navigate'){
     event.respondWith(fetch(event.request).then(response=>{if(response.ok){const clone=response.clone();caches.open(CACHE).then(cache=>cache.put('./index.html',clone));}return response;}).catch(()=>caches.match('./index.html').then(cached=>cached||caches.match('./'))));
     return;

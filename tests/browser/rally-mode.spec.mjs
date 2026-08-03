@@ -11,6 +11,11 @@ async function loadProject(page){
   await expect(page.locator('#status')).toContainText('Opened rally-project.cmap');
   await page.evaluate(()=>{const select=document.getElementById('dayFilter');select.value='1';select.dispatchEvent(new Event('change',{bubbles:true}));});
 }
+async function completeWithEvidence(page,name='objective.jpg'){
+  const before=await page.locator('#rallyNextName').textContent();await page.locator('#rallyCompleteButton').click();
+  await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();await page.locator('#rallyCameraInput').setInputFiles({name,mimeType:'image/jpeg',buffer:photoBuffer});await expect(page.locator('#rallyCameraWorkflow')).toBeHidden();
+  await expect.poll(async()=>await page.locator('#rallyDayComplete').isVisible()||await page.locator('#rallyNextName').textContent()!==before).toBeTruthy();
+}
 
 test('project import filters Old Coast Road and preserves nearby features',async({page})=>{
   await loadProject(page);
@@ -47,12 +52,12 @@ test('checkpoint defer queue, completion, scoring, mandatory hotel bailout and u
   await expect(page.locator('#rallyNextName')).toContainText('Checkpoint One');
   await page.locator('#rallyDeferIcon').click();
   await expect(page.locator('#rallyNextName')).toContainText('Extreme Checkpoint Two');
-  await page.locator('#rallyCompleteButton').click();
+  await completeWithEvidence(page,'extreme.jpg');
   await expect(page.locator('#rallyScore')).toHaveText('21');
   await expect(page.locator('#rallyDeferredMessage')).toContainText('1 deferred checkpoint');
   await page.locator('#rallyResumeDeferredButton').click();
   await expect(page.locator('#rallyNextName')).toContainText('Checkpoint One');
-  await page.locator('#rallyCompleteButton').click();
+  await completeWithEvidence(page,'checkpoint-one.jpg');
   await expect(page.locator('#rallyScore')).toHaveText('31');
   await expect(page.locator('#rallyNextName')).toContainText('Hotel');
   await expect(page.locator('#rallyDeferIcon')).toBeHidden();
@@ -70,11 +75,9 @@ test('hotel completion persists Day Complete and requires explicit next-day star
   await page.waitForTimeout(100);
   await page.reload();
   await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
-  await page.evaluate(async()=>{
-    await window.CannonMapTest.completeCurrentCheckpoint(false);
-    await window.CannonMapTest.completeCurrentCheckpoint(false);
-    await window.CannonMapTest.completeCurrentCheckpoint(false);
-  });
+  await completeWithEvidence(page,'checkpoint-one.jpg');
+  await completeWithEvidence(page,'checkpoint-two.jpg');
+  await completeWithEvidence(page,'hotel.jpg');
   await expect(page.locator('#rallyDay')).toHaveCount(0);
   await expect(page.locator('#rallyDayComplete')).toBeVisible();
   await expect(page.locator('#rallyStartNextDay')).toHaveText('Start Day 2');

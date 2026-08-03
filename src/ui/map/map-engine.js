@@ -1,6 +1,6 @@
 import {createLayerRegistry} from './layer-registry.js';
 
-export const MAP_LAYER_TYPES=Object.freeze(['features','competitors','stationaryEvents','traffic','weather']);
+export const MAP_LAYER_TYPES=Object.freeze(['features','competitors','stationaryEvents','traffic','weather','radar']);
 
 export function createMapEngine({
   L,
@@ -26,7 +26,8 @@ export function createMapEngine({
     'Competitor trails':layers.group('competitors'),
     'Stationary events':layers.group('stationaryEvents'),
     'Traffic incidents':layers.group('traffic'),
-    Weather:layers.group('weather')
+    Weather:layers.group('weather'),
+    'Weather radar':layers.group('radar')
   },{position:'topright',collapsed:true}).addTo(map);
   map.on('baselayerchange',event=>onBaseLayerChange(event.name));
 

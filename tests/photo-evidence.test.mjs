@@ -5,7 +5,7 @@ import {checkpointPhotoFilename,createStoredZip} from '../src/application/photo-
 test('evidence metadata renders authoritative values and marks missing values unavailable',()=>{
   const metadata=buildPhotoEvidenceMetadata({eventName:'America 250 ADV Cannonball',rallyName:'Mandeville',dayNumber:1,checkpointName:'Balcony',checkpointNumber:'1.1',points:10,capturedAt:'2026-08-03T17:00:00.000Z',latitude:30.401324,longitude:-90.120646,journalEventId:'event-1',mediaId:'media-1'});
   assert.equal(metadata.latitude,'30.40132');assert.equal(metadata.longitude,'-90.12065');assert.equal(metadata.elevation,'Unavailable');assert.equal(metadata.temperature,'Unavailable');assert.equal(metadata.gpsAccuracy,'Unavailable');assert.equal(metadata.journalEventId,'event-1');
-  assert.deepEqual(photoEvidenceOverlayEntries(metadata).map(([label])=>label),['Rally','Day','Checkpoint','Points','Captured','Coordinates','Elevation','Temperature','GPS Accuracy','Heading','Travel Direction','Media ID','Journal Event ID']);
+  assert.deepEqual(photoEvidenceOverlayEntries(metadata).map(([label])=>label),['Rally','Day','Checkpoint','Points','Captured','Coordinates','Elevation','Temperature','Weather','Speed / Motion','GPS Accuracy','GPS Sample','Heading','Travel Direction','Media ID','Journal Event ID']);
 });
 
 test('capture preserves the original object and persists one generated evidence copy',async()=>{

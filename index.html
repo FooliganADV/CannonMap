@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260803-stabilization-05" />
+  <link rel="stylesheet" href="app.css?v=20260803-stabilization-06" />
 </head>
 <body>
   <header class="topbar">
@@ -223,7 +223,7 @@
               <button id="radarPlayButton" class="button secondary" disabled>Play loop</button>
             </div>
             <label class="field"><span>Radar coverage</span><select id="radarCoverage"><option value="active-day" selected>Active day (30-mile buffer)</option><option value="selected">Selected route/track (30-mile buffer)</option><option value="map">Current map view</option></select></label>
-            <label class="field"><span>Radar opacity</span><input id="radarOpacity" type="range" min="20" max="100" step="5" value="65" /></label>
+            <label class="field"><span>Radar opacity</span><input id="radarOpacity" type="range" min="20" max="90" step="5" value="65" /></label>
             <label class="field"><span>Planning speed for route rain estimate</span><select id="routeWeatherSpeed"><option value="30">30 mph</option><option value="40">40 mph</option><option value="45" selected>45 mph</option><option value="55">55 mph</option><option value="65">65 mph</option></select></label>
             <button id="routeWeatherButton" class="button secondary wide">Check rain along track</button>
             <div id="routeWeatherSummary" class="intel-card empty">Route rain outlook not checked.</div>
@@ -282,7 +282,7 @@
         </section>
         <section id="rallyCameraWorkflow" class="rally-camera-workflow" hidden aria-live="polite">
           <strong>Checkpoint Captured</strong><span id="rallyCameraCountdown">60</span>
-          <p>Capture checkpoint photos. Mission Control continues automatically when the timer expires.</p>
+          <p><strong id="rallyCameraHeading">Checkpoint Reached</strong><br>Capture required rally evidence. Mission Control continues only after durable storage succeeds.</p>
           <label for="rallyCameraInput">Open Camera</label>
           <input id="rallyCameraInput" type="file" accept="image/*" capture="environment" multiple />
           <small id="rallyCameraPhotoCount">No photos captured</small>
@@ -432,6 +432,6 @@
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260803-stabilization-05"></script>
+  <script type="module" src="app.js?v=20260803-stabilization-06"></script>
 </body>
 </html>

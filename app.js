@@ -20,6 +20,8 @@ import {createRallyDebugLog} from './src/application/rally-debug-log.js';
 import {createRideExportSource} from './src/application/ride-export-source.js';
 import {createPhotoEvidenceService} from './src/application/photo-evidence-service.js';
 import {createPhotoExportService} from './src/application/photo-export-service.js';
+import {captureArrivalEvidence} from './src/application/arrival-evidence.js';
+import {createWeatherMaintenance} from './src/application/weather-maintenance.js';
 import {
   createAnalyticsRepository,createJournalRepository,createLegacyCurrentProjectRepository,
   createObservationCaptureRepository,createProjectDeletionRepository,createProjectLifecycleRepository,
@@ -66,6 +68,7 @@ let checkpointCamera=null;
 let missionMedia=null;
 let photoEvidence=null;
 let photoExports=null;
+let weatherMaintenance=null;
 let photoViewerGroups=[];
 let photoViewerIndex=0;
 let photoViewerRole='evidence';
@@ -824,7 +827,8 @@ function startGps() {
     const followed=gpsFollow?.update({lat:position.coords.latitude,lon:position.coords.longitude,heading:position.coords.heading});
     const ll=[followed?.lat??position.coords.latitude,followed?.lon??position.coords.longitude];
     const accuracyFeet=position.coords.accuracy*3.28084;
-    state.lastGpsPosition={lat:ll[0],lon:ll[1],heading:followed?.heading??null,accuracyFeet,elevationFeet:Number.isFinite(position.coords.altitude)?position.coords.altitude*3.28084:null,time:new Date(position.timestamp||Date.now()).toISOString()};
+    state.lastGpsPosition={lat:ll[0],lon:ll[1],heading:followed?.heading??null,speedMps:Number.isFinite(position.coords.speed)?position.coords.speed:null,accuracyFeet,elevationFeet:Number.isFinite(position.coords.altitude)?position.coords.altitude*3.28084:null,time:new Date(position.timestamp||Date.now()).toISOString()};
+    weatherMaintenance?.onGps(state.lastGpsPosition,{moving:Number(position.coords.speed)>=.44704}).catch(()=>{});
     state.gpsLayer?.remove();
     state.gpsAccuracyLayer?.remove();
     state.gpsAccuracyLayer=L.circle(ll,{radius:position.coords.accuracy,color:'#38bdf8',weight:1,fillOpacity:.08}).addTo(state.map);
@@ -944,6 +948,7 @@ function renderCheckpointCameraState(cameraState){
   const active=cameraState&&cameraState.status!=='idle';section.hidden=!active;
   if(cameraCountdownTimer){clearInterval(cameraCountdownTimer);cameraCountdownTimer=null;}
   if(!active)return;
+  const checkpoint=state.project.features.find(feature=>feature.id===pendingPhotoCheckpointId),heading=$('rallyCameraHeading');if(heading)heading.textContent=checkpoint?.type==='hotel'?'Hotel Reached':'Checkpoint Reached';
   const update=()=>{const seconds=Math.max(0,Math.ceil((cameraState.deadline-Date.now())/1000));if($('rallyCameraCountdown'))$('rallyCameraCountdown').textContent=String(seconds);};
   update();cameraCountdownTimer=setInterval(update,1000);
   if($('rallyCameraPhotoCount'))$('rallyCameraPhotoCount').textContent=cameraState.photos.length?`${cameraState.photos.length} photo${cameraState.photos.length===1?'':'s'} captured`:'No photos captured';
@@ -976,14 +981,17 @@ function travelDirection(heading){
   return ['N','NE','E','SE','S','SW','W','NW'][Math.round(((Number(heading)%360)+360)%360/45)%8];
 }
 function photoEvidenceContext(checkpoint,journalEvent){
-  const gps=state.lastGpsPosition,weatherNearCapture=gps&&validPoint(state.weatherPoint)&&haversine(gps,state.weatherPoint)<=5000;
-  const temperature=weatherNearCapture?state.weatherData?.current?.temperature_2m:null;
+  const gps=checkpoint.arrivalEvidence||captureArrivalEvidence(state.lastGpsPosition,Date.parse(journalEvent.timestamp)||Date.now()),weather=weatherMaintenance?.getContext(),weatherNearCapture=gps&&weather?.requestCoordinates&&haversine({lat:gps.latitude,lon:gps.longitude},weather.requestCoordinates)<=5000;
+  const temperature=weatherNearCapture?weather?.temperature:null,weatherAge=weather?.fetchedAt?Math.max(0,Date.parse(journalEvent.timestamp)-Date.parse(weather.fetchedAt)):null;
   const numbered=rallyCheckpointNumber(checkpoint.name),checkpointNumber=numbered?`${numbered.day}.${numbered.sequence}`:(Number.isFinite(Number(checkpoint.sequence))?String(checkpoint.sequence):null);
-  return {eventName:'America 250 ADV Cannonball',rallyName:state.project.name||null,dayNumber:Number(checkpoint.day)||null,
+  return {eventName:checkpoint.type==='hotel'?'Hotel Arrival':'America 250 ADV Cannonball',rallyName:state.project.name||null,dayNumber:Number(checkpoint.day)||null,
     checkpointName:checkpoint.name||null,checkpointNumber,
     points:checkpoint.points===null||checkpoint.points===undefined?null:Number(checkpoint.points),capturedAt:journalEvent.timestamp,
-    latitude:gps?.lat??null,longitude:gps?.lon??null,elevation:gps?.elevationFeet??null,temperature:Number.isFinite(Number(temperature))?Number(temperature):null,
-    gpsAccuracy:gps?.accuracyFeet??null,deviceHeading:gps?.heading??null,travelDirection:travelDirection(gps?.heading)};
+    latitude:gps?.latitude??null,longitude:gps?.longitude??null,elevation:gps?.elevationFeet??null,temperature:Number.isFinite(Number(temperature))?Number(temperature):null,
+    weatherContext:weatherNearCapture?`${weather.condition||'Unavailable'} · ${weather.cached||weather.offline?'Cached':'Live'} · ${weatherAge===null?'age unavailable':`${Math.round(weatherAge/60000)} min old`}`:null,
+    speedMph:gps?.speedMph??null,motion:gps?.motion??null,gpsSampleTimestamp:gps?.sampleTimestamp??null,gpsSampleAgeMs:gps?.sampleAgeMs??null,
+    gpsAccuracy:gps?.gpsAccuracyFeet??null,deviceHeading:gps?.heading??null,travelDirection:gps?.headingFresh?travelDirection(gps.heading):null,
+    photoJournalEventId:stableUuid(`${state.project.projectId}:photo:${checkpoint.id}:${journalEvent.eventId}`)};
 }
 function closePhotoViewer(){
   $('rallyPhotoViewer').hidden=true;for(const url of photoViewerUrls)URL.revokeObjectURL(url);photoViewerUrls=[];
@@ -1007,13 +1015,14 @@ async function openPhotoViewer(){
     if(originalId)referenced.add(originalId);if(evidenceId)referenced.add(evidenceId);
     const original=byId.get(originalId),evidence=byId.get(evidenceId),record=original||evidence,parent=journalById.get(event.references?.parentEventId),checkpointId=event.references?.checkpointId||record?.checkpointId;
     const checkpoint=state.project.features.find(feature=>feature.id===checkpointId),numbered=rallyCheckpointNumber(checkpoint?.name),day=Number(record?.metadata?.dayNumber||parent?.metadata?.dayNumber||checkpoint?.day)||0;
-    items.push({mediaGroupId:event.references?.mediaGroupId||record?.mediaGroupId||event.eventId,original,evidence,checkpointId,day,checkpointName:checkpoint?.name||record?.metadata?.checkpointName||'Unknown checkpoint',checkpointNumber:record?.metadata?.checkpointNumber||(numbered?`${numbered.day}.${numbered.sequence}`:'Unavailable'),capturedAt:record?.capturedAt||event.timestamp,missing:[originalId&&!original?'Original':null,evidenceId&&!evidence?'Evidence':null].filter(Boolean),journalEventId:event.eventId});
+    items.push({mediaGroupId:event.references?.mediaGroupId||record?.mediaGroupId||event.eventId,original,evidence,checkpointId,day,objectiveType:event.metadata?.objectiveType||checkpoint?.type||'checkpoint',checkpointName:checkpoint?.name||record?.metadata?.checkpointName||'Unknown checkpoint',checkpointNumber:record?.metadata?.checkpointNumber||(numbered?`${numbered.day}.${numbered.sequence}`:'Unavailable'),capturedAt:record?.capturedAt||event.timestamp,missing:[originalId&&!original?'Original':null,evidenceId&&!evidence?'Evidence':null].filter(Boolean),journalEventId:event.eventId});
   }
   const orphanGroups=new Map();for(const record of records.filter(row=>!referenced.has(row.mediaId))){const key=record.mediaGroupId||record.mediaId;if(!orphanGroups.has(key))orphanGroups.set(key,{mediaGroupId:key});orphanGroups.get(key)[record.role||'original']=record;}
   for(const item of orphanGroups.values()){const record=item.original||item.evidence,checkpoint=state.project.features.find(feature=>feature.id===record.checkpointId),numbered=rallyCheckpointNumber(checkpoint?.name);items.push({...item,checkpointId:record.checkpointId,day:Number(record.metadata?.dayNumber||checkpoint?.day)||0,checkpointName:checkpoint?.name||record.metadata?.checkpointName||'Unknown checkpoint',checkpointNumber:record.metadata?.checkpointNumber||(numbered?`${numbered.day}.${numbered.sequence}`:'Unavailable'),capturedAt:record.capturedAt,missing:[],journalEventId:record.journalEventId});}
   photoViewerGroups=items.sort((a,b)=>a.day-b.day||String(a.checkpointNumber).localeCompare(String(b.checkpointNumber))||String(a.capturedAt).localeCompare(String(b.capturedAt)));
   const gallery=$('rallyPhotoGallery'),checkpointGroups=new Map();gallery.innerHTML='';photoViewerGroups.forEach((item,index)=>{const key=`${item.day}:${item.checkpointId}`;if(!checkpointGroups.has(key))checkpointGroups.set(key,{...item,items:[]});checkpointGroups.get(key).items.push({...item,index});});
-  for(const group of checkpointGroups.values()){
+  let renderedKind='';for(const group of checkpointGroups.values()){
+    const kind=group.objectiveType==='hotel'?'Hotels':'Checkpoints';if(kind!==renderedKind){const heading=document.createElement('h3');heading.className='rally-photo-kind';heading.textContent=kind;gallery.appendChild(heading);renderedKind=kind;}
     const section=document.createElement('section');section.className='rally-photo-group';const missing=group.items.flatMap(item=>item.missing);section.innerHTML=`<header><div><small>Day ${group.day||'Unavailable'} · Checkpoint ${escapeHtml(group.checkpointNumber)}</small><strong>${escapeHtml(group.checkpointName)}</strong></div><small>${group.items.length} photo${group.items.length===1?'':'s'}<br>${new Date(group.capturedAt).toLocaleString()}</small></header>${missing.length?`<p class="rally-photo-missing">Missing locally stored media: ${escapeHtml([...new Set(missing)].join(', '))}</p>`:''}<div class="rally-photo-group-grid"></div>`;
     const grid=section.querySelector('.rally-photo-group-grid');for(const item of group.items){const record=item.evidence||item.original,button=document.createElement('button');button.type='button';button.className='rally-photo-card';button.dataset.photoIndex=String(item.index);if(record){const url=URL.createObjectURL(record.blob);photoViewerUrls.push(url);button.innerHTML=`<img src="${url}" alt="${escapeHtml(item.checkpointName)}" /><small>${new Date(item.capturedAt).toLocaleTimeString()}</small><small>Original: ${item.original?'Available':'Missing'}<br>Evidence: ${item.evidence?'Available':'Missing'}</small>`;}else{button.disabled=true;button.innerHTML='<strong>Media unavailable</strong>';}grid.appendChild(button);}gallery.appendChild(section);
   }
@@ -1290,15 +1299,19 @@ function currentIntelPoint() {
   const center=state.map.getCenter();return {lat:center.lat,lon:center.lng,label:'Map center'};
 }
 const WEATHER_CODES={0:'Clear',1:'Mostly clear',2:'Partly cloudy',3:'Overcast',45:'Fog',48:'Rime fog',51:'Light drizzle',53:'Drizzle',55:'Heavy drizzle',56:'Freezing drizzle',57:'Heavy freezing drizzle',61:'Light rain',63:'Rain',65:'Heavy rain',66:'Freezing rain',67:'Heavy freezing rain',71:'Light snow',73:'Snow',75:'Heavy snow',77:'Snow grains',80:'Rain showers',81:'Rain showers',82:'Heavy showers',85:'Snow showers',86:'Heavy snow showers',95:'Thunderstorm',96:'Thunderstorm with hail',99:'Severe thunderstorm with hail'};
+async function fetchWeatherContext(point){
+  const params=new URLSearchParams({latitude:point.lat.toFixed(5),longitude:point.lon.toFixed(5),current:'temperature_2m,apparent_temperature,precipitation,rain,weather_code,wind_speed_10m,wind_gusts_10m',hourly:'temperature_2m,precipitation_probability,weather_code,wind_speed_10m,wind_gusts_10m',forecast_hours:'6',temperature_unit:'fahrenheit',wind_speed_unit:'mph',precipitation_unit:'inch',timezone:'auto'});
+  const response=await fetchWithTimeout(`https://api.open-meteo.com/v1/forecast?${params}`);if(!response.ok)throw new Error(`HTTP ${response.status}`);
+  const data=await response.json(),current=data.current||{},probabilities=(data.hourly?.precipitation_probability||[]).filter(Number.isFinite);
+  return {data,temperature:current.temperature_2m??null,condition:WEATHER_CODES[current.weather_code]||null,precipitationProbability:probabilities.length?Math.max(...probabilities):null,observationTimestamp:current.time||null,provider:'Open-Meteo'};
+}
+function applyWeatherContext(context){if(!context)return;state.weatherData=context.data;state.weatherPoint={...context.requestCoordinates,label:context.cached?'Cached GPS weather':'GPS position'};renderWeather();renderIntelSummary();}
 async function loadWeatherHere() {
   const point=currentIntelPoint();
   if($('weatherSummary')){$('weatherSummary').className='intel-card loading';$('weatherSummary').textContent='Loading weather…';}
   try{
-    const params=new URLSearchParams({latitude:point.lat.toFixed(5),longitude:point.lon.toFixed(5),current:'temperature_2m,apparent_temperature,precipitation,rain,weather_code,wind_speed_10m,wind_gusts_10m',hourly:'temperature_2m,precipitation_probability,weather_code,wind_speed_10m,wind_gusts_10m',forecast_hours:'6',temperature_unit:'fahrenheit',wind_speed_unit:'mph',precipitation_unit:'inch',timezone:'auto'});
-    const response=await fetchWithTimeout(`https://api.open-meteo.com/v1/forecast?${params}`);
-    if(!response.ok)throw new Error(`HTTP ${response.status}`);
-    const data=await response.json();
-    state.weatherData=data;state.weatherPoint=point;renderWeather();renderIntelSummary();setStatus(`Weather loaded for ${point.label}.`);
+    const context=await weatherMaintenance.refresh(point,'manual');const data=context.data;
+    applyWeatherContext(context);setStatus(`Weather loaded for ${point.label}.`);
     rallyAnalytics?.recordWeatherSnapshot(data.current||{},{
       location:{latitude:point.lat,longitude:point.lon,label:point.label},
       extensions:{units:data.current_units||{},source:'open-meteo'}
@@ -1333,9 +1346,13 @@ function weatherMaxGustMph(data) {
 function clearWeather() {state.weatherData=null;state.weatherPoint=null;mapEngine.layers.clear('weather');if($('weatherSummary')){$('weatherSummary').className='intel-card empty';$('weatherSummary').textContent='No weather loaded.';}renderIntelSummary();}
 
 const RAINVIEWER_MAPS_URL='https://api.rainviewer.com/public/weather-maps.json';
+const RADAR_CACHE_KEY='cannonmap.radar.frames.v1',RADAR_MAX_AGE_MS=90*60*1000;
 function radarTileUrl(frame) {return `${frame.host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;}
 function radarFrameTime(frame) {return new Date(Number(frame.time)*1000);}
-async function showRadar() {
+function cachedRadarFrames(){try{const cached=JSON.parse(localStorage.getItem(RADAR_CACHE_KEY)||'null');return cached?.savedAt&&Date.now()-Date.parse(cached.savedAt)<=RADAR_MAX_AGE_MS?cached:null;}catch{return null;}}
+function saveRadarFrames(frames){try{localStorage.setItem(RADAR_CACHE_KEY,JSON.stringify({savedAt:new Date().toISOString(),frames:frames.slice(-12)}));}catch{}}
+async function showRadar({silent=false}={}) {
+  state.settings.radarEnabled=true;saveProject(false);
   if($('radarSummary')){$('radarSummary').className='intel-card loading';$('radarSummary').textContent='Loading recent radar frames…';}
   try{
     const response=await fetchWithTimeout(RAINVIEWER_MAPS_URL);
@@ -1343,11 +1360,11 @@ async function showRadar() {
     const data=await response.json();
     const host=String(data.host||'');const frames=(data.radar?.past||[]).filter(frame=>frame?.path&&Number.isFinite(Number(frame.time))).map(frame=>({...frame,host}));
     if(!host||!frames.length)throw new Error('No radar frames are currently available.');
-    state.radarFrames=frames;state.radarFrameIndex=frames.length-1;renderRadarFrame();
+    state.radarFrames=frames.slice(-12);saveRadarFrames(state.radarFrames);state.radarFrameIndex=state.radarFrames.length-1;renderRadarFrame();
     if($('radarPlayButton')) $('radarPlayButton').disabled=frames.length<2;
     if($('radarToggleButton')) $('radarToggleButton').textContent='Hide radar';
-    setStatus('Weather radar loaded.');
-  }catch(error){hideRadar(false);if($('radarSummary')){$('radarSummary').className='intel-card error';$('radarSummary').textContent=`Radar failed: ${error.message}`;}setStatus(`Radar failed: ${error.message}`,true);}
+    if(!silent)setStatus('Weather radar loaded.');
+  }catch(error){const cached=cachedRadarFrames();if(cached?.frames?.length){state.radarFrames=cached.frames;state.radarFrameIndex=state.radarFrames.length-1;renderRadarFrame();if($('radarPlayButton'))$('radarPlayButton').disabled=state.radarFrames.length<2;if($('radarToggleButton'))$('radarToggleButton').textContent='Hide radar';if($('radarSummary')){$('radarSummary').className='intel-card warning';$('radarSummary').querySelector('small').textContent=`Cached radar · ${Math.round((Date.now()-Date.parse(cached.savedAt))/60000)} min old`;}return;}hideRadar(false,false);if($('radarSummary')){$('radarSummary').className='intel-card error';$('radarSummary').textContent=`Radar unavailable: ${error.message}`;}if(!silent)setStatus(`Radar failed: ${error.message}`,true);}
 }
 function radarCoverageFeatures() {
   const scope=state.settings.radarCoverage||'active-day';if(scope==='map')return [];
@@ -1373,13 +1390,15 @@ function createRadarLayer(frame,opacity=0) {
   const options={opacity,maxNativeZoom:7,maxZoom:19,zIndex:450,className:'cannon-radar-layer',attribution:'Radar data © <a href="https://www.rainviewer.com/">RainViewer</a>'};
   const bounds=radarCoverageBounds();if(bounds)options.bounds=bounds;return L.tileLayer(radarTileUrl(frame),options);
 }
-function updateRadarSummary() {
+function updateRadarSummary(cached=false) {
   const frame=state.radarFrames[state.radarFrameIndex];if(!frame)return;const time=radarFrameTime(frame);
+  const age=Math.max(0,Date.now()-time.valueOf()),stale=age>20*60*1000;
   if($('radarSummary')){$('radarSummary').className='intel-card';$('radarSummary').innerHTML=`<strong>Radar ${escapeHtml(time.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}))}</strong><small>Recent observed precipitation · frame ${state.radarFrameIndex+1} of ${state.radarFrames.length} · ${escapeHtml(radarCoverageLabel())}</small>`;}
 }
 function renderRadarFrame() {
   const frame=state.radarFrames[state.radarFrameIndex];if(!frame)return;if(state.radarLayer)state.map.removeLayer(state.radarLayer);
-  state.radarLayer=createRadarLayer(frame,Number(state.settings.radarOpacity||65)/100).addTo(state.map);updateRadarSummary();
+  state.radarLayer=createRadarLayer(frame,Number(state.settings.radarOpacity||65)/100);mapEngine.group('radar').addLayer(state.radarLayer);updateRadarSummary();
+  const age=Math.max(0,Date.now()-radarFrameTime(frame).valueOf());if(age>20*60*1000&&$('radarSummary')){$('radarSummary').className='intel-card warning';$('radarSummary').querySelector('small').textContent=`Stale · ${Math.round(age/60000)} min old · ${radarCoverageLabel()}`;}
 }
 function scheduleRadarNext() {
   if(!state.radarPlaying)return;state.radarTimer=setTimeout(()=>{state.radarTimer=null;transitionRadarFrame((state.radarFrameIndex+1)%state.radarFrames.length);},1050);
@@ -1387,7 +1406,7 @@ function scheduleRadarNext() {
 function transitionRadarFrame(index) {
   if(!state.radarPlaying)return;const frame=state.radarFrames[index];if(!frame)return;const token=++state.radarAnimationToken;const next=createRadarLayer(frame,0);state.radarNextLayer=next;let revealed=false;
   const reveal=()=>{if(revealed||token!==state.radarAnimationToken)return;revealed=true;if(state.radarLoadTimer){clearTimeout(state.radarLoadTimer);state.radarLoadTimer=null;}const previous=state.radarLayer;next.setOpacity(Number(state.settings.radarOpacity||65)/100);previous?.setOpacity(0);state.radarLayer=next;state.radarNextLayer=null;state.radarFrameIndex=index;updateRadarSummary();setTimeout(()=>{if(previous&&state.map.hasLayer(previous))state.map.removeLayer(previous);},360);scheduleRadarNext();};
-  next.once('load',reveal).addTo(state.map);state.radarLoadTimer=setTimeout(reveal,2800);
+  next.once('load',reveal);mapEngine.group('radar').addLayer(next);state.radarLoadTimer=setTimeout(reveal,2800);
 }
 function stopRadarLoop() {
   state.radarPlaying=false;state.radarAnimationToken++;if(state.radarTimer){clearTimeout(state.radarTimer);state.radarTimer=null;}if(state.radarLoadTimer){clearTimeout(state.radarLoadTimer);state.radarLoadTimer=null;}if(state.radarNextLayer&&state.map.hasLayer(state.radarNextLayer))state.map.removeLayer(state.radarNextLayer);state.radarNextLayer=null;if($('radarPlayButton'))$('radarPlayButton').textContent='Play loop';
@@ -1395,14 +1414,14 @@ function stopRadarLoop() {
 function toggleRadarLoop() {
   if(state.radarPlaying)return stopRadarLoop();if(state.radarFrames.length<2)return;state.radarPlaying=true;if($('radarPlayButton'))$('radarPlayButton').textContent='Pause loop';transitionRadarFrame(0);
 }
-function hideRadar(save=true) {
+function hideRadar(save=true,disable=true) {
   stopRadarLoop();if(state.radarLayer&&state.map)state.map.removeLayer(state.radarLayer);state.radarLayer=null;state.radarFrames=[];state.radarFrameIndex=-1;
   if($('radarToggleButton'))$('radarToggleButton').textContent='Show radar';if($('radarPlayButton'))$('radarPlayButton').disabled=true;
   if($('radarSummary')){$('radarSummary').className='intel-card empty';$('radarSummary').textContent='Weather radar is off.';}
-  if(save)saveProject(false);
+  if(disable)state.settings.radarEnabled=false;if(save)saveProject(false);
 }
 function toggleRadar() {if(state.radarLayer)hideRadar();else showRadar();}
-function setRadarOpacity() {state.settings.radarOpacity=Number($('radarOpacity')?.value)||65;state.radarLayer?.setOpacity(state.settings.radarOpacity/100);saveProject(false);}
+function setRadarOpacity() {state.settings.radarOpacity=Math.min(90,Math.max(20,Number($('radarOpacity')?.value)||65));state.radarLayer?.setOpacity(state.settings.radarOpacity/100);saveProject(false);}
 function setRadarCoverage() {state.settings.radarCoverage=$('radarCoverage')?.value||'active-day';saveProject(false);if(state.radarLayer){stopRadarLoop();renderRadarFrame();setStatus(`Radar limited to ${radarCoverageLabel()}.`);}}
 function activeWeatherLine() {
   const selected=state.project.features.find(feature=>feature.id===state.selectedId&&feature.geometry?.kind==='line');if(selected)return selected;
@@ -1647,9 +1666,10 @@ async function finalizeDay(checkpoint){
 }
 async function beginPhotoWorkflow(checkpoint,automatic){
   if(!checkpointCamera||!rallyJournal)throw new Error('The durable photo and Journal services are unavailable. Reload CannonMap and retry this checkpoint.');
-  const timestamp=checkpoint.arrivedAt||new Date().toISOString();
+  const timestamp=checkpoint.arrivedAt||new Date().toISOString();checkpoint.arrivalEvidence||=captureArrivalEvidence(state.lastGpsPosition,Date.parse(timestamp)||Date.now());
+  weatherMaintenance?.onArrival({lat:checkpoint.arrivalEvidence.latitude??state.lastGpsPosition?.lat,lon:checkpoint.arrivalEvidence.longitude??state.lastGpsPosition?.lon}).catch(()=>{});
   const arrival=await appendRallyJournalEvent('checkpoint_arrival',checkpoint,{eventIdentity:`arrival:${checkpoint.id}`,checkpointArrivalTimestamp:timestamp,
-    photoRequired:Boolean(checkpoint.photoRequired),photoStatus:checkpoint.photoStatus,source:automatic?'gps_capture':'manual_fallback',summary:'Checkpoint arrival recorded.'},timestamp);
+    photoRequired:Boolean(checkpoint.photoRequired),photoStatus:checkpoint.photoStatus,arrivalEvidence:checkpoint.arrivalEvidence,source:automatic?'gps_capture':'manual_fallback',title:checkpoint.type==='hotel'?'Hotel Reached':checkpoint.name,summary:checkpoint.type==='hotel'?'Hotel arrival recorded; photo evidence is required before day completion.':'Checkpoint arrival recorded.'},timestamp);
   pendingPhotoCheckpointId=checkpoint.id;rallyDebug.record('photo_requested',{checkpointId:checkpoint.id,required:Boolean(checkpoint.photoRequired)});
   checkpointCamera?.start({projectId:state.project.projectId,checkpoint,journalEvent:arrival,required:Boolean(checkpoint.photoRequired),evidenceContext:photoEvidenceContext(checkpoint,arrival)});setTimeout(()=>$('rallyCameraInput')?.click(),0);
 }
@@ -1664,9 +1684,9 @@ async function completeCurrentCheckpoint(automatic=false,{photoRecorded=false,ch
   try{
     snapshot();const rows=dayCheckpoints(),now=new Date().toISOString(),priorState=checkpoint.status;
     if(checkpoint.status===checkpoints.CHECKPOINT_STATE.UPCOMING)checkpoint.status=checkpoints.CHECKPOINT_STATE.ACTIVE;
-    if(!checkpoint.arrivedAt){checkpoints.recordArrival(checkpoint,now);await appendRallyJournalEvent('checkpoint_arrival',checkpoint,{eventIdentity:`arrival:${checkpoint.id}`,checkpointArrivalTimestamp:checkpoint.arrivedAt,source:automatic?'gps_capture':'manual_fallback',summary:'Checkpoint arrival recorded.'},checkpoint.arrivedAt);}
+    if(!checkpoint.arrivedAt){checkpoint.arrivalEvidence=captureArrivalEvidence(state.lastGpsPosition,Date.parse(now));checkpoints.recordArrival(checkpoint,now);await appendRallyJournalEvent('checkpoint_arrival',checkpoint,{eventIdentity:`arrival:${checkpoint.id}`,checkpointArrivalTimestamp:checkpoint.arrivedAt,arrivalEvidence:checkpoint.arrivalEvidence,source:automatic?'gps_capture':'manual_fallback',title:checkpoint.type==='hotel'?'Hotel Reached':checkpoint.name,summary:checkpoint.type==='hotel'?'Hotel arrival recorded; photo evidence is required before day completion.':'Checkpoint arrival recorded.'},checkpoint.arrivedAt);}
     rallyDebug.record('checkpoint_state_transition',{checkpointId:checkpoint.id,priorState,newState:checkpoint.status,activeObjectiveId:checkpoint.id,reason:'arrival'});
-    if(checkpoint.photoRequired&&!photoRecorded){await saveProject(false);renderAll();await beginPhotoWorkflow(checkpoint,automatic);setStatus(`Photo required for ${checkpoint.name}.`);return;}
+    if(checkpoint.photoRequired&&!photoRecorded){await saveProject(false);renderAll();await beginPhotoWorkflow(checkpoint,automatic);setStatus(checkpoint.type==='hotel'?'Hotel Reached · take the required hotel photo to complete the day.':`Photo required for ${checkpoint.name}.`);return;}
     const next=checkpoints.completeCheckpoint(rows,checkpoint,now,{photoRecorded});if(checkpoint.status!==checkpoints.CHECKPOINT_STATE.COLLECTED)return;
     rallyDebug.record('checkpoint_state_transition',{checkpointId:checkpoint.id,priorState,newState:checkpoint.status,activeObjectiveId:checkpoint.id,reason:'collected'});
     recordAnalyticsCheckpoint(checkpoint,'completed');await recordJournalCheckpoint(checkpoint,automatic);rallyDebug.record('objective_completed',{objectiveId:checkpoint.id,type:checkpoint.type});
@@ -1819,7 +1839,7 @@ async function initializeApplication() {
   await initializeMissionControlFoundationsWithRetry();
   state.project.features.forEach(f=>{f.assignmentMethod ||= '';f.favorite ||= false;});
   state.settings.typeVisibility=Object.assign({track:true,route:true,backbone:true,waypoint:true,checkpoint:true,fuel:true,hotel:true},state.settings.typeVisibility||{});
-  state.settings=Object.assign({leaderboardUrl:'https://gpscheckpoints.com/admin/leaderboard.html?id_event=15',rallyEndpointUrl:'',rallyEventId:'15',rallyPollSeconds:30,showCompetitorTrails:true,showCompetitorMarkers:true,competitorFreshMinutes:15,trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:'',radarOpacity:65,radarCoverage:'active-day',routeWeatherSpeed:45,usableFuelCapacity:0,expectedPavedRange:0,expectedMixedRange:0,reserveDistance:25,fuelProfile:'mixed',autoCompleteCheckpoints:true,checkpointArrivalRadius:500,checkpointMaxAccuracy:200,hideCompletedCheckpoints:true},state.settings);
+  state.settings=Object.assign({leaderboardUrl:'https://gpscheckpoints.com/admin/leaderboard.html?id_event=15',rallyEndpointUrl:'',rallyEventId:'15',rallyPollSeconds:30,showCompetitorTrails:true,showCompetitorMarkers:true,competitorFreshMinutes:15,trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:'',radarOpacity:65,radarCoverage:'active-day',radarEnabled:false,routeWeatherSpeed:45,usableFuelCapacity:0,expectedPavedRange:0,expectedMixedRange:0,reserveDistance:25,fuelProfile:'mixed',autoCompleteCheckpoints:true,checkpointArrivalRadius:500,checkpointMaxAccuracy:200,hideCompletedCheckpoints:true},state.settings);
   state.project.competitors ||= [];
   state.project.stationaryEvents ||= [];
   rallyExecution();
@@ -1831,10 +1851,14 @@ async function initializeApplication() {
     getActiveProject:()=>deepClean(state.project),journal:rallyJournal,
     analytics:rallyAnalytics||{flush:async()=>({status:'disabled'}),snapshot:()=>null}
   });
-  initMap();wireUi();if($('radarOpacity'))$('radarOpacity').value=state.settings.radarOpacity||65;if($('radarCoverage'))$('radarCoverage').value=state.settings.radarCoverage||'active-day';if($('routeWeatherSpeed'))$('routeWeatherSpeed').value=String(state.settings.routeWeatherSpeed||45);
+  weatherMaintenance=createWeatherMaintenance({fetchWeather:fetchWeatherContext,storage:localStorage,distanceMeters:haversine,onContext:applyWeatherContext});
+  initMap();wireUi();weatherMaintenance.restore();if($('radarOpacity'))$('radarOpacity').value=state.settings.radarOpacity||65;if($('radarCoverage'))$('radarCoverage').value=state.settings.radarCoverage||'active-day';if($('routeWeatherSpeed'))$('routeWeatherSpeed').value=String(state.settings.routeWeatherSpeed||45);
   if($('buildLabel'))$('buildLabel').textContent=`Beta ${APP_VERSION}`;
   if($('appVersion'))$('appVersion').textContent=`v${APP_VERSION} · ${BUILD_ID}`;
   renderAll();
+  weatherMaintenance.onGps(currentIntelPoint(),{moving:false}).catch(error=>console.warn(`[CannonMap weather] Background refresh failed: ${error?.message||error}`));
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')weatherMaintenance?.onGps(currentIntelPoint(),{moving:false}).catch(()=>{});},{passive:true});
+  if(state.settings.radarEnabled)showRadar({silent:true});
   const pendingPhoto=state.project.features.find(feature=>checkpoints.checkpointState(feature.status)===checkpoints.CHECKPOINT_STATE.PHOTO_REQUIRED);
   if(pendingPhoto){
     const durablePhotos=await missionMedia.listCheckpointPhotos(state.project.projectId,pendingPhoto.id);

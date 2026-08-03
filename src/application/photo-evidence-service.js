@@ -14,14 +14,17 @@ export function buildPhotoEvidenceMetadata(context={}){
     elevation:context.elevation===null||context.elevation===undefined?'Unavailable':`${Math.round(Number(context.elevation))} ft`,
     temperature:context.temperature===null||context.temperature===undefined?'Unavailable':`${Math.round(Number(context.temperature))}°F`,
     gpsAccuracy:context.gpsAccuracy===null||context.gpsAccuracy===undefined?'Unavailable':`±${Math.round(Number(context.gpsAccuracy))} ft`,
+    speed:context.speedMph===null||context.speedMph===undefined?'Unavailable':`${Number(context.speedMph)<1?0:Number(context.speedMph).toFixed(1)} mph`,
+    motion:unavailable(context.motion),gpsSampleTimestamp:unavailable(context.gpsSampleTimestamp),gpsSampleAge:context.gpsSampleAgeMs===null||context.gpsSampleAgeMs===undefined?'Unavailable':`${(Number(context.gpsSampleAgeMs)/1000).toFixed(1)} sec`,
     deviceHeading:context.deviceHeading===null||context.deviceHeading===undefined?'Unavailable':`${Math.round(Number(context.deviceHeading))}°`,
-    travelDirection:unavailable(context.travelDirection),mediaId:unavailable(context.mediaId),journalEventId:unavailable(context.journalEventId),
+    travelDirection:unavailable(context.travelDirection),weatherContext:unavailable(context.weatherContext),mediaId:unavailable(context.mediaId),journalEventId:unavailable(context.journalEventId),
     capturedAt:context.capturedAt||null
   });
 }
 
 export function photoEvidenceOverlayEntries(metadata){
-  return [['Rally',metadata.rallyName],['Day',metadata.dayNumber],['Checkpoint',`${metadata.checkpointNumber} · ${metadata.checkpointName}`],['Points',metadata.points],['Captured',`${metadata.captureDate} ${metadata.captureTime}`],['Coordinates',`${metadata.latitude}, ${metadata.longitude}`],['Elevation',metadata.elevation],['Temperature',metadata.temperature],['GPS Accuracy',metadata.gpsAccuracy],['Heading',metadata.deviceHeading],['Travel Direction',metadata.travelDirection],['Media ID',metadata.mediaId],['Journal Event ID',metadata.journalEventId]];
+  const objective=metadata.eventName==='Hotel Arrival'?'Hotel':'Checkpoint';
+  return [['Rally',metadata.rallyName],['Day',metadata.dayNumber],[objective,`${metadata.checkpointNumber} · ${metadata.checkpointName}`],['Points',metadata.points],['Captured',`${metadata.captureDate} ${metadata.captureTime}`],['Coordinates',`${metadata.latitude}, ${metadata.longitude}`],['Elevation',metadata.elevation],['Temperature',metadata.temperature],['Weather',metadata.weatherContext],['Speed / Motion',`${metadata.speed} · ${metadata.motion}`],['GPS Accuracy',metadata.gpsAccuracy],['GPS Sample',`${metadata.gpsSampleTimestamp} (${metadata.gpsSampleAge})`],['Heading',metadata.deviceHeading],['Travel Direction',metadata.travelDirection],['Media ID',metadata.mediaId],['Journal Event ID',metadata.journalEventId]];
 }
 
 async function imageSource(file){
@@ -52,7 +55,7 @@ export function createPhotoEvidenceService({repository,render=renderEvidenceJpeg
       const identities={mediaGroupId:createId(),originalMediaId:createId(),evidenceMediaId:createId()};
       const metadata=buildPhotoEvidenceMetadata({...context,mediaId:identities.mediaGroupId,journalEventId});
       const existing=await repository.listCheckpointPhotos?.(projectId,checkpointId)||[],sequence=existing.filter(item=>(item.role||'original')==='original').length+1;
-      const base=`Day${String(context.dayNumber||0).padStart(2,'0')}_CP${String(context.checkpointNumber||checkpointId).replace(/[^a-z0-9.-]+/gi,'_')}${sequence>1?`_${String(sequence).padStart(2,'0')}`:''}`;
+      const label=context.eventName==='Hotel Arrival'?'Hotel':'CP',base=`Day${String(context.dayNumber||0).padStart(2,'0')}_${label}${String(context.checkpointNumber||checkpointId).replace(/[^a-z0-9.-]+/gi,'_')}${sequence>1?`_${String(sequence).padStart(2,'0')}`:''}`;
       const evidenceBlob=await render(file,metadata);
       return repository.addEvidencePair({projectId,checkpointId,journalEventId,originalFile:file,evidenceBlob,metadata,identities,filenames:{original:`${base}_Original.jpg`,evidence:`${base}_Evidence.jpg`}});
     }

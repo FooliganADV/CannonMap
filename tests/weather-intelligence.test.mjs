@@ -13,6 +13,7 @@ test('radar uses the public RainViewer frame API with attribution and safe sourc
   assert.match(app, /RainViewer/);
   assert.match(html, /id="radarToggleButton"/);
   assert.match(html, /Radar data:[\s\S]*RainViewer/);
+  assert.match(app, /mapEngine\.group\('radar'\)\.addLayer/);
 });
 
 test('radar animation can be stopped and opacity is configurable', () => {

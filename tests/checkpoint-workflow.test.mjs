@@ -91,7 +91,7 @@ test('photo requirement aliases normalize to one durable boolean contract',()=>{
   }
   assert.equal(workflow.normalizeCheckpoint({id:'legacy-default',name:'legacy-default',type:'checkpoint',photoRequired:false}).photoRequired,true);
   assert.equal(checkpoint('optional',1,'planned',{photoRequirement:'optional'}).photoRequired,false);
-  assert.equal(workflow.normalizeCheckpoint({id:'hotel',name:'Hotel',type:'hotel'}).photoRequired,false);
+  assert.equal(workflow.normalizeCheckpoint({id:'hotel',name:'Hotel',type:'hotel'}).photoRequired,true);
   assert.equal(workflow.normalizeCheckpoint({id:'required-hotel',name:'Hotel',type:'hotel',photoRequired:true}).photoRequired,true);
 });
 

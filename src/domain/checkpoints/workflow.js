@@ -40,9 +40,9 @@ export function normalizeCheckpoint(feature,index=0){
   const photoSignals=[feature.photoRequirement,feature.photoRequired,feature.requiresPhoto,feature.requirePhoto,feature.properties?.photoRequired,feature.metadata?.photoRequired];
   const explicitlyRequired=photoSignals.some(value=>value===true||/^(?:1|true|yes|required)$/i.test(String(value??'').trim()));
   const explicitlyExempt=!explicitlyRequired&&(feature.photoExempt===true||/^(?:optional|exempt|none|not[_ -]?required)$/i.test(String(feature.photoRequirement??'').trim()));
-  // Rally bonus checkpoints require durable photo evidence by default. Official
-  // hotels are day-finish objectives and remain exempt unless explicitly required.
-  feature.photoRequired=!explicitlyExempt&&(explicitlyRequired||feature.type==='checkpoint');
+  // Every collectible rally objective, including the official finish hotel,
+  // requires durable evidence unless the project explicitly documents an exemption.
+  feature.photoRequired=!explicitlyExempt&&(explicitlyRequired||['checkpoint','hotel'].includes(feature.type));
   feature.photoStatus=feature.photoStatus||'not_requested';
   for(const key of ['arrivedAt','completedAt','deferredAt','deferReason','restoredAt'])feature[key]=feature[key]??null;
   return feature;

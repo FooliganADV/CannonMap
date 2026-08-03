@@ -93,13 +93,15 @@ test('deferred resume and finish, hotel completion, reload, and explicit Day 2 s
   await page.locator('#rallyResumeDeferredButton').click();await expect(page.locator('#rallyNextName')).toContainText('1.3 Defer');
   await page.locator('#rallyDeferIcon').click();await expect(page.locator('#rallyDeferredPrompt')).toBeVisible();
   await page.locator('#rallyFinishDayButton').click();await expect(page.locator('#rallyNextName')).toContainText('Hotel');
-  await page.locator('#rallyCompleteButton').click();await expect(page.locator('#rallyDayComplete')).toBeVisible();
+  await page.locator('#rallyCompleteButton').click();await expect(page.locator('#rallyCameraHeading')).toHaveText('Hotel Reached');await expect(page.locator('#rallyDayComplete')).toBeHidden();
+  await page.locator('#rallyCameraInput').dispatchEvent('cancel');await expect(page.locator('#rallyCameraRetry')).toBeVisible();await expect(page.locator('#rallyDayComplete')).toBeHidden();
+  await page.locator('#rallyCameraRetry').click();await page.locator('#rallyCameraInput').setInputFiles({name:'hotel.jpg',mimeType:'image/jpeg',buffer:photoBuffer});await expect(page.locator('#rallyDayComplete')).toBeVisible();
   await expect(page.locator('#rallyDeferredPrompt')).toBeHidden();
   await page.screenshot({path:testInfo.outputPath('rally-day-complete-portrait.png')});
   let events=await page.evaluate(()=>window.CannonMapTest.missionControlJournalEvents());
-  expect(events.some(event=>event.eventType==='checkpoint_deferred')).toBeTruthy();expect(events.some(event=>event.eventType==='checkpoint_resumed')).toBeTruthy();expect(events.some(event=>event.eventType==='deferred_finish_decision')).toBeTruthy();expect(events.some(event=>event.eventType==='day_finished')).toBeTruthy();
+  expect(events.some(event=>event.eventType==='checkpoint_deferred')).toBeTruthy();expect(events.some(event=>event.eventType==='checkpoint_resumed')).toBeTruthy();expect(events.some(event=>event.eventType==='deferred_finish_decision')).toBeTruthy();expect(events.some(event=>event.eventType==='photo_added'&&event.metadata.objectiveType==='hotel')).toBeTruthy();expect(events.some(event=>event.eventType==='day_finished')).toBeTruthy();
   await page.reload();await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');await expect(page.locator('#rallyDayComplete')).toBeVisible();
-  await page.locator('#rallyMoreButton').click();await expect(page.locator('#rallyPhotoViewerButton')).toBeVisible();await page.locator('#rallyPhotoViewerButton').click();await expect(page.locator('#rallyPhotoViewer')).toBeVisible();await page.locator('#rallyPhotoViewerClose').click();
+  await page.locator('#rallyMoreButton').click();await expect(page.locator('#rallyPhotoViewerButton')).toBeVisible();await page.locator('#rallyPhotoViewerButton').click();await expect(page.locator('#rallyPhotoViewer')).toBeVisible();await expect(page.locator('.rally-photo-kind')).toContainText(['Checkpoints','Hotels']);await page.locator('#rallyPhotoViewerClose').click();
   await expect(page.locator('#rallyStartNextDay')).toHaveText('Start Day 2');await page.locator('#rallyStartNextDay').click();await expect(page.locator('#rallyNextName')).toContainText('2.1 Normal');
   events=await page.evaluate(()=>window.CannonMapTest.missionControlJournalEvents());expect(events.filter(event=>event.eventType==='day_finished')).toHaveLength(1);expect(events.some(event=>event.eventType==='day_started'&&event.metadata.dayNumber===2)).toBeTruthy();expect(pageErrors).toEqual([]);
 });
