@@ -332,6 +332,11 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
   [hidden]{display:none!important}
   .rally-actions:has(#rallyNextButton:not([hidden])){grid-template-columns:repeat(3,1fr)}
   .map-area:has(.intel-sheet.open) .rally-recenter-fab{display:none}
+  .map-area:has(.leaflet-control-layers-expanded) .leaflet-top.leaflet-right{z-index:1400}
+  .map-area:has(.leaflet-control-layers-expanded) .rally-head,
+  .map-area:has(.leaflet-control-layers-expanded) .rally-primary-card,
+  .map-area:has(.leaflet-control-layers-expanded) .rally-recenter-fab,
+  .map-area:has(.leaflet-control-layers-expanded) .rally-actions{visibility:hidden;pointer-events:none}
   .rally-actions button{
     min-height:64px;
     padding:6px 4px;

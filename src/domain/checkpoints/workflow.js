@@ -37,7 +37,8 @@ export function normalizeCheckpoint(feature,index=0){
   feature.status=checkpointState(feature.status);
   feature.sequence=Number.isFinite(Number(feature.sequence))?Number(feature.sequence):(Number(feature.sourceOrder)||index)+1;
   feature.originalSequence=Number.isFinite(Number(feature.originalSequence))?Number(feature.originalSequence):feature.sequence;
-  feature.photoRequired=feature.photoRequired===true||feature.requiresPhoto===true||String(feature.photoRequirement||'').toLowerCase()==='required';
+  const photoRequirement=feature.photoRequired??feature.requiresPhoto??feature.photoRequirement??feature.requirePhoto??feature.properties?.photoRequired??feature.metadata?.photoRequired;
+  feature.photoRequired=photoRequirement===true||/^(?:1|true|yes|required)$/i.test(String(photoRequirement??'').trim());
   feature.photoStatus=feature.photoStatus||'not_requested';
   for(const key of ['arrivedAt','completedAt','deferredAt','deferReason','restoredAt'])feature[key]=feature[key]??null;
   return feature;
@@ -121,13 +122,17 @@ export function finishDayWithHotel(rows,now){
   const hotel=rows.find(feature=>feature.type==='hotel'&&!terminal(feature.status));return hotel?makeCheckpointNext(rows,hotel.id,now):null;
 }
 
-/** Returns the next day but never activates it. Explicit rider action owns activation. */
+/** Returns the next executable day but never activates it. Explicit rider action owns activation. */
 export function nextRallyDay(project,day){
-  return [...new Set((project?.features||[]).map(feature=>Number(feature.day)).filter(value=>value>day&&value<=8))].sort((a,b)=>a-b)[0]||0;
+  const current=Number(day)||0;
+  return [...new Set((project?.features||[])
+    .filter(feature=>['checkpoint','hotel'].includes(feature?.type))
+    .map(feature=>Number(feature.day))
+    .filter(value=>Number.isInteger(value)&&value>current&&value<=8))].sort((a,b)=>a-b)[0]||0;
 }
 
 export function startRallyDay(project,settings,day){
-  const value=Number(day);if(!value||!(project?.features||[]).some(feature=>Number(feature.day)===value))return null;
+  const value=Number(day);if(!value||!(project?.features||[]).some(feature=>['checkpoint','hotel'].includes(feature?.type)&&Number(feature.day)===value))return null;
   settings.dayFilter=String(value);return activateNextPlanned(dayCheckpoints(project,settings))||currentCheckpoint(project,settings);
 }
 

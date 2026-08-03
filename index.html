@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260727-m11g" />
+  <link rel="stylesheet" href="app.css?v=20260803-stabilization-02" />
 </head>
 <body>
   <header class="topbar">
@@ -290,7 +290,7 @@
           <button id="rallyCameraRetry" type="button" hidden>Retry Camera</button>
         </section>
         <section id="rallyDayComplete" class="rally-day-complete" hidden>
-          <strong>✓ Day Complete</strong><small id="rallyDaySummary"></small>
+          <strong id="rallyDayCompleteTitle">✓ Day Complete</strong><small id="rallyDaySummary"></small>
           <button id="rallyStartNextDay" type="button" hidden>Start Next Day</button>
         </section>
         <button id="rallyRecenterFab" class="rally-recenter-fab" type="button" aria-label="Start GPS tracking">START</button>
@@ -415,6 +415,6 @@
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260727-m11g"></script>
+  <script type="module" src="app.js?v=20260803-stabilization-02"></script>
 </body>
 </html>

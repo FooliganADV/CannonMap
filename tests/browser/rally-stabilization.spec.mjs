@@ -19,7 +19,7 @@ test('GPS follow keeps rider visible, manual pan suspends, and GPS restores foll
   await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.gpsMarkerBounds())).not.toBeNull();
   const position=await page.evaluate(()=>window.CannonMapTest.gpsMarkerBounds());
   const viewport=page.viewportSize();expect(position.x).toBeGreaterThan(0);expect(position.x).toBeLessThan(viewport.width);expect(position.y).toBeGreaterThan(viewport.height*.45);expect(position.y).toBeLessThan(viewport.height*.8);
-  const map=page.locator('#map');const box=await map.boundingBox();await page.mouse.move(box.width*.5,box.height*.65);await page.mouse.down();await page.mouse.move(box.width*.35,box.height*.5,{steps:4});await page.mouse.up();
+  await page.evaluate(()=>window.CannonMapTest.simulateManualMapPan());
   await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.gpsFollowState()?.following)).toBe(false);
   await page.locator('#rallyRecenterFab').click();await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.gpsFollowState()?.following)).toBe(true);
   await page.evaluate(()=>window.dispatchEvent(new Event('orientationchange')));await page.waitForTimeout(150);expect(await page.evaluate(()=>window.CannonMapTest.gpsFollowState()?.following)).toBe(true);
@@ -66,6 +66,22 @@ test('deferred resume and finish, hotel completion, reload, and explicit Day 2 s
   events=await page.evaluate(()=>window.CannonMapTest.missionControlJournalEvents());expect(events.filter(event=>event.eventType==='day_finished')).toHaveLength(1);expect(events.some(event=>event.eventType==='day_started'&&event.metadata.dayNumber===2)).toBeTruthy();expect(pageErrors).toEqual([]);
 });
 
+test('stale persisted next-day state is reconciled and final day has no invalid start action',async({page},testInfo)=>{
+  test.skip(testInfo.project.name==='desktop');
+  const project={format:'CannonMap Project',settings:{dayFilter:'1'},project:{projectId:'22222222-2222-4222-8222-222222222222',name:'Stale next day',rallyExecution:{schemaVersion:1,days:{'1':{dayNumber:1,dayId:'day-1',status:'complete',nextDay:1,summary:{totalCollected:2,totalDeferred:0,score:10}}}},features:[
+    {id:'cp-1',name:'1.1',type:'checkpoint',day:1,status:'collected',geometry:{kind:'point',coordinates:[{lat:38,lon:-105}]}},
+    {id:'hotel-1',name:'1.2 Hotel',type:'hotel',day:1,status:'collected',geometry:{kind:'point',coordinates:[{lat:38.1,lon:-105.1}]}},
+    {id:'cp-2',name:'2.1',type:'checkpoint',day:2,status:'upcoming',geometry:{kind:'point',coordinates:[{lat:39,lon:-104}]}},
+    {id:'hotel-2',name:'2.2 Hotel',type:'hotel',day:2,status:'upcoming',geometry:{kind:'point',coordinates:[{lat:39.1,lon:-104.1}]}}
+  ]}};
+  await page.goto('/?e2e=stale-day');await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
+  await page.locator('#projectInput').setInputFiles({name:'stale.cmap',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(project))});
+  await expect(page.locator('#rallyStartNextDay')).toHaveText('Start Day 2');await page.locator('#rallyStartNextDay').click();await expect(page.locator('#rallyNextName')).toHaveText('2.1');
+  await page.reload();await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');await expect(page.locator('#rallyNextName')).toHaveText('2.1');
+  await page.evaluate(async()=>{await window.CannonMapTest.completeCurrentCheckpoint(false);await window.CannonMapTest.completeCurrentCheckpoint(false);});
+  await expect(page.locator('#rallyDayCompleteTitle')).toHaveText('✓ Rally Complete');await expect(page.locator('#rallyStartNextDay')).toBeHidden();
+});
+
 test('landscape Rally controls and layer control do not overlap',async({page},testInfo)=>{
   test.skip(!testInfo.project.name.toLowerCase().includes('landscape'));await load(page);
   const ids=['rallyPrimaryCard','rallyRecenterFab','rallyCompleteButton','rallyMoreButton'];
@@ -74,5 +90,11 @@ test('landscape Rally controls and layer control do not overlap',async({page},te
   const overlaps=(a,b)=>a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top;
   for(const [id,box] of Object.entries(boxes))expect(overlaps(box,layer),`${id} overlaps layers`).toBeFalsy();
   expect(overlaps(boxes.rallyRecenterFab,boxes.rallyMoreButton),'GPS overlaps More').toBeFalsy();
+  const followBefore=await page.evaluate(()=>window.CannonMapTest.gpsFollowState()?.mode);
+  await page.locator('.leaflet-control-layers-toggle').click({force:true});await expect(page.locator('.leaflet-control-layers')).toHaveClass(/leaflet-control-layers-expanded/);
+  const stack=await page.evaluate(()=>({layer:Number(getComputedStyle(document.querySelector('.leaflet-top.leaflet-right')).zIndex),gps:getComputedStyle(document.getElementById('rallyRecenterFab')).visibility,hud:getComputedStyle(document.getElementById('rallyPrimaryCard')).visibility}));
+  expect(stack.layer).toBeGreaterThan(1260);expect(stack.gps).toBe('hidden');expect(stack.hud).toBe('hidden');
+  await page.locator('#map').click({position:{x:20,y:20}});await expect(page.locator('.leaflet-control-layers')).not.toHaveClass(/leaflet-control-layers-expanded/);
+  expect(await page.evaluate(()=>window.CannonMapTest.gpsFollowState()?.mode)).toBe(followBefore);
   await page.screenshot({path:testInfo.outputPath('rally-stabilization-landscape.png')});
 });

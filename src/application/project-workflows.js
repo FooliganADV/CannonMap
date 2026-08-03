@@ -94,7 +94,7 @@ export function createProjectWorkflows({createId,now,parseXml,normalizeCheckpoin
       const type=classifyPoint(name,notes,symbol),feature=base(name,type,notes,{kind:'point',coordinates:[point]});
       if(type==='checkpoint'){
         const read=tag=>textOf(waypoint,tag);
-        Object.assign(feature,{status:read('status')||'planned',points:read('points')?Number(read('points')):undefined,extreme:/^(true|1|yes)$/i.test(read('extreme')),sequence:read('sequence')?Number(read('sequence')):undefined,completedAt:read('completedAt')||null,deferredAt:read('deferredAt')||null,deferReason:read('deferReason')||null,restoredAt:read('restoredAt')||null});
+        Object.assign(feature,{status:read('status')||'planned',points:read('points')?Number(read('points')):undefined,extreme:/^(true|1|yes)$/i.test(read('extreme')),sequence:read('sequence')?Number(read('sequence')):undefined,photoRequired:/^(true|1|yes|required)$/i.test(read('photoRequired')||read('requiresPhoto')||read('photoRequirement')),completedAt:read('completedAt')||null,deferredAt:read('deferredAt')||null,deferReason:read('deferReason')||null,restoredAt:read('restoredAt')||null});
       }
       features.push(feature);
     });
@@ -123,6 +123,7 @@ export function createProjectWorkflows({createId,now,parseXml,normalizeCheckpoin
       const existing=project.features.find(item=>featureDuplicate(incoming,item));
       if(existing){
         Object.assign(existing,{name:incoming.name||existing.name,type:incoming.type||existing.type,notes:incoming.notes||existing.notes,source:incoming.source||existing.source,geometry:incoming.geometry,updatedAt:now()});
+        if(incoming.photoRequired===true)existing.photoRequired=true;
         if(incoming.day)existing.day=incoming.day;
         updated++;
       }else if(filterFeatures([incoming],'GPX merge').length){project.features.push(normalizeCheckpoint(incoming,project.features.length));added++;}

@@ -35,6 +35,11 @@ export function createCheckpointCameraWorkflow({mediaRepository,journal,clock,ti
     },
     cancel(){if(!active)return null;active.status='awaiting_photo';active.error=active.required?'Photo capture was canceled. Retry is required.':'Photo skipped.';publish();return snapshot();},
     retry(){if(!active)return null;active.status='requesting';active.error='';arm();onRequested(snapshot());return snapshot();},
+    restorePhoto(reference){
+      if(!active||!reference)return null;
+      if(!active.photos.some(photo=>photo.mediaId===reference.mediaId))active.photos.push(reference);
+      active.status='ready';active.error='';clear();publish();return snapshot();
+    },
     finish(){
       if(!active)return null;
       if(active.required&&!active.photos.length){active.status='awaiting_photo';active.error='A required photo has not been recorded.';publish();return null;}

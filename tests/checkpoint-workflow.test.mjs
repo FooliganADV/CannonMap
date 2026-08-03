@@ -21,7 +21,7 @@ test('checkpoint normalization, ordering, and scoring preserve Rally rules',()=>
 
 test('completed official hotel exposes but does not activate the next available rally day',()=>{
   const hotel=workflow.normalizeCheckpoint({id:'hotel-1',name:'Hotel',type:'hotel',day:1});
-  const project={features:[hotel,{id:'route-2',type:'route',day:2}]},settings={dayFilter:'1'};
+  const project={features:[hotel,checkpoint('day-2',1,'planned',{day:2})]},settings={dayFilter:'1'};
   workflow.completeCheckpoint([hotel],hotel,'2026-01-01T20:00:00.000Z');
   assert.equal(workflow.nextRallyDay(project,1),2);
   assert.equal(settings.dayFilter,'1');
@@ -69,6 +69,12 @@ test('checkpoint reordering and make-next preserve imported sequence metadata',(
   assert.deepEqual(rows.map(item=>item.sequence),[2,1]);
 });
 
+test('next-day resolution ignores stale current-day values and requires an executable later day',()=>{
+  const project={features:[checkpoint('day-1',1,'completed'),checkpoint('day-2',1,'planned',{day:2}),{id:'route-3',type:'route',day:3}]};
+  assert.equal(workflow.nextRallyDay(project,1),2);
+  assert.equal(workflow.nextRallyDay(project,2),0);
+});
+
 test('required photo creates an explicit gate and blocks collection until recorded',()=>{
   const photo=checkpoint('photo',1,'next',{photoRequired:true}),rows=[photo,checkpoint('after',2)];
   workflow.recordArrival(photo,'2026-01-01T00:00:00.000Z');
@@ -77,6 +83,13 @@ test('required photo creates an explicit gate and blocks collection until record
   assert.equal(photo.status,workflow.CHECKPOINT_STATE.PHOTO_REQUIRED);
   const next=workflow.completeCheckpoint(rows,photo,'2026-01-01T00:02:00.000Z',{photoRecorded:true});
   assert.equal(photo.status,workflow.CHECKPOINT_STATE.COLLECTED);assert.equal(next.id,'after');
+});
+
+test('photo requirement aliases normalize to one durable boolean contract',()=>{
+  for(const source of [{requiresPhoto:'yes'},{requirePhoto:1},{photoRequirement:'Required'},{properties:{photoRequired:true}},{metadata:{photoRequired:'true'}}]){
+    assert.equal(checkpoint('photo',1,'planned',source).photoRequired,true);
+  }
+  assert.equal(checkpoint('optional',1,'planned',{photoRequired:'false'}).photoRequired,false);
 });
 
 test('checkpoint colors have exactly one authoritative meaning',()=>{

@@ -47,7 +47,7 @@ the collected state and the completion guard.
 
 ## Photo gate
 
-`photoRequired`, `requiresPhoto`, or `photoRequirement="required"` in a
+`photoRequired`, `requiresPhoto`, `requirePhoto`, or `photoRequirement="required"` in a
 checkpoint manifest creates a blocking `photo_required` transition. Arrival is
 persisted before opening the browser camera. Required checkpoints cannot enter
 `collected` until durable media storage and its Journal reference both succeed.

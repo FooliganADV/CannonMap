@@ -31,3 +31,13 @@ test('required photo cancellation blocks finish and retry recovers',async()=>{
   await assert.rejects(workflow.addFiles([{name:'bad.jpg'}]),/storage failed/);assert.equal(workflow.getState().status,'failed');
   workflow.retry();await workflow.addFiles([{name:'good.jpg'}]);assert.equal(workflow.getState().status,'ready');assert.equal(workflow.finish().photos.length,1);
 });
+
+test('durably stored photo can restore and finish an interrupted required workflow',()=>{
+  const workflow=createCheckpointCameraWorkflow({
+    mediaRepository:{async addPhoto(){throw new Error('not used');}},journal:{async appendEvent(){}},clock:{iso:()=>new Date().toISOString()}
+  });
+  workflow.start({projectId:'project-1',checkpoint:{id:'required',name:'Required'},journalEvent:{eventId:'arrival'},required:true});
+  workflow.restorePhoto({mediaId:'photo-1',uri:'media://photo-1'});
+  assert.equal(workflow.getState().status,'ready');
+  assert.equal(workflow.finish().photos[0].mediaId,'photo-1');
+});

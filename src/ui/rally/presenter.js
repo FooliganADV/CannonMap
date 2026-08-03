@@ -59,6 +59,7 @@ export function renderRally({getElement,model,escapeHtml}){
   const resume=getElement('rallyResumeDeferredButton');if(resume)resume.disabled=!model.showDeferredPrompt||Boolean(model.dayComplete);
   const finish=getElement('rallyFinishDayButton');if(finish)finish.disabled=!model.showDeferredPrompt||!model.hasHotel||Boolean(model.dayComplete);
   const dayComplete=getElement('rallyDayComplete');if(dayComplete)dayComplete.hidden=!model.dayComplete;
+  set('rallyDayCompleteTitle',model.nextDay?'✓ Day Complete':'✓ Rally Complete');
   set('rallyDaySummary',model.dayComplete?`${model.daySummary?.totalCollected||0} collected · ${model.daySummary?.totalDeferred||0} deferred · ${model.daySummary?.score||0} points`:'');
   const startNext=getElement('rallyStartNextDay');if(startNext){startNext.hidden=!model.dayComplete||!model.nextDay;startNext.textContent=model.nextDay?`Start Day ${model.nextDay}`:'Start Next Day';}
   const goHotel=getElement('goHotelButton');

@@ -61,6 +61,7 @@ let projectLifecycle=null;
 let activeLifecycleProjectId=null;
 let rallyJournal=null;
 let checkpointCamera=null;
+let missionMedia=null;
 let rideExportSource=null;
 let cameraCountdownTimer=null;
 let gpsFollow=null;
@@ -513,8 +514,9 @@ async function initializeMissionControlFoundations(){
   const activeProject=await projectLifecycle.initialize();
   if(activeProject){activeLifecycleProjectId=activeProject.projectId;state.project=sanitizeProjectData(activeProject,'active Project restore');}
   rallyJournal=createRallyJournalService({repository:journalRepository,createId:uid,clock:core.clock});
+  missionMedia=createMissionMediaRepository({database:foundationDatabase,createId:uid,clock:core.clock});
   checkpointCamera=createCheckpointCameraWorkflow({
-    mediaRepository:createMissionMediaRepository({database:foundationDatabase,createId:uid,clock:core.clock}),
+    mediaRepository:missionMedia,
     journal:rallyJournal,clock:core.clock,onState:renderCheckpointCameraState
   });
 }
@@ -883,9 +885,20 @@ async function initializeMissionControlFoundationsWithRetry(attempts=3){
   throw failure||new Error('Mission Control foundations are unavailable.');
 }
 function rallyExecution(){return state.project.rallyExecution||={schemaVersion:1,days:{}};}
+function reconcileCompletedRallyDays(){
+  let changed=false;
+  for(const dayState of Object.values(rallyExecution().days||{})){
+    if(dayState?.status!=='complete')continue;
+    const nextDay=checkpoints.nextRallyDay(state.project,Number(dayState.dayNumber));
+    if(Number(dayState.nextDay)!==nextDay){dayState.nextDay=nextDay;changed=true;}
+  }
+  return changed;
+}
 function rallyDayState(day=activeRallyDay()){
   const normalizedDay=Number(day)||state.project.features.map(feature=>Number(feature.day)).filter(Boolean).sort((a,b)=>a-b)[0]||1,execution=rallyExecution(),key=String(normalizedDay);
-  return execution.days[key]||=( {dayNumber:normalizedDay,dayId:`day-${normalizedDay}`,status:'active',startedAt:new Date().toISOString(),completedAt:null,nextDay:0,summary:null} );
+  const dayState=execution.days[key]||=( {dayNumber:normalizedDay,dayId:`day-${normalizedDay}`,status:'active',startedAt:new Date().toISOString(),completedAt:null,nextDay:0,summary:null} );
+  if(dayState.status==='complete')dayState.nextDay=checkpoints.nextRallyDay(state.project,normalizedDay);
+  return dayState;
 }
 async function appendRallyJournalEvent(eventType,checkpoint,metadata={},timestamp=new Date().toISOString()){
   if(!rallyJournal||!state.project.projectId)return null;
@@ -1611,8 +1624,9 @@ async function finishDayFromDeferredQueue(){
   rallyDebug.record('finish_action',{day:activeRallyDay(),deferredCheckpointIds:unresolved.map(item=>item.id),hotelId:hotel.id});state.selectedId=hotel.id;await saveProject(false);renderAll();setStatus(`Proceed to mandatory hotel: ${hotel.name}. Deferred checkpoints remain uncollected.`);
 }
 async function startNextRallyDay(){
-  const completed=rallyDayState(activeRallyDay());if(completed.status!=='complete'||!completed.nextDay)return null;
-  const nextDay=completed.nextDay,next=checkpoints.startRallyDay(state.project,state.settings,nextDay);if(!next)return setStatus(`Day ${nextDay} could not be started.`,true);
+  const currentDay=activeRallyDay(),completed=rallyDayState(currentDay),nextDay=checkpoints.nextRallyDay(state.project,currentDay);
+  completed.nextDay=nextDay;if(completed.status!=='complete'||!nextDay)return null;
+  const next=checkpoints.startRallyDay(state.project,state.settings,nextDay);if(!next)return setStatus(`Day ${nextDay} could not be started.`,true);
   const dayState=rallyDayState(nextDay);dayState.status='active';dayState.startedAt=new Date().toISOString();state.selectedId=next.id;if($('dayFilter'))$('dayFilter').value=String(nextDay);
   await appendRallyJournalEvent('day_started',next,{eventIdentity:`day-started:${nextDay}`,dayStartTimestamp:dayState.startedAt,title:`Day ${nextDay} Started`},dayState.startedAt);
   rallyDebug.record('next_day_request',{day:nextDay,accepted:true});await saveProject(false);renderAll();setTimeout(()=>{fitMap();gpsFollow?.restore('day-started');},0);return next;
@@ -1727,6 +1741,7 @@ async function initializeApplication() {
   state.project.competitors ||= [];
   state.project.stationaryEvents ||= [];
   rallyExecution();
+  if(reconcileCompletedRallyDays())await saveProject(false);
   try{await initializeObservationCapture();}catch(error){console.warn(`[CannonMap observation capture] ${error?.message||error}`);}
   try{await initializeSecureObservationIngestion();}catch(error){console.warn(`[CannonMap secure ingestion] ${error?.message||error}`);}
   try{await initializeRallyAnalytics();}catch(error){console.warn(`[CannonMap analytics] ${error?.message||error}`);}
@@ -1739,7 +1754,18 @@ async function initializeApplication() {
   if($('appVersion'))$('appVersion').textContent=`v${APP_VERSION} · ${BUILD_ID}`;
   renderAll();
   const pendingPhoto=state.project.features.find(feature=>checkpoints.checkpointState(feature.status)===checkpoints.CHECKPOINT_STATE.PHOTO_REQUIRED);
-  if(pendingPhoto)await beginPhotoWorkflow(pendingPhoto,true);
+  if(pendingPhoto){
+    const durablePhotos=await missionMedia.listCheckpointPhotos(state.project.projectId,pendingPhoto.id);
+    const journalEvents=(await rallyJournal.getProjectJournal(state.project.projectId)).events;
+    const journalPhotos=journalEvents.filter(event=>event.eventType==='photo_added'&&event.references?.checkpointId===pendingPhoto.id).flatMap(event=>event.attachments?.photos||[]);
+    const recordedPhotos=journalPhotos.filter(reference=>durablePhotos.some(record=>record.mediaId===reference.mediaId));
+    if(recordedPhotos.length){
+      pendingPhotoCheckpointId=pendingPhoto.id;
+      checkpointCamera.start({projectId:state.project.projectId,checkpoint:pendingPhoto,journalEvent:await appendRallyJournalEvent('checkpoint_arrival',pendingPhoto,{eventIdentity:`arrival:${pendingPhoto.id}`}),required:true});
+      for(const photo of recordedPhotos)checkpointCamera.restorePhoto(photo);
+      await finalizePendingPhotoCheckpoint();
+    }else await beginPhotoWorkflow(pendingPhoto,true);
+  }
   rallyDebug.record('application_restored',{day:activeRallyDay(),dayStatus:rallyDayState(activeRallyDay()).status,activeObjectiveId:currentCheckpoint()?.id||null,pendingPhotoCheckpointId:pendingPhoto?.id||null});
   setTimeout(()=>{if(state.project.features.length&&rallyDayState(activeRallyDay()).status!=='complete')fitMap();},200);
 }
@@ -1778,5 +1804,5 @@ function mapEngineDiagnostics(){
     groups:Object.fromEntries(types.map(type=>[type,mapEngine?.group(type).getLayers().length||0]))
   };
 }
-window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,resumeDeferredQueue,finishDayFromDeferredQueue,startNextRallyDay,finalizePendingPhotoCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival,moveCheckpointInOrder,makeCheckpointNext,restoreImportedCheckpointOrder,handleStationaryAction,renderStationaryEvents,updateStationaryDetection,renderMapFeatures,mapEngineDiagnostics,observationCaptureDiagnostics,captureGpsObservation,replaySecureObservations,observationContext,missionControlJournalEvents,rideExportSnapshot,rallyDebugEntries:()=>rallyDebug.entries(),gpsFollowState:()=>gpsFollow?.state(),gpsMarkerBounds:()=>{if(!state.lastGpsPosition||!state.map)return null;const point=state.map.latLngToContainerPoint([state.lastGpsPosition.lat,state.lastGpsPosition.lon]),mapRect=$('map')?.getBoundingClientRect();return mapRect?{x:mapRect.left+point.x,y:mapRect.top+point.y}:null;},runtimeDependencyReport,startApplication,registerServiceWorker};
+window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,resumeDeferredQueue,finishDayFromDeferredQueue,startNextRallyDay,finalizePendingPhotoCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival,moveCheckpointInOrder,makeCheckpointNext,restoreImportedCheckpointOrder,handleStationaryAction,renderStationaryEvents,updateStationaryDetection,renderMapFeatures,mapEngineDiagnostics,observationCaptureDiagnostics,captureGpsObservation,replaySecureObservations,observationContext,missionControlJournalEvents,rideExportSnapshot,rallyDebugEntries:()=>rallyDebug.entries(),gpsFollowState:()=>gpsFollow?.state(),simulateManualMapPan:()=>state.map?.fire('dragstart',{originalEvent:{type:'field-test'}}),gpsMarkerBounds:()=>{if(!state.lastGpsPosition||!state.map)return null;const point=state.map.latLngToContainerPoint([state.lastGpsPosition.lat,state.lastGpsPosition.lon]),mapRect=$('map')?.getBoundingClientRect();return mapRect?{x:mapRect.left+point.x,y:mapRect.top+point.y}:null;},runtimeDependencyReport,startApplication,registerServiceWorker};
 startApplication();
