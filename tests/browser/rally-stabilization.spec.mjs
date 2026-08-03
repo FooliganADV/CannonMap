@@ -1,5 +1,6 @@
 import {test,expect} from '@playwright/test';import path from 'node:path';
 const fixture=path.resolve('tests/fixtures/two-day-stabilization.cmap');
+const mandevilleFixture=path.resolve('tests/fixtures/mandeville-field-test.gpx');
 
 async function load(page){
   await page.goto('/?e2e=rally-stabilization');await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
@@ -43,6 +44,20 @@ test('required photo gates collection, supports retry, and Journal remains idemp
   expect(events.some(event=>event.eventType==='checkpoint_completed'&&event.references.checkpointId==='photo-1')).toBeTruthy();
   expect(events.some(event=>event.eventType==='photo_canceled'&&event.references.checkpointId==='photo-1')).toBeTruthy();
   expect(pageErrors).toEqual([]);
+});
+
+test('Mandeville GPX checkpoint 1.1 requires durable photo evidence by default',async({page},testInfo)=>{
+  test.skip(testInfo.project.name==='desktop');const pageErrors=[];page.on('pageerror',error=>pageErrors.push(error.message));
+  await page.goto('/?e2e=mandeville-photo-contract');await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
+  await page.locator('#gpxInput').setInputFiles(mandevilleFixture);await expect(page.locator('#importDialog')).toBeVisible();await page.locator('#importForm button[value="replace"]').click();
+  await expect(page.locator('#rallyNextName')).toHaveText('1.1');await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(true));
+  await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();await expect(page.locator('#rallyObjectiveStatus')).toContainText('photo_required');
+  await page.locator('#rallyCameraInput').dispatchEvent('cancel');await expect(page.locator('#rallyCameraRetry')).toBeVisible();await expect(page.locator('#rallyObjectiveStatus')).toContainText('photo_required');
+  await page.locator('#rallyCameraRetry').click();await page.locator('#rallyCameraInput').setInputFiles({name:'checkpoint-1.1.jpg',mimeType:'image/jpeg',buffer:Buffer.from('durable-photo')});
+  await expect(page.locator('#rallyCameraWorkflow')).toBeHidden();
+  await expect.poll(async()=>page.evaluate(async()=>{const events=await window.CannonMapTest.missionControlJournalEvents();return events.some(event=>event.eventType==='checkpoint_completed'&&event.references.checkpointId);})).toBe(true);
+  const events=await page.evaluate(()=>window.CannonMapTest.missionControlJournalEvents());
+  expect(events.some(event=>event.eventType==='photo_added'&&event.references.checkpointId)).toBeTruthy();expect(events.some(event=>event.eventType==='checkpoint_completed'&&event.references.checkpointId)).toBeTruthy();expect(pageErrors).toEqual([]);
 });
 
 test('deferred resume and finish, hotel completion, reload, and explicit Day 2 start are durable',async({page},testInfo)=>{

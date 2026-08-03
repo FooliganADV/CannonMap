@@ -3,7 +3,7 @@ import test from 'node:test';
 import * as workflow from '../src/domain/checkpoints/workflow.js';
 
 const checkpoint=(id,sequence,status='planned',extra={})=>workflow.normalizeCheckpoint({
-  id,name:id,type:'checkpoint',day:1,sequence,status,points:10,...extra
+  id,name:id,type:'checkpoint',day:1,sequence,status,points:10,photoRequirement:'optional',...extra
 });
 
 test('checkpoint normalization, ordering, and scoring preserve Rally rules',()=>{
@@ -87,9 +87,12 @@ test('required photo creates an explicit gate and blocks collection until record
 
 test('photo requirement aliases normalize to one durable boolean contract',()=>{
   for(const source of [{requiresPhoto:'yes'},{requirePhoto:1},{photoRequirement:'Required'},{properties:{photoRequired:true}},{metadata:{photoRequired:'true'}}]){
-    assert.equal(checkpoint('photo',1,'planned',source).photoRequired,true);
+    assert.equal(workflow.normalizeCheckpoint({id:'photo',name:'photo',type:'checkpoint',...source}).photoRequired,true);
   }
-  assert.equal(checkpoint('optional',1,'planned',{photoRequired:'false'}).photoRequired,false);
+  assert.equal(workflow.normalizeCheckpoint({id:'legacy-default',name:'legacy-default',type:'checkpoint',photoRequired:false}).photoRequired,true);
+  assert.equal(checkpoint('optional',1,'planned',{photoRequirement:'optional'}).photoRequired,false);
+  assert.equal(workflow.normalizeCheckpoint({id:'hotel',name:'Hotel',type:'hotel'}).photoRequired,false);
+  assert.equal(workflow.normalizeCheckpoint({id:'required-hotel',name:'Hotel',type:'hotel',photoRequired:true}).photoRequired,true);
 });
 
 test('checkpoint colors have exactly one authoritative meaning',()=>{

@@ -47,8 +47,12 @@ the collected state and the completion guard.
 
 ## Photo gate
 
-`photoRequired`, `requiresPhoto`, `requirePhoto`, or `photoRequirement="required"` in a
-checkpoint manifest creates a blocking `photo_required` transition. Arrival is
+Every rally bonus checkpoint creates a blocking `photo_required` transition by
+default, including legacy GPX and portable Project imports that have no photo
+field. `photoRequired`, `requiresPhoto`, `requirePhoto`, or
+`photoRequirement="required"` remains accepted explicit metadata. The documented
+exemption is `photoRequirement="optional"` (or `photoExempt=true`). Official
+day-finish hotels are exempt by default unless explicitly required. Arrival is
 persisted before opening the browser camera. Required checkpoints cannot enter
 `collected` until durable media storage and its Journal reference both succeed.
 Cancellation, denial/timeout, storage failure, and retry retain the pending

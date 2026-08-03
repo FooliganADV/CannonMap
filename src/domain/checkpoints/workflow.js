@@ -37,8 +37,12 @@ export function normalizeCheckpoint(feature,index=0){
   feature.status=checkpointState(feature.status);
   feature.sequence=Number.isFinite(Number(feature.sequence))?Number(feature.sequence):(Number(feature.sourceOrder)||index)+1;
   feature.originalSequence=Number.isFinite(Number(feature.originalSequence))?Number(feature.originalSequence):feature.sequence;
-  const photoRequirement=feature.photoRequired??feature.requiresPhoto??feature.photoRequirement??feature.requirePhoto??feature.properties?.photoRequired??feature.metadata?.photoRequired;
-  feature.photoRequired=photoRequirement===true||/^(?:1|true|yes|required)$/i.test(String(photoRequirement??'').trim());
+  const photoSignals=[feature.photoRequirement,feature.photoRequired,feature.requiresPhoto,feature.requirePhoto,feature.properties?.photoRequired,feature.metadata?.photoRequired];
+  const explicitlyRequired=photoSignals.some(value=>value===true||/^(?:1|true|yes|required)$/i.test(String(value??'').trim()));
+  const explicitlyExempt=!explicitlyRequired&&(feature.photoExempt===true||/^(?:optional|exempt|none|not[_ -]?required)$/i.test(String(feature.photoRequirement??'').trim()));
+  // Rally bonus checkpoints require durable photo evidence by default. Official
+  // hotels are day-finish objectives and remain exempt unless explicitly required.
+  feature.photoRequired=!explicitlyExempt&&(explicitlyRequired||feature.type==='checkpoint');
   feature.photoStatus=feature.photoStatus||'not_requested';
   for(const key of ['arrivedAt','completedAt','deferredAt','deferReason','restoredAt'])feature[key]=feature[key]??null;
   return feature;

@@ -1,11 +1,11 @@
-const CACHE = 'cannonmap-v0.7.1-20260803-rally-stabilization-02';
+const CACHE = 'cannonmap-v0.7.1-20260803-rally-stabilization-03';
 const APP_SHELL = [
   './',
   './index.html',
-  './app.css?v=20260803-stabilization-02',
+  './app.css?v=20260803-stabilization-03',
   './gps-checkpoints-feed.js?v=20260725-02',
   './stationary-events.js?v=20260725-01',
-  './app.js?v=20260803-stabilization-02',
+  './app.js?v=20260803-stabilization-03',
   './src/core/clock.js',
   './src/core/compatibility.js',
   './src/core/errors.js',

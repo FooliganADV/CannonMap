@@ -596,6 +596,7 @@ async function applyPendingImport(mode) {
   const pending=state.pendingImport;if(!pending)return;
   createNamedSnapshot(`Before GPX ${mode}`,true);snapshot();
   const {added,updated,skipped,unassigned}=projectWorkflows.applyImport(state.project,pending.features,mode);
+  state.project.projectId ||= uid();state.project.id=state.project.projectId;
   state.pendingImport=null;
   await saveProject(false);renderAll();fitMap();
   setStatus(`GPX ${mode}: ${added} added, ${updated} updated, ${skipped} skipped. ${unassigned} features remain unassigned.`);
