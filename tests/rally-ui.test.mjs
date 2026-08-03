@@ -44,6 +44,16 @@ test('Rally presenter hides empty objective sections and hotel defer control',()
   assert.equal(getElement('rallyDeferIcon').hidden,true);
 });
 
+test('Day Complete suppresses stale deferred and objective controls',()=>{
+  const elements=new Map(),getElement=id=>{if(!elements.has(id))elements.set(id,fakeElement());return elements.get(id);};
+  renderRally({getElement,escapeHtml:String,model:{day:1,online:true,score:20,next:null,distance:null,warnings:[],checkpoints:[],hasHotel:true,showDeferredPrompt:true,deferredCount:1,dayComplete:true,nextDay:2,daySummary:{totalCollected:3,totalDeferred:1,score:20}}});
+  assert.equal(getElement('rallyDeferredPrompt').hidden,true);
+  assert.equal(getElement('rallyResumeDeferredButton').disabled,true);
+  assert.equal(getElement('rallyFinishDayButton').disabled,true);
+  assert.equal(getElement('rallyDayComplete').hidden,false);
+  assert.equal(getElement('rallyStartNextDay').textContent,'Start Day 2');
+});
+
 test('Rally controller owns control event wiring through injected actions',()=>{
   const elements=new Map(),getElement=id=>{
     if(!elements.has(id))elements.set(id,fakeElement());

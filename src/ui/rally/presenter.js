@@ -24,6 +24,7 @@ export function renderRally({getElement,model,escapeHtml}){
   set('rallyNextName',model.next?.name||model.emptyLabel||'Preparing next objective…');
   set('rallyNavigationGuidance',model.navigationGuidance||'Preparing navigation…');
   set('rallyNextDistance',model.distance===null?'':`${model.distance.toFixed(1)} mi`);
+  set('rallyObjectiveStatus',model.next?`${text(model.next.type||'checkpoint')} · ${text(model.next.status||'upcoming')}`:'');
   const notes=text(model.next?.notes),intelligence=text(model.routeIntelligence);
   set('rallyRiderNotes',notes);
   set('rallyRouteIntelligence',intelligence);
@@ -39,23 +40,27 @@ export function renderRally({getElement,model,escapeHtml}){
     for(const name of ['is-extreme','is-fuel','is-hotel','is-checkpoint','is-none'])card.classList.toggle(name,false);
     card.classList.toggle(`is-${kind}`,true);
   }
-  if(card)card.hidden=Boolean(model.showDeferredPrompt);
+  if(card)card.hidden=Boolean(model.showDeferredPrompt||model.dayComplete);
   const fab=getElement('rallyRecenterFab');
   if(fab){
     const active=Boolean(model.gpsActive)||(model.gpsStatus&&!/off/i.test(model.gpsStatus));
     fab.textContent=active?'GPS':'START';
-    fab.classList.toggle('is-active',active);
-    fab.setAttribute('aria-label',active?'Recenter map on GPS':'Start GPS tracking');
+    fab.classList.toggle('is-active',active&&model.followMode!=='suspended');
+    fab.setAttribute('aria-label',active?(model.followMode==='suspended'?'Restore GPS follow':'GPS follow active'):'Start GPS tracking');
   }
   for(const id of ['rallyDeferIcon','rallyCompleteButton']){
-    const el=getElement(id);if(el)el.disabled=!model.next;
+    const el=getElement(id);if(el)el.disabled=Boolean(!model.next||model.dayComplete);
   }
-  const defer=getElement('rallyDeferIcon');if(defer)defer.hidden=!model.next||kind==='hotel';
-  const deferredPrompt=getElement('rallyDeferredPrompt');if(deferredPrompt)deferredPrompt.hidden=!model.showDeferredPrompt;
+  const photoPending=model.next?.status==='photo_required';
+  const defer=getElement('rallyDeferIcon');if(defer)defer.hidden=!model.next||kind==='hotel'||photoPending;
+  const complete=getElement('rallyCompleteButton');if(complete&&photoPending)complete.disabled=true;
+  const deferredPrompt=getElement('rallyDeferredPrompt');if(deferredPrompt)deferredPrompt.hidden=!model.showDeferredPrompt||Boolean(model.dayComplete);
   set('rallyDeferredMessage',`You have ${model.deferredCount||0} deferred checkpoint${model.deferredCount===1?'':'s'} remaining.`);
-  const resume=getElement('rallyResumeDeferredButton');if(resume)resume.disabled=!model.showDeferredPrompt;
-  const finish=getElement('rallyFinishDayButton');if(finish)finish.disabled=!model.showDeferredPrompt||!model.hasHotel;
+  const resume=getElement('rallyResumeDeferredButton');if(resume)resume.disabled=!model.showDeferredPrompt||Boolean(model.dayComplete);
+  const finish=getElement('rallyFinishDayButton');if(finish)finish.disabled=!model.showDeferredPrompt||!model.hasHotel||Boolean(model.dayComplete);
   const dayComplete=getElement('rallyDayComplete');if(dayComplete)dayComplete.hidden=!model.dayComplete;
+  set('rallyDaySummary',model.dayComplete?`${model.daySummary?.totalCollected||0} collected · ${model.daySummary?.totalDeferred||0} deferred · ${model.daySummary?.score||0} points`:'');
+  const startNext=getElement('rallyStartNextDay');if(startNext){startNext.hidden=!model.dayComplete||!model.nextDay;startNext.textContent=model.nextDay?`Start Day ${model.nextDay}`:'Start Next Day';}
   const goHotel=getElement('goHotelButton');
   if(goHotel){
     goHotel.disabled=!model.hasHotel&&!model.hotelBailoutActive;

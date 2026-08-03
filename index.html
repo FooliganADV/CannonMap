@@ -269,6 +269,7 @@
           </div>
           <span id="rallyNavigationGuidance" class="rally-objective-distance">Preparing navigation…</span>
           <small id="rallyNextDistance" class="rally-objective-secondary"></small>
+          <small id="rallyObjectiveStatus" class="rally-objective-status"></small>
           <div class="rally-objective-sections">
             <section id="rallyRiderNotesSection" hidden><h3>Rider Notes</h3><p id="rallyRiderNotes"></p></section>
             <section id="rallyRouteIntelligenceSection" hidden><p id="rallyRouteIntelligence"></p></section>
@@ -285,8 +286,13 @@
           <label for="rallyCameraInput">Open Camera</label>
           <input id="rallyCameraInput" type="file" accept="image/*" capture="environment" multiple />
           <small id="rallyCameraPhotoCount">No photos captured</small>
+          <small id="rallyCameraError" class="rally-camera-error" hidden></small>
+          <button id="rallyCameraRetry" type="button" hidden>Retry Camera</button>
         </section>
-        <div id="rallyDayComplete" class="rally-day-complete" hidden>✓ Day Complete</div>
+        <section id="rallyDayComplete" class="rally-day-complete" hidden>
+          <strong>✓ Day Complete</strong><small id="rallyDaySummary"></small>
+          <button id="rallyStartNextDay" type="button" hidden>Start Next Day</button>
+        </section>
         <button id="rallyRecenterFab" class="rally-recenter-fab" type="button" aria-label="Start GPS tracking">START</button>
         <section id="rallyMoreSheet" class="rally-more-sheet" aria-hidden="true">
           <div class="rally-status-strip">
@@ -298,6 +304,8 @@
             <button id="rallyHotelButton" type="button">Show hotel</button>
             <button id="goHotelButton" class="rally-hotel-action" type="button">GO TO HOTEL</button>
             <button id="rallyPlannerButton" type="button">Open Planner</button>
+            <button id="rallyDebugExportButton" type="button">Export Rally Debug Log</button>
+            <button id="rallyJournalExportButton" type="button">Export Daily Journal</button>
           </div>
           <details class="rally-arrival-settings">
             <summary>Automatic checkpoint arrival</summary>

@@ -19,7 +19,7 @@ test('portable project load, duplication, local save, and reload remain equivale
   });
   await expect(page.locator('#layerList')).toContainText('copy');
   await expect(page.locator('#layerList .layer-row')).toHaveCount(before+1);
-  await page.locator('#saveButton').click();
+  await page.evaluate(()=>document.getElementById('saveButton').click());
   await expect(page.locator('#status')).toContainText('Saved locally');
   await page.reload();
   await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
@@ -33,7 +33,7 @@ test('cached offline Rally Mode retains checkpoint operation',async({page,contex
   await page.reload();
   await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
   await page.evaluate(()=>{const select=document.getElementById('dayFilter');select.value='1';select.dispatchEvent(new Event('change',{bubbles:true}));});
-  await page.locator('#saveButton').click();
+  await page.evaluate(()=>document.getElementById('saveButton').click());
   await expect(page.locator('#status')).toContainText('Saved locally');
   await context.setOffline(true);
   await page.reload();

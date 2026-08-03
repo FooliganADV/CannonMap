@@ -26,6 +26,11 @@ export function wireRallyController({getElement,actions,windowTarget=window}){
   on('rallyResumeDeferredButton','click',actions.resumeDeferred);
   on('rallyFinishDayButton','click',actions.finishDay);
   on('rallyCameraInput','change',event=>actions.addCameraFiles?.(event.target.files));
+  on('rallyCameraInput','cancel',actions.cancelCamera);
+  on('rallyCameraRetry','click',actions.retryCamera);
+  on('rallyStartNextDay','click',actions.startNextDay);
+  on('rallyDebugExportButton','click',actions.exportDebug);
+  on('rallyJournalExportButton','click',actions.exportJournal);
   on('rallyWarnings','click',event=>{
     const button=event.target.closest('button[data-warning-action]'),row=event.target.closest('[data-warning-id]');
     if(button&&row)actions.warning(row.dataset.warningId,button.dataset.warningAction);

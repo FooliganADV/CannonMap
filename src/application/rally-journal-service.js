@@ -14,6 +14,10 @@ export function createRallyJournalService({repository,createId,clock,eventTypes}
   return Object.freeze({
     registerEventType:eventType=>registry.register(eventType),
     appendEvent:async input=>repository.appendEvent(normalize(input)),
+    async appendEventIdempotent(input){
+      const event=normalize(input),existing=await repository.getEvent(event.eventId);
+      return existing||repository.appendEvent(event);
+    },
     appendEvents:async inputs=>{
       if(!Array.isArray(inputs)||inputs.length===0)throw new TypeError('events must be a non-empty array.');
       return repository.appendEvents(inputs.map(normalize));

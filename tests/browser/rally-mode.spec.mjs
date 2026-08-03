@@ -18,7 +18,7 @@ test('project import filters Old Coast Road and preserves nearby features',async
   const names=await page.evaluate(()=>window.CannonMapTest.sanitizeProjectData({features:[{name:'Old Coast Road'},{name:'Nearby Legal Road'}]}).features.map(f=>f.name));
   expect(names).toEqual(['Nearby Legal Road']);
   const numbered=await page.evaluate(()=>window.CannonMapTest.sanitizeProjectData({features:[{name:'1.03 Scenic Stop',type:'waypoint',geometry:{kind:'point',coordinates:[{lat:40,lon:-75}]}}]}).features[0]);
-  expect(numbered).toMatchObject({type:'checkpoint',day:1,sequence:3,status:'planned',points:10});
+  expect(numbered).toMatchObject({type:'checkpoint',day:1,sequence:3,status:'upcoming',points:10});
   await page.evaluate(()=>{localStorage.setItem('cannonmap.snapshots.v1',JSON.stringify([{id:'blocked-restore',createdAt:new Date().toISOString(),project:{features:[{name:'Old Coast Road',type:'route',day:1,visible:true,geometry:{kind:'line',coordinates:[{lat:38,lon:-105},{lat:38.1,lon:-105.1}]}},{name:'Nearby Legal Road',type:'route',day:1,visible:true,geometry:{kind:'line',coordinates:[{lat:38,lon:-105.01},{lat:38.1,lon:-105.11}]}}],competitors:[]}}]));window.CannonMapTest.restoreSnapshot('blocked-restore');});
   await expect(page.locator('#layerList')).not.toContainText('Old Coast Road');
   await expect(page.locator('#layerList')).toContainText('Nearby Legal Road');
@@ -63,20 +63,20 @@ test('checkpoint defer queue, completion, scoring, mandatory hotel bailout and u
   await expect(page.locator('#status')).toContainText('undone');
 });
 
-test('hotel completion advances the rally day and survives restart',async({page},testInfo)=>{
+test('hotel completion persists Day Complete and requires explicit next-day start',async({page},testInfo)=>{
   test.skip(testInfo.project.name==='desktop');
   await loadProject(page);
   await page.waitForTimeout(100);
   await page.reload();
   await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
-  await page.evaluate(()=>{
-    window.CannonMapTest.completeCurrentCheckpoint(true);
-    window.CannonMapTest.completeCurrentCheckpoint(true);
-    window.CannonMapTest.completeCurrentCheckpoint(true);
+  await page.evaluate(async()=>{
+    await window.CannonMapTest.completeCurrentCheckpoint(false);
+    await window.CannonMapTest.completeCurrentCheckpoint(false);
+    await window.CannonMapTest.completeCurrentCheckpoint(false);
   });
   await expect(page.locator('#rallyDay')).toHaveCount(0);
-  await expect(page.locator('#rallyNextName')).toContainText('Day 2 Checkpoint');
-  await expect(page.locator('#rallyDayComplete')).toContainText('Day Complete');
+  await expect(page.locator('#rallyDayComplete')).toBeVisible();
+  await expect(page.locator('#rallyStartNextDay')).toHaveText('Start Day 2');
   await page.waitForFunction(async()=>{
     const events=await window.CannonMapTest.missionControlJournalEvents();
     return events.some(event=>event.eventType==='hotel_arrival');
@@ -84,7 +84,9 @@ test('hotel completion advances the rally day and survives restart',async({page}
   await page.waitForTimeout(100);
   await page.reload();
   await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
-  await expect(page.locator('#rallyDay')).toHaveCount(0);
+  await expect(page.locator('#rallyDayComplete')).toBeVisible();
+  await expect(page.locator('#rallyStartNextDay')).toHaveText('Start Day 2');
+  await page.locator('#rallyStartNextDay').click();
   await expect(page.locator('#rallyNextName')).toContainText('Day 2 Checkpoint');
 });
 

@@ -1,4 +1,4 @@
-const CACHE = 'cannonmap-v0.7.1-20260731-mission-control-2-field-02';
+const CACHE = 'cannonmap-v0.7.1-20260803-rally-stabilization-01';
 const APP_SHELL = [
   './',
   './index.html',
@@ -25,6 +25,7 @@ const APP_SHELL = [
   './src/domain/journal/model.js',
   './src/domain/search/index.js',
   './src/domain/checkpoints/workflow.js',
+  './src/domain/checkpoints/arrival.js',
   './src/domain/observations/contract.js',
   './src/domain/observations/ingestion-contract.js',
   './src/domain/observations/quality.js',
@@ -41,6 +42,8 @@ const APP_SHELL = [
   './src/application/project-backup-service.js',
   './src/application/project-template-service.js',
   './src/application/checkpoint-camera-workflow.js',
+  './src/application/gps-follow-controller.js',
+  './src/application/rally-debug-log.js',
   './src/application/ride-export-source.js',
   './src/application/secure-observation-upload.js',
   './src/infrastructure/indexeddb/index.js',
