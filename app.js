@@ -34,7 +34,7 @@ import {createFirebaseAuthentication} from './src/infrastructure/firebase/authen
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
 const APP_VERSION = '0.7.1';
-const BUILD_ID = '2026.08.04.stabilization-08';
+const BUILD_ID = '2026.08.04.stabilization-09';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
@@ -550,7 +550,8 @@ async function initializeMissionControlFoundations(){
   journeyRestore=createJourneyPackageRestoreService({repository:createJourneyRestoreRepository({database:foundationDatabase})});
   checkpointCamera=createCheckpointCameraWorkflow({
     mediaRepository:missionMedia,photoEvidence,
-    journal:rallyJournal,clock:core.clock,onState:renderCheckpointCameraState
+    journal:rallyJournal,clock:core.clock,onState:renderCheckpointCameraState,
+    onDiagnostic:details=>{const diagnostic={...details,cannonMapVersion:APP_VERSION,buildId:BUILD_ID};rallyDebug.record('media_storage_diagnostic',diagnostic);console.error('[CannonMap media storage]',diagnostic);}
   });
 }
 async function loadProject() {
@@ -988,9 +989,9 @@ async function addCheckpointCameraFiles(files){
     }
   }catch(error){
     const checkpoint=state.project.features.find(feature=>feature.id===pendingPhotoCheckpointId);
-    rallyDebug.record('photo_failed',{checkpointId:pendingPhotoCheckpointId,error:error.message});
-    if(checkpoint)await appendRallyJournalEvent('photo_failed',checkpoint,{eventIdentity:`photo-failed:${checkpoint.id}`,photoRequired:Boolean(checkpoint.photoRequired),photoStatus:'failed',failureReason:error.message});
-    setStatus(`Photo capture failed: ${error.message}`,true);
+    rallyDebug.record('photo_failed',{checkpointId:pendingPhotoCheckpointId,exceptionName:error?.name||'Error',error:error?.message||String(error)});
+    if(checkpoint)await appendRallyJournalEvent('photo_failed',checkpoint,{eventIdentity:`photo-failed:${checkpoint.id}`,photoRequired:Boolean(checkpoint.photoRequired),photoStatus:'failed',failureReason:'Photo storage failed; retry required.'});
+    setStatus('Photo could not be saved. Your checkpoint has NOT been completed. Please retry the photo. If the problem continues you may mark the objective as failed.',true);
   }
 }
 async function cancelCheckpointCamera(){

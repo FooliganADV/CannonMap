@@ -28,10 +28,20 @@ export function photoEvidenceOverlayEntries(metadata){
 }
 
 async function imageSource(file){
-  if(typeof createImageBitmap==='function')return createImageBitmap(file);
+  if(typeof createImageBitmap==='function'){
+    try{return await createImageBitmap(file);}catch(_){/* WebKit may reject camera-backed Files that HTMLImageElement can decode. */}
+  }
   const url=URL.createObjectURL(file),image=new Image();
   try{await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=reject;image.src=url;});return image;}finally{URL.revokeObjectURL(url);}
 }
+
+export async function readImageDimensions(file){
+  const image=await imageSource(file);try{return Object.freeze({width:Number(image.width),height:Number(image.height)});}finally{image.close?.();}
+}
+
+const assertDimensions=(actual,expected,label)=>{
+  if(actual.width!==expected.width||actual.height!==expected.height)throw new Error(`${label} dimension verification failed.`);
+};
 
 export async function renderEvidenceJpeg(file,metadata,{quality=1,canvasFactory=()=>document.createElement('canvas')}={}){
   const image=await imageSource(file),canvas=canvasFactory();canvas.width=image.width;canvas.height=image.height;
@@ -48,12 +58,12 @@ export async function renderEvidenceJpeg(file,metadata,{quality=1,canvasFactory=
   return new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('Evidence JPEG generation failed.')),'image/jpeg',quality));
 }
 
-export function createPhotoEvidenceService({repository,render=renderEvidenceJpeg,createId}={}){
+export function createPhotoEvidenceService({repository,render=renderEvidenceJpeg,inspect=readImageDimensions,createId}={}){
   if(!repository||typeof createId!=='function')throw new TypeError('repository and createId are required.');
   return Object.freeze({
     async capture({projectId,checkpointId,journalEventId,file,context}){
       const identities={mediaGroupId:createId(),originalMediaId:createId(),evidenceMediaId:createId()};
-      const metadata=buildPhotoEvidenceMetadata({...context,mediaId:identities.mediaGroupId,journalEventId});
+      const sourceDimensions=await inspect(file),metadata=buildPhotoEvidenceMetadata({...context,mediaId:identities.mediaGroupId,journalEventId,imageWidth:sourceDimensions.width,imageHeight:sourceDimensions.height});
       const existing=await repository.listCheckpointPhotos?.(projectId,checkpointId)||[],sequence=existing.filter(item=>(item.role||'original')==='original').length+1;
       const label=context.eventName==='Hotel Arrival'?'Hotel':'CP',base=`Day${String(context.dayNumber||0).padStart(2,'0')}_${label}${String(context.checkpointNumber||checkpointId).replace(/[^a-z0-9.-]+/gi,'_')}${sequence>1?`_${String(sequence).padStart(2,'0')}`:''}`;
       const filenames={original:`${base}_Original.jpg`,evidence:`${base}_Evidence.jpg`};
@@ -62,19 +72,24 @@ export function createPhotoEvidenceService({repository,render=renderEvidenceJpeg
         return repository.addEvidencePair({projectId,checkpointId,journalEventId,originalFile:file,evidenceBlob,metadata,identities,filenames});
       }
       const original=await repository.addOriginal({projectId,checkpointId,journalEventId,originalFile:file,metadata,identities,filenames});
+      let evidence=null;
       try{
-        const evidenceBlob=await render(file,metadata),evidence=await repository.addEvidence({original,evidenceBlob,filename:filenames.evidence,evidenceMediaId:identities.evidenceMediaId});
+        assertDimensions(await inspect(original.blob),sourceDimensions,'Original image');
+        const evidenceBlob=await render(file,metadata);evidence=await repository.addEvidence({original,evidenceBlob,filename:filenames.evidence,evidenceMediaId:identities.evidenceMediaId});
+        assertDimensions(await inspect(evidence.blob),sourceDimensions,'Evidence image');
         const reference=record=>Object.freeze({mediaId:record.mediaId,mediaGroupId:record.mediaGroupId,uri:`media://${record.mediaId}`,kind:'photo',role:record.role,mimeType:record.mimeType,name:record.name,size:record.size,capturedAt:record.capturedAt,pairedMediaId:record.pairedMediaId});
         return Object.freeze({mediaGroupId:identities.mediaGroupId,original:reference({...original,pairedMediaId:evidence.mediaId}),evidence:reference(evidence),metadata:structuredClone(metadata)});
       }catch(error){
+        if(evidence)await repository.discardEvidence?.(evidence.mediaId,original.mediaId,error?.message||error);
         await repository.markEvidenceFailed?.(original.mediaId,error?.message||error);
         error.originalMedia=original;error.evidenceRetryable=true;throw error;
       }
     },
     async retryEvidence(originalMediaId){
       const original=await repository.getMedia(originalMediaId);if(!original||original.role!=='original')throw new Error('The stored original is unavailable.');
-      const evidenceBlob=await render(original.blob,original.metadata),filename=String(original.name||'Original.jpg').replace(/_Original(?=\.jpe?g$)/i,'_Evidence');
-      return repository.addEvidence({original,evidenceBlob,filename,evidenceMediaId:original.pairedMediaId||createId()});
+      const sourceDimensions=await inspect(original.blob),evidenceBlob=await render(original.blob,original.metadata),filename=String(original.name||'Original.jpg').replace(/_Original(?=\.jpe?g$)/i,'_Evidence');let evidence=null;
+      try{evidence=await repository.addEvidence({original,evidenceBlob,filename,evidenceMediaId:original.pairedMediaId||createId()});assertDimensions(await inspect(evidence.blob),sourceDimensions,'Evidence image');return evidence;}
+      catch(error){if(evidence)await repository.discardEvidence?.(evidence.mediaId,original.mediaId,error?.message||error);throw error;}
     }
   });
 }

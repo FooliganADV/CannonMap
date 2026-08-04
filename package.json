@@ -13,6 +13,7 @@
     "test:intelligence": "node --test tests/checkpoint-compatibility.test.mjs",
     "validate:functions": "node scripts/validate-function-package.mjs",
     "test:browser": "playwright test",
+    "test:safari-media": "playwright test --config=playwright.webkit.config.mjs",
     "test:security": "firebase emulators:exec --project demo-cannonmap --only database \"node --test tests/firebase/*.test.mjs\""
   },
   "devDependencies": {

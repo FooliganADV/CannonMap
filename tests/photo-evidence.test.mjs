@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {buildPhotoEvidenceMetadata,createPhotoEvidenceService,photoEvidenceOverlayEntries,renderEvidenceJpeg} from '../src/application/photo-evidence-service.js';
+import {buildPhotoEvidenceMetadata,createPhotoEvidenceService,photoEvidenceOverlayEntries,readImageDimensions,renderEvidenceJpeg} from '../src/application/photo-evidence-service.js';
 import {checkpointPhotoFilename,createStoredZip} from '../src/application/photo-export-service.js';
 
 test('evidence metadata renders authoritative values and marks missing values unavailable',()=>{
@@ -11,7 +11,7 @@ test('evidence metadata renders authoritative values and marks missing values un
 test('capture preserves the original object and persists one generated evidence copy',async()=>{
   const calls=[],ids=['group','original','evidence'],repository={async addEvidencePair(input){calls.push(input);return input;}};
   const original={name:'camera.jpg',type:'image/jpeg',size:4},evidence=new Blob(['rendered'],{type:'image/jpeg'});
-  const service=createPhotoEvidenceService({repository,createId:()=>ids.shift(),render:async(file,metadata)=>{assert.equal(file,original);assert.equal(metadata.mediaId,'group');return evidence;}});
+  const service=createPhotoEvidenceService({repository,createId:()=>ids.shift(),inspect:async()=>({width:1,height:1}),render:async(file,metadata)=>{assert.equal(file,original);assert.equal(metadata.mediaId,'group');return evidence;}});
   await service.capture({projectId:'project',checkpointId:'cp',journalEventId:'event',file:original,context:{dayNumber:1,checkpointNumber:'1.1',capturedAt:'2026-08-03T17:00:00.000Z'}});
   assert.equal(calls[0].originalFile,original);assert.equal(calls[0].evidenceBlob,evidence);assert.deepEqual(calls[0].identities,{mediaGroupId:'group',originalMediaId:'original',evidenceMediaId:'evidence'});assert.equal(calls[0].filenames.original,'Day01_CP1.1_Original.jpg');
 });
@@ -28,10 +28,17 @@ test('native-resolution evidence keeps source dimensions',async()=>{
   try{await renderEvidenceJpeg(new Blob(['native']),buildPhotoEvidenceMetadata({}),{canvasFactory:()=>canvas});assert.deepEqual(dimensions,{width:4032,height:3024});}finally{globalThis.createImageBitmap=previous;}
 });
 
+test('WebKit createImageBitmap rejection falls back to HTML image decoding',async()=>{
+  const previousBitmap=globalThis.createImageBitmap,previousImage=globalThis.Image;
+  globalThis.createImageBitmap=async()=>{throw new DOMException('An error occured reading the Blob argument to createImageBitmap','InvalidStateError');};
+  globalThis.Image=class{constructor(){this.width=4032;this.height=3024;}set src(_){queueMicrotask(()=>this.onload?.());}};
+  try{assert.deepEqual(await readImageDimensions(new Blob(['camera'],{type:'image/jpeg'})),{width:4032,height:3024});}finally{globalThis.createImageBitmap=previousBitmap;globalThis.Image=previousImage;}
+});
+
 test('evidence failure preserves the untouched original for later retry',async()=>{
   const original=new Blob(['untouched-camera-bytes'],{type:'image/jpeg'}),stored=[];
   const repository={listCheckpointPhotos:async()=>[],async addOriginal(input){stored.push(input.originalFile);return {mediaId:'original',mediaGroupId:'group',pairedMediaId:'evidence',role:'original',name:'Day01_CP1_Original.jpg',blob:input.originalFile,metadata:input.metadata};},async markEvidenceFailed(){},async getMedia(){return null;}};
-  const service=createPhotoEvidenceService({repository,createId:(()=>{const ids=['group','original','evidence'];return()=>ids.shift();})(),render:async()=>{throw new Error('canvas memory pressure');}});
+  const service=createPhotoEvidenceService({repository,createId:(()=>{const ids=['group','original','evidence'];return()=>ids.shift();})(),inspect:async()=>({width:4032,height:3024}),render:async()=>{throw new Error('canvas memory pressure');}});
   await assert.rejects(()=>service.capture({projectId:'p',checkpointId:'c',journalEventId:'j',file:original,context:{dayNumber:1}}),error=>error.evidenceRetryable&&error.originalMedia.mediaId==='original');
   assert.equal(stored[0],original);assert.equal(await stored[0].text(),'untouched-camera-bytes');
 });

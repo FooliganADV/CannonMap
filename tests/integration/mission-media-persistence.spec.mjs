@@ -28,6 +28,30 @@ test('original and evidence images persist as one atomic reference pair',async({
   expect(result.roles).toEqual(['evidence','original']);expect(result.originalText).toBe('camera-original');expect(result.evidenceText).toBe('evidence-copy');expect(result.shared).toBeTruthy();expect(result.pair.original.name).toBe('Day01_CP1.1_Original.jpg');
 });
 
+test('camera File and Evidence Blob persist as exact byte buffers without Blob/File structured cloning',async({page},testInfo)=>{
+  const result=await page.evaluate(async name=>{
+    const module=await import('/src/infrastructure/indexeddb/index.js');let database=await module.openIndexedDbV2({indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name}),number=0;
+    let repository=module.createMissionMediaRepository({database,createId:()=>`safe-${++number}`,clock:{iso:()=> '2026-08-04T17:01:31.085Z'}});
+    const originalBytes=new Uint8Array([255,216,255,224,1,2,3,255,217]),evidenceBytes=new Uint8Array([255,216,255,225,9,8,7,255,217]),file=new File([originalBytes],'IMG_0001.JPG',{type:'image/jpeg',lastModified:1770000000000});
+    await repository.addEvidencePair({projectId:'iphone-project',checkpointId:'cp-1',journalEventId:'arrival-1',originalFile:file,evidenceBlob:new Blob([evidenceBytes],{type:'image/jpeg'}),metadata:{dayNumber:1},identities:{mediaGroupId:'group',originalMediaId:'original',evidenceMediaId:'evidence'}});
+    const transaction=database.transaction('missionMedia','readonly'),rawRequest=transaction.objectStore('missionMedia').getAll(),raw=await new Promise((resolve,reject)=>{rawRequest.onsuccess=()=>resolve(rawRequest.result);rawRequest.onerror=()=>reject(rawRequest.error);});
+    const rawShape=raw.map(row=>({role:row.role,hasBlob:'blob'in row,binaryConstructor:row.binaryData.constructor.name,size:row.binaryData.byteLength,name:row.name,sourceName:row.sourceName,mimeType:row.mimeType,lastModified:row.lastModified}));database.close();
+    database=await module.openIndexedDbV2({indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name});repository=module.createMissionMediaRepository({database,createId:()=>'',clock:{iso:()=>''}});const rows=await repository.listCheckpointPhotos('iphone-project','cp-1'),bytes=await Promise.all(rows.sort((a,b)=>a.role.localeCompare(b.role)).map(async row=>[row.role,[...new Uint8Array(await row.blob.arrayBuffer())]]));database.close();return {rawShape,bytes};
+  },`CannonMapDB-safari-bytes-${testInfo.project.name}-${Date.now()}`);
+  expect(result.rawShape.every(row=>!row.hasBlob&&row.binaryConstructor==='ArrayBuffer')).toBeTruthy();
+  expect(result.rawShape.find(row=>row.role==='original')).toMatchObject({size:9,name:'IMG_0001.JPG',sourceName:'IMG_0001.JPG',mimeType:'image/jpeg',lastModified:1770000000000});
+  expect(result.bytes).toEqual([['evidence',[255,216,255,225,9,8,7,255,217]],['original',[255,216,255,224,1,2,3,255,217]]]);
+});
+
+test('media transaction failures expose technical diagnostics without committing a duplicate',async({page},testInfo)=>{
+  const result=await page.evaluate(async name=>{
+    const module=await import('/src/infrastructure/indexeddb/index.js'),database=await module.openIndexedDbV2({indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name}),repository=module.createMissionMediaRepository({database,createId:()=> 'same-id',clock:{iso:()=> '2026-08-04T17:01:31.085Z'}}),input={projectId:'p',checkpointId:'c',journalEventId:'j',file:new File(['camera'],'camera.jpg',{type:'image/jpeg'})};
+    await repository.addPhoto(input);let failure=null;try{await repository.addPhoto(input);}catch(error){failure={name:error.name,code:error.code,message:error.message,diagnostics:error.diagnostics,causeName:error.cause?.name};}
+    const rows=await repository.listProjectPhotos('p');database.close();return {failure,count:rows.length};
+  },`CannonMapDB-media-failure-${testInfo.project.name}-${Date.now()}`);
+  expect(result.count).toBe(1);expect(result.failure).toMatchObject({name:'MediaPersistenceError',code:'MEDIA_PERSISTENCE_FAILED',message:'Photo could not be saved.'});expect(result.failure.diagnostics).toMatchObject({exceptionName:'ConstraintError',objectConstructor:'File',objectType:'File',objectSize:6,mimeType:'image/jpeg',objectStore:'missionMedia'});expect(result.failure.diagnostics.stackTrace).toBeTruthy();expect(result.failure.diagnostics.transactionState).toBeTruthy();
+});
+
 test('native original survives an interrupted Evidence workflow and remains project isolated',async({page},testInfo)=>{
   const result=await page.evaluate(async name=>{
     const module=await import('/src/infrastructure/indexeddb/index.js');let database=await module.openIndexedDbV2({indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name}),number=0;

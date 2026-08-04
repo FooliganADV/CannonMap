@@ -1,5 +1,5 @@
 /** Durable checkpoint photo gate. Required photos never auto-finish without media. */
-export function createCheckpointCameraWorkflow({mediaRepository,photoEvidence,journal,clock,timeoutMs=60000,setTimer=setTimeout,clearTimer=clearTimeout,onState=()=>{},onRequested=()=>{}}={}){
+export function createCheckpointCameraWorkflow({mediaRepository,photoEvidence,journal,clock,timeoutMs=60000,setTimer=setTimeout,clearTimer=clearTimeout,onState=()=>{},onRequested=()=>{},onDiagnostic=()=>{}}={}){
   if(!mediaRepository||!journal||!clock)throw new TypeError('Camera workflow dependencies are required.');
   let active=null,timer=null;
   const snapshot=()=>active?{...active,photos:[...active.photos]}:{status:'idle'};
@@ -37,13 +37,14 @@ export function createCheckpointCameraWorkflow({mediaRepository,photoEvidence,jo
         }
         active.status='ready';active.error='';clear();publish();return [...active.photos];
       }catch(error){
-        active.status='failed';active.error=error?.message||String(error);
+        const technical={exceptionName:error?.diagnostics?.exceptionName||error?.name||'Error',exceptionMessage:error?.diagnostics?.exceptionMessage||error?.message||String(error),stackTrace:error?.diagnostics?.stackTrace||error?.stack||'Unavailable',objectConstructor:error?.diagnostics?.objectConstructor||files?.[0]?.constructor?.name||'Unavailable',objectType:error?.diagnostics?.objectType||files?.[0]?.constructor?.name||'Unavailable',objectSize:(error?.diagnostics?.objectSize??Number(files?.[0]?.size))||0,mimeType:error?.diagnostics?.mimeType||files?.[0]?.type||'Unavailable',transactionState:error?.diagnostics?.transactionState||'Unavailable',objectStore:error?.diagnostics?.objectStore||'missionMedia',browser:error?.diagnostics?.browser||globalThis.navigator?.userAgent||'Unavailable',appVersion:error?.diagnostics?.appVersion||globalThis.navigator?.appVersion||'Unavailable'};
+        onDiagnostic(technical);active.status='failed';active.error='Photo could not be saved.\n\nYour checkpoint has NOT been completed.\n\nPlease retry the photo.\n\nIf the problem continues you may mark the objective as failed.';
         {
           active.originalMedia=error.originalMedia;
           try{await journal.appendEvent({projectId:active.projectId,eventType:'media_storage_failure',source:'checkpoint_camera',
             title:`Photo storage failed · ${active.checkpoint.name}`,summary:error.originalMedia?'The full-resolution original is stored. Evidence generation must be retried.':'The photograph was not safely stored. Capture must be retried.',
             references:{checkpointId:active.checkpoint.id,parentEventId:active.journalEvent.eventId,originalMediaId:error.originalMedia?.mediaId||null},
-            metadata:{checkpointId:active.checkpoint.id,dayNumber:Number(active.checkpoint.day)||null,required:active.required,status:error.originalMedia?'evidence_failed':'write_failed',retryable:true,error:active.error}});}catch(_){ }
+            metadata:{checkpointId:active.checkpoint.id,dayNumber:Number(active.checkpoint.day)||null,required:active.required,status:error.originalMedia?'evidence_failed':'write_failed',retryable:true}});}catch(_){ }
         }
         publish();throw error;
       }
