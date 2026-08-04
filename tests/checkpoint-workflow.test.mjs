@@ -75,6 +75,12 @@ test('next-day resolution ignores stale current-day values and requires an execu
   assert.equal(workflow.nextRallyDay(project,2),0);
 });
 
+test('rally day resolution supports 31 days, nonconsecutive days, and days beyond eight',()=>{
+  const project={features:[checkpoint('day-9',1,'completed',{day:9}),checkpoint('day-17',1,'planned',{day:17}),checkpoint('day-31',1,'planned',{day:31})]};
+  assert.equal(workflow.activeRallyDay({dayFilter:'31'}),31);assert.equal(workflow.nextRallyDay(project,9),17);assert.equal(workflow.nextRallyDay(project,17),31);
+  assert.deepEqual(workflow.rallyCheckpointNumber('31.104 Final Memory'),{day:31,sequence:104});
+});
+
 test('required photo creates an explicit gate and blocks collection until recorded',()=>{
   const photo=checkpoint('photo',1,'next',{photoRequired:true}),rows=[photo,checkpoint('after',2)];
   workflow.recordArrival(photo,'2026-01-01T00:00:00.000Z');

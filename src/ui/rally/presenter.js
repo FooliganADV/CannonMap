@@ -17,6 +17,7 @@ export function renderRally({getElement,model,escapeHtml}){
   if(!getElement('rallyMode'))return;
   const set=(id,value)=>{const el=getElement(id);if(el)el.textContent=value;};
   const kind=checkpointKind(model.next);
+  set('rallyActiveProjectName',model.projectName||'');
   set('rallyOnlineStatus',model.online?'Online':'Offline');
   set('rallyGpsAccuracy',model.gpsAccuracy||'GPS off');
   set('rallyElevation',model.elevation||'Elev —');
@@ -59,6 +60,7 @@ export function renderRally({getElement,model,escapeHtml}){
   const resume=getElement('rallyResumeDeferredButton');if(resume)resume.disabled=!model.showDeferredPrompt||Boolean(model.dayComplete);
   const finish=getElement('rallyFinishDayButton');if(finish)finish.disabled=!model.showDeferredPrompt||!model.hasHotel||Boolean(model.dayComplete);
   const dayComplete=getElement('rallyDayComplete');if(dayComplete)dayComplete.hidden=!model.dayComplete;
+  const actionBar=getElement('rallyMode')?.querySelector?.('.rally-actions');if(actionBar){actionBar.hidden=false;actionBar.classList.toggle('is-day-complete',Boolean(model.dayComplete));}
   set('rallyDayCompleteTitle',model.nextDay?'✓ Day Complete':'✓ Rally Complete');
   set('rallyDaySummary',model.dayComplete?`${model.daySummary?.totalCollected||0} collected · ${model.daySummary?.totalDeferred||0} deferred · ${model.daySummary?.score||0} points`:'');
   const startNext=getElement('rallyStartNextDay');if(startNext){startNext.hidden=!model.dayComplete||!model.nextDay;startNext.textContent=model.nextDay?`Start Day ${model.nextDay}`:'Start Next Day';}
@@ -68,7 +70,8 @@ export function renderRally({getElement,model,escapeHtml}){
     goHotel.textContent=model.hotelBailoutActive?'UNDO HOTEL BAILOUT':'GO TO HOTEL';
   }
   const nextButton=getElement('rallyNextButton');
-  if(nextButton)nextButton.hidden=Boolean(model.next)||!model.hasPlanned||model.showDeferredPrompt;
+  if(nextButton)nextButton.hidden=Boolean(model.dayComplete||model.next)||!model.hasPlanned||model.showDeferredPrompt;
+  if(complete)complete.hidden=Boolean(model.dayComplete);
   if(getElement('autoCompleteCheckpoints'))getElement('autoCompleteCheckpoints').checked=model.autoComplete;
   if(getElement('checkpointArrivalRadius'))getElement('checkpointArrivalRadius').value=model.arrivalRadius;
   if(getElement('checkpointMaxAccuracy'))getElement('checkpointMaxAccuracy').value=model.maxAccuracy;

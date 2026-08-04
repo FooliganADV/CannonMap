@@ -11,7 +11,7 @@ export function createProjectWorkflows({createId,now,parseXml,normalizeCheckpoin
   function inferDay(text,fallback=0){
     const value=String(text||'').replace(/<[^>]*>/g,' ').trim();
     const wordDays={one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8};
-    const patterns=[/\bday[\s_:#-]*0?([1-8])\b/i,/\bd[\s_:#-]*0?([1-8])\b/i,/^\s*0?([1-8])\s*[.\-_]/,/\b0?([1-8])\s*[.\-_]\s*\d+\b/,/\b0?([1-8])[\s_-]*(?:start|finish|route|track|checkpoint|cp)\b/i];
+    const patterns=[/\bday[\s_:#-]*0?(\d{1,3})\b/i,/\bd[\s_:#-]*0?(\d{1,3})\b/i,/^\s*0?(\d{1,3})\s*[.\-_]/,/\b0?(\d{1,3})\s*[.\-_]\s*\d+\b/,/\b0?(\d{1,3})[\s_-]*(?:start|finish|route|track|checkpoint|cp)\b/i];
     for(const pattern of patterns){const match=value.match(pattern);if(match)return Number(match[1]);}
     const wordMatch=value.match(/\bday\s+(one|two|three|four|five|six|seven|eight)\b/i);
     return wordMatch?wordDays[wordMatch[1].toLowerCase()]||fallback:fallback;
@@ -44,7 +44,7 @@ export function createProjectWorkflows({createId,now,parseXml,normalizeCheckpoin
 
   function assignWaypointDays(features,onlyUnassigned=true){
     let changed=assignLineDays(features);
-    const assignedLines=features.filter(feature=>feature.geometry.kind==='line'&&feature.day>=1&&feature.day<=8);
+    const assignedLines=features.filter(feature=>feature.geometry.kind==='line'&&Number.isInteger(feature.day)&&feature.day>=1);
     for(const feature of features.filter(feature=>feature.geometry.kind==='point'&&(!onlyUnassigned||!feature.day))){
       if(onlyUnassigned&&feature.day)continue;
       const explicit=inferDay(`${feature.name} ${feature.notes} ${feature.source}`,0);

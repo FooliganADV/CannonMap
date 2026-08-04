@@ -33,7 +33,7 @@ async function imageSource(file){
   try{await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=reject;image.src=url;});return image;}finally{URL.revokeObjectURL(url);}
 }
 
-export async function renderEvidenceJpeg(file,metadata,{quality=.92,canvasFactory=()=>document.createElement('canvas')}={}){
+export async function renderEvidenceJpeg(file,metadata,{quality=1,canvasFactory=()=>document.createElement('canvas')}={}){
   const image=await imageSource(file),canvas=canvasFactory();canvas.width=image.width;canvas.height=image.height;
   const context=canvas.getContext('2d');context.drawImage(image,0,0);image.close?.();
   const footerHeight=Math.max(120,Math.round(canvas.height*.19)),top=canvas.height-footerHeight,pad=Math.max(16,Math.round(canvas.width*.018));
@@ -56,8 +56,25 @@ export function createPhotoEvidenceService({repository,render=renderEvidenceJpeg
       const metadata=buildPhotoEvidenceMetadata({...context,mediaId:identities.mediaGroupId,journalEventId});
       const existing=await repository.listCheckpointPhotos?.(projectId,checkpointId)||[],sequence=existing.filter(item=>(item.role||'original')==='original').length+1;
       const label=context.eventName==='Hotel Arrival'?'Hotel':'CP',base=`Day${String(context.dayNumber||0).padStart(2,'0')}_${label}${String(context.checkpointNumber||checkpointId).replace(/[^a-z0-9.-]+/gi,'_')}${sequence>1?`_${String(sequence).padStart(2,'0')}`:''}`;
-      const evidenceBlob=await render(file,metadata);
-      return repository.addEvidencePair({projectId,checkpointId,journalEventId,originalFile:file,evidenceBlob,metadata,identities,filenames:{original:`${base}_Original.jpg`,evidence:`${base}_Evidence.jpg`}});
+      const filenames={original:`${base}_Original.jpg`,evidence:`${base}_Evidence.jpg`};
+      if(typeof repository.addOriginal!=='function'){
+        const evidenceBlob=await render(file,metadata);
+        return repository.addEvidencePair({projectId,checkpointId,journalEventId,originalFile:file,evidenceBlob,metadata,identities,filenames});
+      }
+      const original=await repository.addOriginal({projectId,checkpointId,journalEventId,originalFile:file,metadata,identities,filenames});
+      try{
+        const evidenceBlob=await render(file,metadata),evidence=await repository.addEvidence({original,evidenceBlob,filename:filenames.evidence,evidenceMediaId:identities.evidenceMediaId});
+        const reference=record=>Object.freeze({mediaId:record.mediaId,mediaGroupId:record.mediaGroupId,uri:`media://${record.mediaId}`,kind:'photo',role:record.role,mimeType:record.mimeType,name:record.name,size:record.size,capturedAt:record.capturedAt,pairedMediaId:record.pairedMediaId});
+        return Object.freeze({mediaGroupId:identities.mediaGroupId,original:reference({...original,pairedMediaId:evidence.mediaId}),evidence:reference(evidence),metadata:structuredClone(metadata)});
+      }catch(error){
+        await repository.markEvidenceFailed?.(original.mediaId,error?.message||error);
+        error.originalMedia=original;error.evidenceRetryable=true;throw error;
+      }
+    },
+    async retryEvidence(originalMediaId){
+      const original=await repository.getMedia(originalMediaId);if(!original||original.role!=='original')throw new Error('The stored original is unavailable.');
+      const evidenceBlob=await render(original.blob,original.metadata),filename=String(original.name||'Original.jpg').replace(/_Original(?=\.jpe?g$)/i,'_Evidence');
+      return repository.addEvidence({original,evidenceBlob,filename,evidenceMediaId:original.pairedMediaId||createId()});
     }
   });
 }

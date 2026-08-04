@@ -28,6 +28,8 @@ export function wireRallyController({getElement,actions,windowTarget=window}){
   on('rallyCameraInput','change',event=>actions.addCameraFiles?.(event.target.files));
   on('rallyCameraInput','cancel',actions.cancelCamera);
   on('rallyCameraRetry','click',actions.retryCamera);
+  on('rallyCameraResumeCompletion','click',actions.resumePhotoCompletion);
+  on('rallyCameraFailObjective','click',actions.failPhotoObjective);
   on('rallyStartNextDay','click',actions.startNextDay);
   on('rallyDebugExportButton','click',actions.exportDebug);
   on('rallyJournalExportButton','click',actions.exportJournal);

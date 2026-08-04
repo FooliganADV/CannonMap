@@ -12,8 +12,8 @@ export function createGpsFollowController({map,debugLog,followScreenY=.62,smooth
   };
   const recenter=sample=>{
     if(mode!=='following'||!sample)return false;
-    const size=map.getSize(),zoom=map.getZoom(),point=map.project([sample.lat,sample.lon],zoom);
-    const centerPoint={x:point.x,y:point.y+(size.y/2-size.y*followScreenY)};
+    const size=map.getSize(),zoom=map.getZoom(),point=map.project([sample.lat,sample.lon],zoom),requested=typeof followScreenY==='function'?followScreenY():followScreenY,target=Math.min(.75,Math.max(.3,finite(requested)??.62));
+    const centerPoint={x:point.x,y:point.y+(size.y/2-size.y*target)};
     programmatic=true;log('map_recenter_requested',{lat:sample.lat,lon:sample.lon,mode});
     map.setView(map.unproject(centerPoint,zoom),zoom,{animate:false});programmatic=false;
     log('map_recenter_completed',{lat:sample.lat,lon:sample.lon,mode});return true;

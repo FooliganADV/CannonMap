@@ -6,6 +6,29 @@ const STORE='missionMedia';
 export function createMissionMediaRepository({database,createId,clock}={}){
   if(!database||typeof createId!=='function'||!clock)throw new TypeError('database, createId, and clock are required.');
   return Object.freeze({
+    async addOriginal({projectId,checkpointId,journalEventId,originalFile,metadata={},filenames={},identities={}}){
+      if(!projectId||!checkpointId||!journalEventId||!originalFile)throw new TypeError('Original photo context is required.');
+      const mediaGroupId=identities.mediaGroupId||createId(),mediaId=identities.originalMediaId||createId(),capturedAt=metadata.capturedAt||clock.iso();
+      const record={projectId:String(projectId),checkpointId:String(checkpointId),journalEventId:String(journalEventId),mediaGroupId,capturedAt,
+        metadata:structuredClone(metadata),mediaId,kind:'photo',role:'original',mimeType:String(originalFile.type||'image/jpeg'),
+        name:String(filenames.original||originalFile.name||`${mediaId}.jpg`),size:Number(originalFile.size)||0,blob:originalFile,
+        pairedMediaId:identities.evidenceMediaId||null,evidenceStatus:'pending'};
+      const transaction=database.transaction(STORE,'readwrite'),done=transactionDone(transaction);
+      await requestResult(transaction.objectStore(STORE).add(record));await done;return record;
+    },
+    async addEvidence({original,evidenceBlob,filename,evidenceMediaId}){
+      if(!original?.mediaId||!evidenceBlob)throw new TypeError('Stored original and evidence image are required.');
+      const mediaId=evidenceMediaId||original.pairedMediaId||createId(),transaction=database.transaction(STORE,'readwrite'),done=transactionDone(transaction),store=transaction.objectStore(STORE);
+      const evidence={...original,mediaId,role:'evidence',mimeType:'image/jpeg',name:String(filename||`${mediaId}.jpg`),size:Number(evidenceBlob.size)||0,
+        blob:evidenceBlob,pairedMediaId:original.mediaId,evidenceStatus:'complete'};
+      await requestResult(store.add(evidence));
+      await requestResult(store.put({...original,pairedMediaId:mediaId,evidenceStatus:'complete'}));await done;
+      return evidence;
+    },
+    async markEvidenceFailed(mediaId,error){
+      const transaction=database.transaction(STORE,'readwrite'),done=transactionDone(transaction),store=transaction.objectStore(STORE),record=await requestResult(store.get(String(mediaId)));
+      if(record)await requestResult(store.put({...record,evidenceStatus:'failed',evidenceError:String(error||'Evidence generation failed.')}));await done;return record||null;
+    },
     async addEvidencePair({projectId,checkpointId,journalEventId,originalFile,evidenceBlob,metadata={},filenames={},identities={}}){
       if(!projectId||!checkpointId||!journalEventId||!originalFile||!evidenceBlob)throw new TypeError('Evidence photo context and both images are required.');
       const mediaGroupId=identities.mediaGroupId||createId(),originalMediaId=identities.originalMediaId||createId(),evidenceMediaId=identities.evidenceMediaId||createId(),capturedAt=metadata.capturedAt||clock.iso();
@@ -38,6 +61,10 @@ export function createMissionMediaRepository({database,createId,clock}={}){
       const transaction=database.transaction(STORE,'readonly'),done=transactionDone(transaction);
       const rows=await requestResult(transaction.objectStore(STORE).index('projectId').getAll(String(projectId)));
       await done;return rows;
+    },
+    async listAllPhotos(){
+      const transaction=database.transaction(STORE,'readonly'),done=transactionDone(transaction);
+      const rows=await requestResult(transaction.objectStore(STORE).getAll());await done;return rows;
     },
     async getMedia(mediaId){
       const transaction=database.transaction(STORE,'readonly'),done=transactionDone(transaction);

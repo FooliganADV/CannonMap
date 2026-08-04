@@ -27,3 +27,20 @@ test('original and evidence images persist as one atomic reference pair',async({
   },`CannonMapDB-evidence-${testInfo.project.name}-${Date.now()}`);
   expect(result.roles).toEqual(['evidence','original']);expect(result.originalText).toBe('camera-original');expect(result.evidenceText).toBe('evidence-copy');expect(result.shared).toBeTruthy();expect(result.pair.original.name).toBe('Day01_CP1.1_Original.jpg');
 });
+
+test('native original survives an interrupted Evidence workflow and remains project isolated',async({page},testInfo)=>{
+  const result=await page.evaluate(async name=>{
+    const module=await import('/src/infrastructure/indexeddb/index.js');let database=await module.openIndexedDbV2({indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name}),number=0;
+    let repository=module.createMissionMediaRepository({database,createId:()=>`00000000-0000-4000-8000-${String(++number).padStart(12,'0')}`,clock:{iso:()=> '2026-09-05T12:00:00.000Z'}}),file=new File(['exact-native-camera-bytes'],'native.jpg',{type:'image/jpeg'});
+    const original=await repository.addOriginal({projectId:'journey-a',checkpointId:'journey:1',journalEventId:'journal-1',originalFile:file,metadata:{dayNumber:31},identities:{mediaGroupId:'group',originalMediaId:'original',evidenceMediaId:'evidence'}});await repository.markEvidenceFailed(original.mediaId,'memory pressure');database.close();
+    database=await module.openIndexedDbV2({indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name});repository=module.createMissionMediaRepository({database,createId:()=>'',clock:{iso:()=>''}});const own=await repository.listProjectPhotos('journey-a'),other=await repository.listProjectPhotos('journey-b'),all=await repository.listAllPhotos(),text=await own[0].blob.text();database.close();return {text,status:own[0].evidenceStatus,other:other.length,all:all.length,day:own[0].metadata.dayNumber};
+  },`CannonMapDB-native-${testInfo.project.name}-${Date.now()}`);
+  expect(result).toEqual({text:'exact-native-camera-bytes',status:'failed',other:0,all:1,day:31});
+});
+
+test('Project media restore is atomic and duplicate failure leaves no partial Project',async({page},testInfo)=>{
+  const result=await page.evaluate(async name=>{const module=await import('/src/infrastructure/indexeddb/index.js'),database=await module.openIndexedDbV2({indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name}),restore=module.createJourneyRestoreRepository({database});
+    await restore.restoreNew({project:{projectId:'p1',name:'One'},journal:[{eventId:'j1',projectId:'p1'}],media:[{mediaId:'m1',projectId:'p1',checkpointId:'c',journalEventId:'j1',blob:new Blob(['native'])}]});let error='';try{await restore.restoreNew({project:{projectId:'p2',name:'Two'},journal:[{eventId:'j2',projectId:'p2'}],media:[{mediaId:'m1',projectId:'p2',checkpointId:'c',journalEventId:'j2',blob:new Blob(['other'])}]});}catch(caught){error=caught.name||caught.code||caught.message;}
+    const transaction=database.transaction(['projectRecords','journalEvents','missionMedia'],'readonly'),request=store=>new Promise((resolve,reject)=>{const value=transaction.objectStore(store).get(store==='projectRecords'?'p2':store==='journalEvents'?'j2':'m1');value.onsuccess=()=>resolve(value.result||null);value.onerror=()=>reject(value.error);}),[project,event,media]=await Promise.all([request('projectRecords'),request('journalEvents'),request('missionMedia')]);database.close();return {error,project,event,mediaProjectId:media.projectId};
+  },`CannonMapDB-restore-${testInfo.project.name}-${Date.now()}`);expect(result.error).toBeTruthy();expect(result.project).toBeNull();expect(result.event).toBeNull();expect(result.mediaProjectId).toBe('p1');
+});

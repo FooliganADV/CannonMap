@@ -41,3 +41,10 @@ test('durably stored photo can restore and finish an interrupted required workfl
   assert.equal(workflow.getState().status,'ready');
   assert.equal(workflow.finish().photos[0].mediaId,'photo-1');
 });
+
+test('storage failure is visible, journaled, and never reports a required photo as complete',async()=>{
+  const events=[],workflow=createCheckpointCameraWorkflow({mediaRepository:{},photoEvidence:{capture:async()=>{throw new DOMException('Quota full','QuotaExceededError');}},journal:{appendEvent:async event=>events.push(event)},clock:{iso:()=> '2026-09-05T12:00:00.000Z'}});
+  workflow.start({projectId:'project',checkpoint:{id:'cp',name:'1.1',day:1,photoRequired:true},journalEvent:{eventId:'arrival'},required:true});
+  await assert.rejects(()=>workflow.addFiles([new Blob(['full-resolution'])]),error=>error.name==='QuotaExceededError');
+  assert.equal(workflow.getState().status,'failed');assert.equal(workflow.finish(),null);assert.equal(workflow.getState().status,'awaiting_photo');assert.equal(events[0].eventType,'media_storage_failure');assert.equal(events[0].metadata.status,'write_failed');
+});

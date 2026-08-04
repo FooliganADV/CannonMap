@@ -36,7 +36,17 @@ export function createCheckpointCameraWorkflow({mediaRepository,photoEvidence,jo
           active.photos.push(reference);
         }
         active.status='ready';active.error='';clear();publish();return [...active.photos];
-      }catch(error){active.status='failed';active.error=error?.message||String(error);publish();throw error;}
+      }catch(error){
+        active.status='failed';active.error=error?.message||String(error);
+        {
+          active.originalMedia=error.originalMedia;
+          try{await journal.appendEvent({projectId:active.projectId,eventType:'media_storage_failure',source:'checkpoint_camera',
+            title:`Photo storage failed · ${active.checkpoint.name}`,summary:error.originalMedia?'The full-resolution original is stored. Evidence generation must be retried.':'The photograph was not safely stored. Capture must be retried.',
+            references:{checkpointId:active.checkpoint.id,parentEventId:active.journalEvent.eventId,originalMediaId:error.originalMedia?.mediaId||null},
+            metadata:{checkpointId:active.checkpoint.id,dayNumber:Number(active.checkpoint.day)||null,required:active.required,status:error.originalMedia?'evidence_failed':'write_failed',retryable:true,error:active.error}});}catch(_){ }
+        }
+        publish();throw error;
+      }
     },
     cancel(){if(!active)return null;active.status='awaiting_photo';active.error=active.required?'Photo capture was canceled. Retry is required.':'Photo skipped.';publish();return snapshot();},
     retry(){if(!active)return null;active.status='requesting';active.error='';arm();onRequested(snapshot());return snapshot();},
@@ -50,6 +60,7 @@ export function createCheckpointCameraWorkflow({mediaRepository,photoEvidence,jo
       if(active.required&&!active.photos.length){active.status='awaiting_photo';active.error='A required photo has not been recorded.';publish();return null;}
       clear();const result=snapshot();active=null;publish();return result;
     },
+    abandon(){clear();const result=snapshot();active=null;publish();return result;},
     getState:snapshot
   });
 }

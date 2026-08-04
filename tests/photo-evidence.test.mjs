@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {buildPhotoEvidenceMetadata,createPhotoEvidenceService,photoEvidenceOverlayEntries} from '../src/application/photo-evidence-service.js';
+import {buildPhotoEvidenceMetadata,createPhotoEvidenceService,photoEvidenceOverlayEntries,renderEvidenceJpeg} from '../src/application/photo-evidence-service.js';
 import {checkpointPhotoFilename,createStoredZip} from '../src/application/photo-export-service.js';
 
 test('evidence metadata renders authoritative values and marks missing values unavailable',()=>{
@@ -20,4 +20,18 @@ test('photo export names are stable and generated archives are valid ZIP contain
   assert.equal(checkpointPhotoFilename({dayNumber:1,checkpointNumber:'1.1',role:'original'}),'Day01_CP1.1_Original.jpg');
   const zip=await createStoredZip([{name:'Day01_CP1.1_Original.jpg',blob:new Blob(['original'])},{name:'Day01_CP1.1_Evidence.jpg',blob:new Blob(['evidence'])}]);
   const bytes=new Uint8Array(await zip.arrayBuffer());assert.deepEqual([...bytes.slice(0,4)],[0x50,0x4b,0x03,0x04]);assert.equal(zip.type,'application/zip');
+});
+
+test('native-resolution evidence keeps source dimensions',async()=>{
+  const previous=globalThis.createImageBitmap;globalThis.createImageBitmap=async()=>({width:4032,height:3024,close(){}});let dimensions=null;
+  const canvas={width:0,height:0,getContext:()=>({drawImage(){},fillRect(){},fillText(){},set fillStyle(_){},set textBaseline(_){},set font(_){},set textAlign(_){}}),toBlob(callback){dimensions={width:this.width,height:this.height};callback(new Blob(['jpeg'],{type:'image/jpeg'}));}};
+  try{await renderEvidenceJpeg(new Blob(['native']),buildPhotoEvidenceMetadata({}),{canvasFactory:()=>canvas});assert.deepEqual(dimensions,{width:4032,height:3024});}finally{globalThis.createImageBitmap=previous;}
+});
+
+test('evidence failure preserves the untouched original for later retry',async()=>{
+  const original=new Blob(['untouched-camera-bytes'],{type:'image/jpeg'}),stored=[];
+  const repository={listCheckpointPhotos:async()=>[],async addOriginal(input){stored.push(input.originalFile);return {mediaId:'original',mediaGroupId:'group',pairedMediaId:'evidence',role:'original',name:'Day01_CP1_Original.jpg',blob:input.originalFile,metadata:input.metadata};},async markEvidenceFailed(){},async getMedia(){return null;}};
+  const service=createPhotoEvidenceService({repository,createId:(()=>{const ids=['group','original','evidence'];return()=>ids.shift();})(),render:async()=>{throw new Error('canvas memory pressure');}});
+  await assert.rejects(()=>service.capture({projectId:'p',checkpointId:'c',journalEventId:'j',file:original,context:{dayNumber:1}}),error=>error.evidenceRetryable&&error.originalMedia.mediaId==='original');
+  assert.equal(stored[0],original);assert.equal(await stored[0].text(),'untouched-camera-bytes');
 });

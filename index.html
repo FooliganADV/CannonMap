@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260803-stabilization-06" />
+  <link rel="stylesheet" href="app.css?v=20260803-stabilization-07" />
 </head>
 <body>
   <header class="topbar">
@@ -86,10 +86,6 @@
           <span>Active rally day</span>
           <select id="dayFilter">
             <option value="all">All days</option>
-            <option value="1">Day 1</option><option value="2">Day 2</option>
-            <option value="3">Day 3</option><option value="4">Day 4</option>
-            <option value="5">Day 5</option><option value="6">Day 6</option>
-            <option value="7">Day 7</option><option value="8">Day 8</option>
             <option value="0">Unassigned</option>
           </select>
         </label>
@@ -131,10 +127,6 @@
             <label class="field"><span>Day</span>
               <select id="featureDay" disabled>
                 <option value="0">Unassigned</option>
-                <option value="1">Day 1</option><option value="2">Day 2</option>
-                <option value="3">Day 3</option><option value="4">Day 4</option>
-                <option value="5">Day 5</option><option value="6">Day 6</option>
-                <option value="7">Day 7</option><option value="8">Day 8</option>
               </select>
             </label>
           </div>
@@ -157,7 +149,7 @@
         <details>
           <summary>Bulk day assignment</summary>
           <label class="field"><span>Assign all currently unassigned point features to</span>
-            <select id="bulkDay"><option value="1">Day 1</option><option value="2">Day 2</option><option value="3">Day 3</option><option value="4">Day 4</option><option value="5">Day 5</option><option value="6">Day 6</option><option value="7">Day 7</option><option value="8">Day 8</option></select>
+            <select id="bulkDay"></select>
           </label>
           <button id="bulkAssignButton" class="button secondary wide" type="button">Assign unassigned points</button>
         </details>
@@ -168,7 +160,7 @@
         <label class="field"><span>Search project</span><input id="globalSearch" type="search" placeholder="Checkpoint 37, Pueblo, hotel…" /></label>
         <div class="two-col">
           <label class="field"><span>Type</span><select id="searchType"><option value="all">All types</option><option value="checkpoint">Checkpoints</option><option value="hotel">Hotels</option><option value="route">Routes</option><option value="track">Tracks</option><option value="backbone">Backbone</option><option value="waypoint">Waypoints</option></select></label>
-          <label class="field"><span>Day</span><select id="searchDay"><option value="all">All days</option><option value="1">Day 1</option><option value="2">Day 2</option><option value="3">Day 3</option><option value="4">Day 4</option><option value="5">Day 5</option><option value="6">Day 6</option><option value="7">Day 7</option><option value="8">Day 8</option><option value="0">Unassigned</option></select></label>
+          <label class="field"><span>Day</span><select id="searchDay"><option value="all">All days</option><option value="0">Unassigned</option></select></label>
         </div>
         <div id="searchResults" class="search-results empty">Enter a search term or choose filters.</div>
       </section>
@@ -259,7 +251,7 @@
       <div id="map"></div>
       <section id="rallyMode" class="rally-mode" aria-label="Rally Mode">
         <header class="rally-head">
-          <div class="rally-head-day"><small><span id="rallyOnlineStatus">Checking</span><span id="rallyGpsAccuracy">GPS off</span><span id="rallyElevation">Elev —</span></small></div>
+          <div class="rally-head-day"><strong id="rallyActiveProjectName"></strong><small><span id="rallyOnlineStatus">Checking</span><span id="rallyGpsAccuracy">GPS off</span><span id="rallyElevation">Elev —</span></small></div>
           <div class="rally-score-slot" aria-hidden="true"><span>Score</span><strong id="rallyScore">0</strong></div>
         </header>
         <div id="rallyPrimaryCard" class="rally-primary-card is-none">
@@ -288,9 +280,12 @@
           <small id="rallyCameraPhotoCount">No photos captured</small>
           <small id="rallyCameraError" class="rally-camera-error" hidden></small>
           <button id="rallyCameraRetry" type="button" hidden>Retry Camera</button>
+          <button id="rallyCameraResumeCompletion" type="button" hidden>Resume Completion</button>
+          <button id="rallyCameraFailObjective" type="button">Mark Objective Failed</button>
         </section>
         <section id="rallyDayComplete" class="rally-day-complete" hidden>
           <strong id="rallyDayCompleteTitle">✓ Day Complete</strong><small id="rallyDaySummary"></small>
+          <div class="rally-day-backup"><strong>Back Up Todayâ€™s Photos</strong><button id="rallyBackupDayPhotos" type="button">Export Day Photos</button><button id="rallyBackupDayJournal" type="button">Export Day Journal</button><button id="rallyBackupDayPackage" type="button">Export Day Backup Package</button><button id="rallyBackupRemindLater" type="button">Remind Me Later</button></div>
           <button id="rallyStartNextDay" type="button" hidden>Start Next Day</button>
         </section>
         <button id="rallyRecenterFab" class="rally-recenter-fab" type="button" aria-label="Start GPS tracking">START</button>
@@ -301,13 +296,17 @@
           </div>
           <div class="rally-more-actions">
             <button id="rallyPhotoViewerButton" class="rally-photos-entry" type="button">Checkpoint Photos</button>
+            <button id="rallyJourneyGalleryButton" type="button">All Journey Photos</button>
             <button id="rallyWeatherButton" type="button">Weather</button>
             <button id="rallyHotelButton" type="button">Show hotel</button>
             <button id="goHotelButton" class="rally-hotel-action" type="button">GO TO HOTEL</button>
             <button id="rallyPlannerButton" type="button">Open Planner</button>
             <button id="rallyDebugExportButton" type="button">Export Rally Debug Log</button>
             <button id="rallyJournalExportButton" type="button">Export Daily Journal</button>
+            <button id="rallyJourneyPhotoButton" type="button">Add Journey Photo</button>
+            <input id="rallyJourneyPhotoInput" type="file" accept="image/*" capture="environment" hidden />
           </div>
+          <details class="rally-storage-diagnostics"><summary>Storage &amp; projects</summary><div id="rallyStorageSummary">Calculating storageâ€¦</div><button id="rallyRetryEvidence" type="button">Retry Failed Evidence</button><label>Active project <select id="rallyProjectSelect"></select></label><div class="rally-project-actions"><button id="rallyProjectCreate" type="button">Create Project</button><button id="rallyProjectSwitch" type="button">Switch Project</button><button id="rallyProjectRename" type="button">Rename Project</button><button id="rallyProjectArchive" type="button">Archive Project</button><button id="rallyProjectExport" type="button">Export Project</button><label for="rallyProjectRestore">Restore Project</label><input id="rallyProjectRestore" type="file" accept=".cmapproject,.cmap,.json,application/json" hidden /></div><small id="rallyUnbackedDays"></small></details>
           <details class="rally-arrival-settings">
             <summary>Automatic checkpoint arrival</summary>
             <label><input id="autoCompleteCheckpoints" type="checkbox" /> Complete and advance automatically</label>
@@ -329,7 +328,7 @@
       </section>
       <section id="rallyPhotoViewer" class="rally-photo-viewer" hidden role="dialog" aria-modal="true" aria-label="Checkpoint photo evidence">
         <header><strong>Checkpoint Photos</strong><button id="rallyPhotoViewerClose" type="button" aria-label="Close photo viewer">×</button></header>
-        <div id="rallyPhotoGalleryShell" class="rally-photo-gallery-shell"><p class="rally-photo-storage-warning">Checkpoint photos are stored locally on this device until exported. Clearing CannonMap or Safari website data may remove them.</p><div id="rallyPhotoGallery" class="rally-photo-gallery"></div><div class="rally-photo-batch"><button id="rallyExportDayPhotos" type="button">Export All Photos for Active Day</button><button id="rallyExportRallyPhotos" type="button">Export Entire Rally</button></div></div>
+        <div id="rallyPhotoGalleryShell" class="rally-photo-gallery-shell"><p class="rally-photo-storage-warning">Checkpoint photos are stored locally on this device until exported. Clearing CannonMap or Safari website data may remove them.</p><div id="rallyPhotoGallery" class="rally-photo-gallery"></div><div class="rally-photo-batch"><button id="rallyExportDayPhotos" type="button">Export All Photos for Active Day</button><button id="rallyExportRallyPhotos" type="button">Export Active Project</button><button id="rallyExportJourneyPhotos" type="button">Export Entire Journey</button></div></div>
         <div id="rallyPhotoStage" class="rally-photo-stage" hidden>
           <div class="rally-photo-toolbar">
             <button id="rallyPhotoBack" type="button">Gallery</button>
@@ -390,10 +389,6 @@
         <label class="field"><span>Day</span>
           <select id="createDay">
             <option value="0">Unassigned</option>
-            <option value="1">Day 1</option><option value="2">Day 2</option>
-            <option value="3">Day 3</option><option value="4">Day 4</option>
-            <option value="5">Day 5</option><option value="6">Day 6</option>
-            <option value="7">Day 7</option><option value="8">Day 8</option>
           </select>
         </label>
       </div>
@@ -432,6 +427,6 @@
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260803-stabilization-06"></script>
+  <script type="module" src="app.js?v=20260803-stabilization-07"></script>
 </body>
 </html>

@@ -26,7 +26,7 @@ export function checkpointState(value){
 }
 
 export function rallyCheckpointNumber(value){
-  const match=String(value||'').trim().match(/^(?:day\s*)?([1-8])\s*[.\-_]\s*(\d{1,3})\b/i);
+  const match=String(value||'').trim().match(/^(?:day\s*)?(\d{1,3})\s*[.\-_]\s*(\d{1,3})\b/i);
   return match?{day:Number(match[1]),sequence:Number(match[2])}:null;
 }
 
@@ -50,7 +50,7 @@ export function normalizeCheckpoint(feature,index=0){
 
 export function activeRallyDay(settings){
   const value=Number(settings?.dayFilter);
-  return value>=1&&value<=8?value:0;
+  return Number.isInteger(value)&&value>=1?value:0;
 }
 
 export function dayCheckpoints(project,settings){
@@ -132,7 +132,7 @@ export function nextRallyDay(project,day){
   return [...new Set((project?.features||[])
     .filter(feature=>['checkpoint','hotel'].includes(feature?.type))
     .map(feature=>Number(feature.day))
-    .filter(value=>Number.isInteger(value)&&value>current&&value<=8))].sort((a,b)=>a-b)[0]||0;
+    .filter(value=>Number.isInteger(value)&&value>current))].sort((a,b)=>a-b)[0]||0;
 }
 
 export function startRallyDay(project,settings,day){
