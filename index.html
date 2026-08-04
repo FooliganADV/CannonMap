@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260803-stabilization-07" />
+  <link rel="stylesheet" href="app.css?v=20260804-stabilization-08" />
 </head>
 <body>
   <header class="topbar">
@@ -285,8 +285,22 @@
         </section>
         <section id="rallyDayComplete" class="rally-day-complete" hidden>
           <strong id="rallyDayCompleteTitle">✓ Day Complete</strong><small id="rallyDaySummary"></small>
-          <div class="rally-day-backup"><strong>Back Up Todayâ€™s Photos</strong><button id="rallyBackupDayPhotos" type="button">Export Day Photos</button><button id="rallyBackupDayJournal" type="button">Export Day Journal</button><button id="rallyBackupDayPackage" type="button">Export Day Backup Package</button><button id="rallyBackupRemindLater" type="button">Remind Me Later</button></div>
+          <div class="rally-completion-metrics"><span>Collected <b id="rallyDayCollected">0</b></span><span>Deferred <b id="rallyDayDeferred">0</b></span><span>Day score <b id="rallyDayScore">0</b></span><span>Rally total <b id="rallyTotalScore">0</b></span></div>
+          <small id="rallyDayBackupStatus" class="rally-backup-status">Not backed up</small>
+          <button id="rallyBackupToday" type="button">Back Up Today</button>
           <button id="rallyStartNextDay" type="button" hidden>Start Next Day</button>
+        </section>
+        <section id="rallyBackupSheet" class="rally-backup-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="rallyBackupSheetTitle">
+          <div class="rally-backup-sheet-panel">
+            <header><div><strong id="rallyBackupSheetTitle">Back Up Today’s Photos</strong><small id="rallyBackupSheetStatus">Not backed up</small></div><button id="rallyBackupClose" type="button" aria-label="Close backup options">Close</button></header>
+            <div class="rally-backup-sheet-actions">
+              <button id="rallyBackupDayPhotos" type="button">Export Day Photos</button>
+              <button id="rallyBackupDayJournal" type="button">Export Day Journal</button>
+              <button id="rallyBackupDayPackage" type="button">Export Day Backup Package</button>
+              <button id="rallyBackupRemindLater" type="button">Remind Me Later</button>
+              <button id="rallyBackupCloseSecondary" type="button">Close</button>
+            </div>
+          </div>
         </section>
         <button id="rallyRecenterFab" class="rally-recenter-fab" type="button" aria-label="Start GPS tracking">START</button>
         <section id="rallyMoreSheet" class="rally-more-sheet" aria-hidden="true">
@@ -306,7 +320,7 @@
             <button id="rallyJourneyPhotoButton" type="button">Add Journey Photo</button>
             <input id="rallyJourneyPhotoInput" type="file" accept="image/*" capture="environment" hidden />
           </div>
-          <details class="rally-storage-diagnostics"><summary>Storage &amp; projects</summary><div id="rallyStorageSummary">Calculating storageâ€¦</div><button id="rallyRetryEvidence" type="button">Retry Failed Evidence</button><label>Active project <select id="rallyProjectSelect"></select></label><div class="rally-project-actions"><button id="rallyProjectCreate" type="button">Create Project</button><button id="rallyProjectSwitch" type="button">Switch Project</button><button id="rallyProjectRename" type="button">Rename Project</button><button id="rallyProjectArchive" type="button">Archive Project</button><button id="rallyProjectExport" type="button">Export Project</button><label for="rallyProjectRestore">Restore Project</label><input id="rallyProjectRestore" type="file" accept=".cmapproject,.cmap,.json,application/json" hidden /></div><small id="rallyUnbackedDays"></small></details>
+          <details class="rally-storage-diagnostics"><summary>Storage &amp; projects</summary><div id="rallyStorageSummary">Calculating storage…</div><button id="rallyRetryEvidence" type="button">Retry Failed Evidence</button><label>Active project <select id="rallyProjectSelect"></select></label><div class="rally-project-actions"><button id="rallyProjectCreate" type="button">Create Project</button><button id="rallyProjectSwitch" type="button">Switch Project</button><button id="rallyProjectRename" type="button">Rename Project</button><button id="rallyProjectArchive" type="button">Archive Project</button><button id="rallyProjectExport" type="button">Export Project</button><label for="rallyProjectRestore">Restore Project</label><input id="rallyProjectRestore" type="file" accept=".cmapproject,.cmap,.json,application/json" hidden /></div><small id="rallyUnbackedDays"></small></details>
           <details class="rally-arrival-settings">
             <summary>Automatic checkpoint arrival</summary>
             <label><input id="autoCompleteCheckpoints" type="checkbox" /> Complete and advance automatically</label>
@@ -427,6 +441,6 @@
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260803-stabilization-07"></script>
+  <script type="module" src="app.js?v=20260804-stabilization-08"></script>
 </body>
 </html>

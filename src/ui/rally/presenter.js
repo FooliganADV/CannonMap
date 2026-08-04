@@ -62,7 +62,8 @@ export function renderRally({getElement,model,escapeHtml}){
   const dayComplete=getElement('rallyDayComplete');if(dayComplete)dayComplete.hidden=!model.dayComplete;
   const actionBar=getElement('rallyMode')?.querySelector?.('.rally-actions');if(actionBar){actionBar.hidden=false;actionBar.classList.toggle('is-day-complete',Boolean(model.dayComplete));}
   set('rallyDayCompleteTitle',model.nextDay?'✓ Day Complete':'✓ Rally Complete');
-  set('rallyDaySummary',model.dayComplete?`${model.daySummary?.totalCollected||0} collected · ${model.daySummary?.totalDeferred||0} deferred · ${model.daySummary?.score||0} points`:'');
+  set('rallyDaySummary','');const daySummary=getElement('rallyDaySummary');if(daySummary)daySummary.hidden=true;
+  set('rallyDayCollected',model.daySummary?.totalCollected||0);set('rallyDayDeferred',model.daySummary?.totalDeferred||0);set('rallyDayScore',model.daySummary?.score||0);set('rallyTotalScore',model.score||0);set('rallyDayBackupStatus',model.backupStatus||'Not backed up');set('rallyBackupSheetStatus',model.backupStatus||'Not backed up');
   const startNext=getElement('rallyStartNextDay');if(startNext){startNext.hidden=!model.dayComplete||!model.nextDay;startNext.textContent=model.nextDay?`Start Day ${model.nextDay}`:'Start Next Day';}
   const goHotel=getElement('goHotelButton');
   if(goHotel){

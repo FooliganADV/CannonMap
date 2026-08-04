@@ -34,7 +34,7 @@ import {createFirebaseAuthentication} from './src/infrastructure/firebase/authen
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
 const APP_VERSION = '0.7.1';
-const BUILD_ID = '2026.08.03.stabilization-07';
+const BUILD_ID = '2026.08.04.stabilization-08';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
@@ -1058,7 +1058,7 @@ async function openPhotoViewer(allProjects=false){
 const openJourneyPhotoViewer=()=>openPhotoViewer(true);
 async function exportPhotoSelection(role){const group=photoViewerGroups[photoViewerIndex],record=group?.[role];if(!record)return setStatus(`${role==='original'?'Original':'Evidence'} photo is unavailable.`,true);const file=await photoExports.single(record.mediaId);downloadStoredBlob(file.blob,file.filename);}
 async function exportPhotoArchive(scope){
-  const day=activeRallyDay()||photoViewerGroups.find(item=>item.day)?.day||1,file=scope==='day'?await photoExports.day(state.project.projectId,day):await photoExports.rally(state.project.projectId);downloadStoredBlob(file.blob,file.filename);state.settings.lastMediaExportAt=new Date().toISOString();await saveProject(false);
+  const day=activeRallyDay()||photoViewerGroups.find(item=>item.day)?.day||1,file=scope==='day'?await photoExports.day(state.project.projectId,day):await photoExports.rally(state.project.projectId);downloadStoredBlob(file.blob,file.filename);state.settings.lastMediaExportAt=new Date().toISOString();if(scope==='day')await markDayBackupProgress(day,'photos');else await saveProject(false);
 }
 async function exportEntireJourney(){
   const projects=await projectLifecycle.listProjects(),manifest={format:'cannonmap-journey-archive-set',version:1,createdAt:new Date().toISOString(),projects:[]};
@@ -1069,11 +1069,20 @@ async function exportEntireJourney(){
   for(const project of projects){try{const journal=(await rallyJournal.getProjectJournal(project.projectId)).events,file=await photoExports.projectBackup(project.projectId,{journal,project,settings:project.projectId===state.project.projectId?state.settings:{}});downloadStoredBlob(file.blob,file.filename);}catch(error){setStatus(`Journey export stopped safely at ${project.name}: ${error.message}`,true);return;}}
   state.settings.lastMediaExportAt=new Date().toISOString();await saveProject(false);setStatus('Journey archive set exported by project with a journey manifest.');
 }
-async function exportDayJournal(){const day=activeRallyDay(),events=(await missionControlJournalEvents()).filter(event=>Number(event.metadata?.dayNumber||event.references?.dayNumber)===day);downloadBlob(JSON.stringify(events,null,2),`Day${String(day).padStart(2,'0')}_Journal.json`,'application/json');}
+function dayBackupStatus(day=activeRallyDay()){
+  const progress=state.settings.mediaBackupProgress?.[day];if(!progress){if(state.settings.mediaBackups?.[day])return 'Backup package exported';return 'Not backed up';}
+  if(progress.photos&&progress.journal&&progress.package)return 'Backup complete';if(progress.package)return 'Backup package exported';if(progress.photos&&progress.journal)return 'Backup complete';if(progress.photos)return 'Photos exported';if(progress.journal)return 'Journal exported';return 'Not backed up';
+}
+async function markDayBackupProgress(day,kind){
+  state.settings.mediaBackupProgress||={};const progress=state.settings.mediaBackupProgress[day]||={};progress[kind]=new Date().toISOString();state.settings.lastMediaExportAt=progress[kind];await saveProject(false);renderRallyMode();if($('rallyBackupSheetStatus'))$('rallyBackupSheetStatus').textContent=dayBackupStatus(day);renderStorageAndProjects();
+}
+function openDayBackupSheet(){setRallyMoreOpen(false);$('rallyBackupSheet').hidden=false;$('rallyMode')?.classList.add('backup-open');$('rallyBackupSheetStatus').textContent=dayBackupStatus();setTimeout(()=>$('rallyBackupDayPhotos')?.focus(),0);}
+function closeDayBackupSheet(){$('rallyBackupSheet').hidden=true;$('rallyMode')?.classList.remove('backup-open');}
+async function exportDayJournal(){const day=activeRallyDay(),events=(await missionControlJournalEvents()).filter(event=>Number(event.metadata?.dayNumber||event.references?.dayNumber)===day);downloadBlob(JSON.stringify(events,null,2),`Day${String(day).padStart(2,'0')}_Journal.json`,'application/json;charset=utf-8');await markDayBackupProgress(day,'journal');}
 async function exportDayBackupPackage(){
   const day=activeRallyDay(),events=(await missionControlJournalEvents()).filter(event=>Number(event.metadata?.dayNumber||event.references?.dayNumber)===day),file=await photoExports.dayBackup(state.project.projectId,day,{journal:events,project:state.project});downloadStoredBlob(file.blob,file.filename);
-  const timestamp=new Date().toISOString();state.settings.mediaBackups||={};state.settings.mediaBackups[day]={completedAt:timestamp,filename:file.filename};state.settings.lastMediaExportAt=timestamp;
-  await appendRallyJournalEvent('day_backup_exported',null,{eventIdentity:`day-backup:${day}:${timestamp}`,dayNumber:day,title:`Day ${day} Backup Exported`,summary:file.filename,mediaCount:file.manifest.mediaCount},timestamp);await saveProject(false);renderStorageAndProjects();
+  const timestamp=new Date().toISOString();state.settings.mediaBackups||={};state.settings.mediaBackups[day]={completedAt:timestamp,filename:file.filename};
+  await appendRallyJournalEvent('day_backup_exported',null,{eventIdentity:`day-backup:${day}:${timestamp}`,dayNumber:day,title:`Day ${day} Backup Exported`,summary:file.filename,mediaCount:file.manifest.mediaCount},timestamp);await markDayBackupProgress(day,'package');
 }
 function requestJourneyPhoto(){
   const speed=Number(state.lastGpsPosition?.speedMph);if(Number.isFinite(speed)&&speed>1)return setStatus('Journey photos are available only while stationary.',true);
@@ -1676,7 +1685,7 @@ function renderRallyMode(){
     deferredCount,showDeferredPrompt:deferredCount>0&&!hasRunnable&&!next,hasHotel:Boolean(hotel.hotel),hotelBailoutActive:state.hotelBailoutActive,
     autoComplete:state.settings.autoCompleteCheckpoints!==false,arrivalRadius:state.settings.checkpointArrivalRadius||500,maxAccuracy:state.settings.checkpointMaxAccuracy||200,
     checkpoints:rows,hasPlanned:rows.some(feature=>feature.status===checkpoints.CHECKPOINT_STATE.UPCOMING),warnings:currentOperationalWarnings(next),
-    routeIntelligence:cannonRouteStatus(next),dayComplete:dayState.status==='complete',nextDay:dayState.nextDay,daySummary:dayState.summary
+    routeIntelligence:cannonRouteStatus(next),dayComplete:dayState.status==='complete',nextDay:dayState.nextDay,daySummary:dayState.summary,backupStatus:dayBackupStatus()
   }});
 }
 function setRallyMoreOpen(open){$('rallyMode')?.classList.toggle('more-open',open);$('rallyMoreSheet')?.setAttribute('aria-hidden',String(!open));$('rallyMoreButton')?.setAttribute('aria-expanded',String(open));if($('rallyMoreButton'))$('rallyMoreButton').textContent=open?'Close':'More';if(open)renderStorageAndProjects().catch(error=>setStatus(`Storage status unavailable: ${error.message}`,true));}
@@ -1752,7 +1761,7 @@ async function finalizeDay(checkpoint){
   await rallyAnalytics?.flush?.();const completedAt=new Date().toISOString(),summary={
     totalCollected:rows.filter(item=>item.status===checkpoints.CHECKPOINT_STATE.COLLECTED).length,
     totalDeferred:rows.filter(item=>item.status===checkpoints.CHECKPOINT_STATE.DEFERRED).length,
-    score:rallyScore(),distanceTraveledMiles:rallyAnalytics?.snapshot?.()?.metrics?.distanceMiles??null
+    score:rows.filter(item=>item.status===checkpoints.CHECKPOINT_STATE.COLLECTED).reduce((total,item)=>total+(Number(item.points)||0),0),distanceTraveledMiles:rallyAnalytics?.snapshot?.()?.metrics?.distanceMiles??null
   };
   dayState.status='complete';dayState.completedAt=completedAt;dayState.nextDay=checkpoints.nextRallyDay(state.project,day);dayState.summary=summary;
   await appendRallyJournalEvent('day_finished',checkpoint,{eventIdentity:`day-finished:${day}`,dayCompletionTimestamp:completedAt,...summary,
@@ -1840,7 +1849,7 @@ function wireUi() {
   $('sidebarToggle')?.addEventListener('click',()=>setSidebarOpen(!$('sidebar').classList.contains('open')));
   $('sidebarClose')?.addEventListener('click',()=>setSidebarOpen(false));
   $('sidebarBackdrop')?.addEventListener('click',()=>setSidebarOpen(false));
-  document.addEventListener('keydown',event=>{if(event.key==='Escape'){setSidebarOpen(false);setIntelSheetOpen(false);}});
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'){setSidebarOpen(false);setIntelSheetOpen(false);closeDayBackupSheet();}});
   wireProjectController({getElement:$,actions:{
     importGpx:importGpxFiles,openProject:openProjectFile,saveProject,exportProject:exportProjectFile,reassignDays:reassignExistingDays,
     exportGpx,exportExcel,exportCsv,applyImport:applyPendingImport,cancelImport:()=>state.pendingImport=null
@@ -1900,7 +1909,9 @@ function wireUi() {
   $('rallyBackupDayPhotos')?.addEventListener('click',()=>exportPhotoArchive('day'));
   $('rallyBackupDayJournal')?.addEventListener('click',exportDayJournal);
   $('rallyBackupDayPackage')?.addEventListener('click',exportDayBackupPackage);
-  $('rallyBackupRemindLater')?.addEventListener('click',()=>{state.settings.mediaBackupReminderDay=activeRallyDay();saveProject(false);renderStorageAndProjects();setStatus('Backup reminder retained in Diagnostics.');});
+  $('rallyBackupToday')?.addEventListener('click',openDayBackupSheet);
+  $('rallyBackupClose')?.addEventListener('click',closeDayBackupSheet);$('rallyBackupCloseSecondary')?.addEventListener('click',closeDayBackupSheet);
+  $('rallyBackupRemindLater')?.addEventListener('click',async()=>{state.settings.mediaBackupReminderDay=activeRallyDay();await saveProject(false);await renderStorageAndProjects();closeDayBackupSheet();setStatus('Backup reminder retained in Diagnostics.');});
   $('rallyProjectCreate')?.addEventListener('click',createIndependentProject);
   $('rallyRetryEvidence')?.addEventListener('click',retryFailedEvidence);
   $('rallyProjectSwitch')?.addEventListener('click',()=>switchProject($('rallyProjectSelect')?.value));

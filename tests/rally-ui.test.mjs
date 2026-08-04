@@ -44,14 +44,20 @@ test('Rally presenter hides empty objective sections and hotel defer control',()
   assert.equal(getElement('rallyDeferIcon').hidden,true);
 });
 
-test('Day Complete suppresses stale deferred and objective controls',()=>{
+test('Day Complete renders compact metrics and persisted backup status',()=>{
   const elements=new Map(),getElement=id=>{if(!elements.has(id))elements.set(id,fakeElement());return elements.get(id);};
-  renderRally({getElement,escapeHtml:String,model:{day:1,online:true,score:20,next:null,distance:null,warnings:[],checkpoints:[],hasHotel:true,showDeferredPrompt:true,deferredCount:1,dayComplete:true,nextDay:2,daySummary:{totalCollected:3,totalDeferred:1,score:20}}});
+  renderRally({getElement,escapeHtml:String,model:{day:1,online:true,score:45,next:null,distance:null,warnings:[],checkpoints:[],hasHotel:true,showDeferredPrompt:true,deferredCount:1,dayComplete:true,nextDay:2,backupStatus:'Photos exported',daySummary:{totalCollected:3,totalDeferred:1,score:20}}});
   assert.equal(getElement('rallyDeferredPrompt').hidden,true);
   assert.equal(getElement('rallyResumeDeferredButton').disabled,true);
   assert.equal(getElement('rallyFinishDayButton').disabled,true);
   assert.equal(getElement('rallyDayComplete').hidden,false);
   assert.equal(getElement('rallyStartNextDay').textContent,'Start Day 2');
+  assert.equal(getElement('rallyDayCollected').textContent,3);
+  assert.equal(getElement('rallyDayDeferred').textContent,1);
+  assert.equal(getElement('rallyDayScore').textContent,20);
+  assert.equal(getElement('rallyTotalScore').textContent,45);
+  assert.equal(getElement('rallyDayBackupStatus').textContent,'Photos exported');
+  assert.equal(getElement('rallyBackupSheetStatus').textContent,'Photos exported');
 });
 
 test('Rally controller owns control event wiring through injected actions',()=>{
