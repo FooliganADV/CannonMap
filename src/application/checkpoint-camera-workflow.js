@@ -12,8 +12,8 @@ export function createCheckpointCameraWorkflow({mediaRepository,photoEvidence,jo
   };
   const arm=()=>{clear();active.deadline=Date.now()+timeoutMs;timer=setTimer(expire,timeoutMs);publish();};
   return Object.freeze({
-    start({projectId,checkpoint,journalEvent,required=Boolean(checkpoint?.photoRequired),evidenceContext={}}){
-      clear();active={status:'requesting',required:Boolean(required),projectId,checkpoint,journalEvent,evidenceContext,photos:[],startedAt:clock.iso(),deadline:0,error:''};
+    start({projectId,checkpoint,journalEvent,required=Boolean(checkpoint?.photoRequired),evidenceContext={},cameraPreference='front'}){
+      clear();active={status:'requesting',required:Boolean(required),projectId,checkpoint,journalEvent,evidenceContext,cameraPreference,photos:[],startedAt:clock.iso(),deadline:0,error:''};
       arm();onRequested(snapshot());return snapshot();
     },
     async addFiles(files){
@@ -23,7 +23,8 @@ export function createCheckpointCameraWorkflow({mediaRepository,photoEvidence,jo
       try{
         for(const file of [...files]){
           const photoJournalEventId=active.evidenceContext.photoJournalEventId||active.journalEvent.eventId;
-          const pair=photoEvidence?await photoEvidence.capture({projectId:active.projectId,checkpointId:active.checkpoint.id,journalEventId:photoJournalEventId,file,context:active.evidenceContext}):null;
+          const cameraMetadata=active.evidenceContext.cameraMetadata?.(file)||{requestedCamera:active.cameraPreference,actualCamera:'unknown',cameraSelectionHonored:'unknown'};
+          const pair=photoEvidence?await photoEvidence.capture({projectId:active.projectId,checkpointId:active.checkpoint.id,journalEventId:photoJournalEventId,file,context:{...active.evidenceContext,cameraMetadata:undefined,...cameraMetadata}}):null;
           const reference=pair||await mediaRepository.addPhoto({projectId:active.projectId,checkpointId:active.checkpoint.id,journalEventId:active.journalEvent.eventId,file});
           const photos=pair?[pair.original,pair.evidence]:[reference];
           try{await journal.appendEvent({
@@ -31,7 +32,7 @@ export function createCheckpointCameraWorkflow({mediaRepository,photoEvidence,jo
             summary:active.checkpoint.type==='hotel'?'Hotel arrival photo captured.':'Photo captured during checkpoint arrival.',
             references:{checkpointId:active.checkpoint.id,parentEventId:active.journalEvent.eventId,mediaGroupId:pair?.mediaGroupId||reference.mediaId,
               originalMediaId:pair?.original?.mediaId||reference.mediaId,evidenceMediaId:pair?.evidence?.mediaId||null},
-            attachments:{photos,original:pair?.original||reference,evidence:pair?.evidence||null},metadata:{checkpointId:active.checkpoint.id,objectiveType:active.checkpoint.type||'checkpoint',dayNumber:Number(active.checkpoint.day)||null,projectId:active.projectId,required:active.required,status:'recorded',captureTimestamp:active.evidenceContext.capturedAt||clock.iso(),exportFilename:pair?.evidence?.name||reference.name,originalExportFilename:pair?.original?.name||reference.name,evidenceExportFilename:pair?.evidence?.name||null}
+            attachments:{photos,original:pair?.original||reference,evidence:pair?.evidence||null},metadata:{checkpointId:active.checkpoint.id,objectiveType:active.checkpoint.type||'checkpoint',dayNumber:Number(active.checkpoint.day)||null,projectId:active.projectId,required:active.required,status:'recorded',captureTimestamp:active.evidenceContext.capturedAt||clock.iso(),exportFilename:pair?.evidence?.name||reference.name,originalExportFilename:pair?.original?.name||reference.name,evidenceExportFilename:pair?.evidence?.name||null,...cameraMetadata}
           });}catch(error){if(pair)await mediaRepository.deleteEvidencePair?.(pair);throw error;}
           active.photos.push(reference);
         }

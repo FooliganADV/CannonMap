@@ -15,6 +15,7 @@ import {createRallyJournalService} from './src/application/rally-journal-service
 import {createProjectLifecycleManager} from './src/application/project-lifecycle-manager.js';
 import {createProjectRepositoryScope} from './src/application/project-repository-scope.js';
 import {createCheckpointCameraWorkflow} from './src/application/checkpoint-camera-workflow.js';
+import {normalizeCameraPreference,cameraCaptureAttribute,cameraSelectionMetadata} from './src/domain/media/camera-preference.js';
 import {createGpsFollowController} from './src/application/gps-follow-controller.js';
 import {createRallyDebugLog} from './src/application/rally-debug-log.js';
 import {createRideExportSource} from './src/application/ride-export-source.js';
@@ -37,7 +38,7 @@ import {createFirebaseAuthentication} from './src/infrastructure/firebase/authen
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
 const APP_VERSION = '0.7.1';
-const BUILD_ID = '2026.08.04.stabilization-10';
+const BUILD_ID = '2026.08.05.stabilization-11';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
@@ -1007,6 +1008,15 @@ function renderCheckpointCameraState(cameraState){
   if($('rallyCameraRetry'))$('rallyCameraRetry').hidden=!['failed','awaiting_photo'].includes(cameraState.status);
   if($('rallyCameraResumeCompletion'))$('rallyCameraResumeCompletion').hidden=cameraState.status!=='ready';
 }
+function preferredCamera(){return normalizeCameraPreference(state.settings.preferredCamera);}
+function applyCameraPreference(){
+  const preference=preferredCamera(),capture=cameraCaptureAttribute(preference),selfie=preference==='front';
+  for(const id of ['rallyCameraInput','rallyJourneyPhotoInput'])$(id)?.setAttribute('capture',capture);
+  for(const id of ['rallyCameraSelfie','rallyPreferredCameraSelfie'])$(id)?.classList.toggle('is-active',selfie);
+  for(const id of ['rallyCameraForward','rallyPreferredCameraForward'])$(id)?.classList.toggle('is-active',!selfie);
+  if($('rallyPreferredCameraStatus'))$('rallyPreferredCameraStatus').textContent=`${selfie?'Selfie':'Forward'} camera requested`;
+}
+async function setPreferredCamera(value){state.settings.preferredCamera=normalizeCameraPreference(value);applyCameraPreference();await saveProject(false);rallyDebug.record('camera_preference_changed',{requestedCamera:state.settings.preferredCamera});}
 async function addCheckpointCameraFiles(files){
   if(!files?.length||!checkpointCamera)return;
   try{
@@ -1048,7 +1058,7 @@ function photoEvidenceContext(checkpoint,journalEvent){
     weatherContext:weatherNearCapture?`${weather.condition||'Unavailable'} · ${weather.cached||weather.offline?'Cached':'Live'} · ${weatherAge===null?'age unavailable':`${Math.round(weatherAge/60000)} min old`}`:null,
     speedMph:gps?.speedMph??null,motion:gps?.motion??null,gpsSampleTimestamp:gps?.sampleTimestamp??null,gpsSampleAgeMs:gps?.sampleAgeMs??null,
     gpsAccuracy:gps?.gpsAccuracyFeet??null,deviceHeading:gps?.heading??null,travelDirection:gps?.headingFresh?travelDirection(gps.heading):null,
-    photoJournalEventId:stableUuid(`${state.project.projectId}:photo:${checkpoint.id}:${journalEvent.eventId}`)};
+    photoJournalEventId:stableUuid(`${state.project.projectId}:photo:${checkpoint.id}:${journalEvent.eventId}`),cameraMetadata:file=>cameraSelectionMetadata(preferredCamera(),file)};
 }
 function closePhotoViewer(){
   $('rallyPhotoViewer').hidden=true;for(const url of photoViewerUrls)URL.revokeObjectURL(url);photoViewerUrls=[];
@@ -1116,13 +1126,14 @@ async function exportDayBackupPackage(){
 }
 function requestJourneyPhoto(){
   const speed=Number(state.lastGpsPosition?.speedMph);if(Number.isFinite(speed)&&speed>1)return setStatus('Journey photos are available only while stationary.',true);
-  pendingJourneyCaption=prompt('Journey photo caption or note','')||'';$('rallyJourneyPhotoInput')?.click();
+  pendingJourneyCaption=prompt('Journey photo caption or note','')||'';applyCameraPreference();$('rallyJourneyPhotoInput')?.click();
 }
 async function addJourneyPhoto(file){
   if(!file)return;const capturedAt=new Date().toISOString(),day=activeRallyDay()||Number(state.settings.dayFilter)||null,eventId=stableUuid(`${state.project.projectId}:journey-photo:${capturedAt}`),checkpointId=`journey:${eventId}`,gps=captureArrivalEvidence(state.lastGpsPosition,Date.now()),weather=weatherMaintenance?.getContext();
-  const event=await rallyJournal.appendEventIdempotent({eventId,projectId:state.project.projectId,eventType:'journey_photo_started',source:'mission_control',title:'Journey Photo',summary:pendingJourneyCaption||'General journey capture.',references:{checkpointId},metadata:{dayNumber:day,capturedAt,caption:pendingJourneyCaption,location:gps,weather}});
-  try{const pair=await photoEvidence.capture({projectId:state.project.projectId,checkpointId,journalEventId:eventId,file,context:{eventName:'Journey Photo',rallyName:state.project.name,dayNumber:day,checkpointName:pendingJourneyCaption||'Journey Photo',checkpointNumber:'General',capturedAt,latitude:gps?.latitude,longitude:gps?.longitude,elevation:gps?.elevationFeet,temperature:weather?.temperature,gpsAccuracy:gps?.gpsAccuracyFeet,deviceHeading:gps?.heading,speedMph:gps?.speedMph,motion:gps?.motion,weatherContext:weather?.condition,journalEventId:eventId}});
-    await rallyJournal.appendEventIdempotent({eventId:stableUuid(`${eventId}:stored`),projectId:state.project.projectId,eventType:'photo_added',source:'mission_control',title:'Journey Photo Stored',summary:pendingJourneyCaption||'General journey capture.',references:{parentEventId:eventId,checkpointId,originalMediaId:pair.original.mediaId,evidenceMediaId:pair.evidence.mediaId,mediaGroupId:pair.mediaGroupId},attachments:{photos:[pair.original,pair.evidence],original:pair.original,evidence:pair.evidence},metadata:{dayNumber:day,objectiveType:'journey',caption:pendingJourneyCaption,status:'recorded',captureTimestamp:capturedAt}});setStatus('Journey photo stored at full resolution.');
+  const camera=cameraSelectionMetadata(preferredCamera(),file);rallyDebug.record('photo_requested',{objectiveType:'journey',...camera});
+  const event=await rallyJournal.appendEventIdempotent({eventId,projectId:state.project.projectId,eventType:'journey_photo_started',source:'mission_control',title:'Journey Photo',summary:pendingJourneyCaption||'General journey capture.',references:{checkpointId},metadata:{dayNumber:day,capturedAt,caption:pendingJourneyCaption,location:gps,weather,...camera}});
+  try{const pair=await photoEvidence.capture({projectId:state.project.projectId,checkpointId,journalEventId:eventId,file,context:{eventName:'Journey Photo',rallyName:state.project.name,dayNumber:day,checkpointName:pendingJourneyCaption||'Journey Photo',checkpointNumber:'General',capturedAt,latitude:gps?.latitude,longitude:gps?.longitude,elevation:gps?.elevationFeet,temperature:weather?.temperature,gpsAccuracy:gps?.gpsAccuracyFeet,deviceHeading:gps?.heading,speedMph:gps?.speedMph,motion:gps?.motion,weatherContext:weather?.condition,journalEventId:eventId,...camera}});
+    await rallyJournal.appendEventIdempotent({eventId:stableUuid(`${eventId}:stored`),projectId:state.project.projectId,eventType:'photo_added',source:'mission_control',title:'Journey Photo Stored',summary:pendingJourneyCaption||'General journey capture.',references:{parentEventId:eventId,checkpointId,originalMediaId:pair.original.mediaId,evidenceMediaId:pair.evidence.mediaId,mediaGroupId:pair.mediaGroupId},attachments:{photos:[pair.original,pair.evidence],original:pair.original,evidence:pair.evidence},metadata:{dayNumber:day,objectiveType:'journey',caption:pendingJourneyCaption,status:'recorded',captureTimestamp:capturedAt,...camera}});setStatus('Journey photo stored at full resolution.');
   }catch(error){await rallyJournal.appendEventIdempotent({eventId:stableUuid(`${eventId}:failed`),projectId:state.project.projectId,eventType:'media_storage_failure',source:'mission_control',title:'Journey Photo Storage Failed',summary:error.message,references:{parentEventId:eventId,checkpointId,originalMediaId:error.originalMedia?.mediaId||null},metadata:{dayNumber:day,status:error.originalMedia?'evidence_failed':'write_failed',retryable:true}});setStatus(error.originalMedia?'Original stored; Evidence generation failed and can be retried.':'Photo was not safely stored. Retry before leaving.',true);}
   pendingJourneyCaption='';renderStorageAndProjects();
 }
@@ -1728,6 +1739,7 @@ async function retryFailedEvidence(){
 async function switchProject(projectId){
   const project=await projectLifecycle.openProject(projectId);activeLifecycleProjectId=project.projectId;state.project=sanitizeProjectData(project,'project switch');
   try{state.settings=Object.assign({},defaultProjectSettings||state.settings,JSON.parse(localStorage.getItem(`${SETTINGS_KEY}.${project.projectId}`)||'{}'));}catch(_){state.settings=Object.assign({},defaultProjectSettings||state.settings);}
+  state.settings.preferredCamera=normalizeCameraPreference(state.settings.preferredCamera);applyCameraPreference();
   weatherMaintenance=createProjectWeatherMaintenance();weatherMaintenance.restore();clearSelection();rallyExecution();renderAll();fitMap();await appendRallyJournalEvent('project_opened',null,{eventIdentity:`project-opened:${project.projectId}:${Date.now()}`,title:`Project Opened · ${project.name}`});await renderStorageAndProjects();setStatus(`Opened ${project.name}.`);
 }
 async function createIndependentProject(){
@@ -1809,8 +1821,8 @@ async function beginPhotoWorkflow(checkpoint,automatic){
   weatherMaintenance?.onArrival({lat:checkpoint.arrivalEvidence.latitude??state.lastGpsPosition?.lat,lon:checkpoint.arrivalEvidence.longitude??state.lastGpsPosition?.lon}).catch(()=>{});
   const arrival=await appendRallyJournalEvent('checkpoint_arrival',checkpoint,{eventIdentity:`arrival:${checkpoint.id}`,checkpointArrivalTimestamp:timestamp,
     photoRequired:Boolean(checkpoint.photoRequired),photoStatus:checkpoint.photoStatus,arrivalEvidence:checkpoint.arrivalEvidence,source:automatic?'gps_capture':'manual_fallback',title:checkpoint.type==='hotel'?'Hotel Reached':checkpoint.name,summary:checkpoint.type==='hotel'?'Hotel arrival recorded; photo evidence is required before day completion.':'Checkpoint arrival recorded.'},timestamp);
-  pendingPhotoCheckpointId=checkpoint.id;rallyDebug.record('photo_requested',{checkpointId:checkpoint.id,required:Boolean(checkpoint.photoRequired)});
-  checkpointCamera?.start({projectId:state.project.projectId,checkpoint,journalEvent:arrival,required:Boolean(checkpoint.photoRequired),evidenceContext:photoEvidenceContext(checkpoint,arrival)});setTimeout(()=>$('rallyCameraInput')?.click(),0);
+  const cameraPreference=preferredCamera();applyCameraPreference();pendingPhotoCheckpointId=checkpoint.id;rallyDebug.record('photo_requested',{checkpointId:checkpoint.id,required:Boolean(checkpoint.photoRequired),requestedCamera:cameraPreference,actualCamera:'unknown',cameraSelectionHonored:'unknown'});
+  checkpointCamera?.start({projectId:state.project.projectId,checkpoint,journalEvent:arrival,required:Boolean(checkpoint.photoRequired),evidenceContext:photoEvidenceContext(checkpoint,arrival),cameraPreference});setTimeout(()=>$('rallyCameraInput')?.click(),0);
 }
 async function finalizePendingPhotoCheckpoint(){
   const checkpoint=state.project.features.find(feature=>feature.id===pendingPhotoCheckpointId);if(!checkpoint)return;
@@ -1946,6 +1958,8 @@ function wireUi() {
   $('rallyJourneyGalleryButton')?.addEventListener('click',openJourneyPhotoViewer);
   $('rallyJourneyPhotoButton')?.addEventListener('click',requestJourneyPhoto);
   $('rallyJourneyPhotoInput')?.addEventListener('change',event=>{const file=event.target.files?.[0];event.target.value='';addJourneyPhoto(file);});
+  for(const id of ['rallyCameraSelfie','rallyPreferredCameraSelfie'])$(id)?.addEventListener('click',()=>setPreferredCamera('front'));
+  for(const id of ['rallyCameraForward','rallyPreferredCameraForward'])$(id)?.addEventListener('click',()=>setPreferredCamera('rear'));
   $('rallyBackupDayPhotos')?.addEventListener('click',()=>exportPhotoArchive('day'));
   $('rallyBackupDayJournal')?.addEventListener('click',exportDayJournal);
   $('rallyBackupDayPackage')?.addEventListener('click',exportDayBackupPackage);
@@ -2004,7 +2018,8 @@ async function initializeApplication() {
   await initializeMissionControlFoundationsWithRetry();
   state.project.features.forEach(f=>{f.assignmentMethod ||= '';f.favorite ||= false;});
   state.settings.typeVisibility=Object.assign({track:true,route:true,backbone:true,waypoint:true,checkpoint:true,fuel:true,hotel:true},state.settings.typeVisibility||{});
-  state.settings=Object.assign({leaderboardUrl:'https://gpscheckpoints.com/admin/leaderboard.html?id_event=15',rallyEndpointUrl:'',rallyEventId:'15',rallyPollSeconds:30,showCompetitorTrails:true,showCompetitorMarkers:true,showStationaryEvents:true,showCompetitorClusters:true,competitorTrailMinutes:480,competitorTrailOpacity:100,competitorFreshMinutes:15,trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:'',radarOpacity:65,radarCoverage:'active-day',radarEnabled:false,routeWeatherSpeed:45,usableFuelCapacity:0,expectedPavedRange:0,expectedMixedRange:0,reserveDistance:25,fuelProfile:'mixed',autoCompleteCheckpoints:true,checkpointArrivalRadius:500,checkpointMaxAccuracy:200,hideCompletedCheckpoints:true},state.settings);
+  state.settings=Object.assign({leaderboardUrl:'https://gpscheckpoints.com/admin/leaderboard.html?id_event=15',rallyEndpointUrl:'',rallyEventId:'15',rallyPollSeconds:30,showCompetitorTrails:true,showCompetitorMarkers:true,showStationaryEvents:true,showCompetitorClusters:true,competitorTrailMinutes:480,competitorTrailOpacity:100,competitorFreshMinutes:15,trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:'',radarOpacity:65,radarCoverage:'active-day',radarEnabled:false,routeWeatherSpeed:45,usableFuelCapacity:0,expectedPavedRange:0,expectedMixedRange:0,reserveDistance:25,fuelProfile:'mixed',autoCompleteCheckpoints:true,checkpointArrivalRadius:500,checkpointMaxAccuracy:200,hideCompletedCheckpoints:true,preferredCamera:'front'},state.settings);
+  state.settings.preferredCamera=normalizeCameraPreference(state.settings.preferredCamera);applyCameraPreference();
   defaultProjectSettings=deepClean(state.settings);
   state.project.competitors ||= [];
   state.project.stationaryEvents ||= [];

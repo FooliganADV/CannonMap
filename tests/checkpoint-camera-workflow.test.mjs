@@ -48,3 +48,13 @@ test('storage failure is visible, journaled, and never reports a required photo 
   await assert.rejects(()=>workflow.addFiles([new Blob(['full-resolution'])]),error=>error.name==='QuotaExceededError');
   assert.equal(workflow.getState().status,'failed');assert.match(workflow.getState().error,/checkpoint has NOT been completed/);assert.equal(workflow.finish(),null);assert.equal(workflow.getState().status,'awaiting_photo');assert.equal(events[0].eventType,'media_storage_failure');assert.equal(events[0].metadata.status,'write_failed');assert.equal(events[0].metadata.error,undefined);assert.equal(diagnostics[0].exceptionName,'QuotaExceededError');assert.equal(diagnostics[0].objectStore,'missionMedia');
 });
+
+test('checkpoint and hotel photo Journal events record requested and actual camera state without blocking fallback',async()=>{
+  const events=[],workflow=createCheckpointCameraWorkflow({mediaRepository:{addPhoto:async()=>({mediaId:'photo',name:'photo.jpg'})},journal:{appendEvent:async event=>events.push(event)},clock:{iso:()=> '2026-08-05T12:00:00.000Z'}});
+  workflow.start({projectId:'project',checkpoint:{id:'hotel',name:'Hotel',type:'hotel',day:1},journalEvent:{eventId:'arrival'},cameraPreference:'front',evidenceContext:{cameraMetadata:file=>({requestedCamera:'front',actualCamera:file.actualCamera||'unknown',cameraSelectionHonored:file.actualCamera?file.actualCamera==='front':'unknown'})}});
+  await workflow.addFiles([{name:'selfie.jpg',actualCamera:'front'}]);
+  assert.deepEqual(Object.fromEntries(['requestedCamera','actualCamera','cameraSelectionHonored'].map(key=>[key,events[0].metadata[key]])),{requestedCamera:'front',actualCamera:'front',cameraSelectionHonored:true});
+  workflow.start({projectId:'project',checkpoint:{id:'checkpoint',name:'1.1'},journalEvent:{eventId:'arrival-2'},cameraPreference:'rear'});
+  await workflow.addFiles([{name:'fallback.jpg'}]);
+  assert.equal(events[1].metadata.requestedCamera,'rear');assert.equal(events[1].metadata.actualCamera,'unknown');assert.equal(events[1].metadata.cameraSelectionHonored,'unknown');
+});

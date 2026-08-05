@@ -18,7 +18,7 @@ export function createLegacyState(appVersion,clock){
       dayFilter:'all',inreachUrl:'',baseLayer:'Streets',lineOpacity:90,
       typeVisibility:{track:true,route:true,backbone:true,waypoint:true,checkpoint:true,fuel:true,hotel:true},
       leaderboardUrl:'https://gpscheckpoints.com/admin/leaderboard.html?id_event=15',rallyEndpointUrl:'',rallyEventId:'15',rallyPollSeconds:30,
-      showCompetitorTrails:true,showCompetitorMarkers:true,competitorFreshMinutes:15,
+      showCompetitorTrails:true,showCompetitorMarkers:true,competitorFreshMinutes:15,preferredCamera:'front',
       trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:'',radarOpacity:65,radarCoverage:'active-day',routeWeatherSpeed:45,
       usableFuelCapacity:0,expectedPavedRange:0,expectedMixedRange:0,reserveDistance:25,fuelProfile:'mixed'
     }

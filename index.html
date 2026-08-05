@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260804-stabilization-10" />
+  <link rel="stylesheet" href="app.css?v=20260805-stabilization-11" />
 </head>
 <body>
   <header class="topbar">
@@ -283,7 +283,8 @@
           <strong>Checkpoint Captured</strong><span id="rallyCameraCountdown">60</span>
           <p><strong id="rallyCameraHeading">Checkpoint Reached</strong><br>Capture required rally evidence. Mission Control continues only after durable storage succeeds.</p>
           <label for="rallyCameraInput">Open Camera</label>
-          <input id="rallyCameraInput" type="file" accept="image/*" capture="environment" multiple />
+          <div class="rally-camera-facing" role="group" aria-label="Preferred camera"><button id="rallyCameraSelfie" type="button">Selfie</button><button id="rallyCameraForward" type="button">Forward</button></div>
+          <input id="rallyCameraInput" type="file" accept="image/*" capture="user" multiple />
           <small id="rallyCameraPhotoCount">No photos captured</small>
           <small id="rallyCameraError" class="rally-camera-error" hidden></small>
           <button id="rallyCameraRetry" type="button" hidden>Retry Camera</button>
@@ -325,9 +326,10 @@
             <button id="rallyDebugExportButton" type="button">Export Rally Debug Log</button>
             <button id="rallyJournalExportButton" type="button">Export Daily Journal</button>
             <button id="rallyJourneyPhotoButton" type="button">Add Journey Photo</button>
-            <input id="rallyJourneyPhotoInput" type="file" accept="image/*" capture="environment" hidden />
+            <input id="rallyJourneyPhotoInput" type="file" accept="image/*" capture="user" hidden />
           </div>
           <details class="rally-storage-diagnostics"><summary>Storage &amp; projects</summary><div id="rallyStorageSummary">Calculating storage…</div><button id="rallyRetryEvidence" type="button">Retry Failed Evidence</button><label>Active project <select id="rallyProjectSelect"></select></label><div class="rally-project-actions"><button id="rallyProjectCreate" type="button">Create Project</button><button id="rallyProjectSwitch" type="button">Switch Project</button><button id="rallyProjectRename" type="button">Rename Project</button><button id="rallyProjectArchive" type="button">Archive Project</button><button id="rallyProjectDelete" type="button">Delete Project</button><button id="rallyProjectExport" type="button">Export Project</button><label for="rallyProjectRestore">Restore Project</label><input id="rallyProjectRestore" type="file" accept=".cmapproject,.cmap,.json,application/json" hidden /></div><small id="rallyUnbackedDays"></small></details>
+          <details class="rally-camera-settings"><summary>Preferred Camera</summary><p>Used for checkpoint, hotel, and Journey Photos.</p><div class="rally-camera-facing" role="group" aria-label="Preferred camera setting"><button id="rallyPreferredCameraSelfie" type="button">Selfie</button><button id="rallyPreferredCameraForward" type="button">Forward</button></div><small id="rallyPreferredCameraStatus">Selfie camera requested</small></details>
           <details class="rally-arrival-settings">
             <summary>Automatic checkpoint arrival</summary>
             <label><input id="autoCompleteCheckpoints" type="checkbox" /> Complete and advance automatically</label>
@@ -455,6 +457,6 @@
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260804-stabilization-10"></script>
+  <script type="module" src="app.js?v=20260805-stabilization-11"></script>
 </body>
 </html>

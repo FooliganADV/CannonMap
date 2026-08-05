@@ -1,12 +1,12 @@
-const CACHE = 'cannonmap-v0.7.1-20260804-rally-stabilization-10';
+const CACHE = 'cannonmap-v0.7.1-20260805-rally-stabilization-11';
 const RADAR_CACHE='cannonmap-radar-v1',RADAR_CACHE_LIMIT=96;
 const APP_SHELL = [
   './',
   './index.html',
-  './app.css?v=20260804-stabilization-10',
+  './app.css?v=20260805-stabilization-11',
   './gps-checkpoints-feed.js?v=20260725-02',
   './stationary-events.js?v=20260725-01',
-  './app.js?v=20260804-stabilization-10',
+  './app.js?v=20260805-stabilization-11',
   './src/core/clock.js',
   './src/core/compatibility.js',
   './src/core/errors.js',
@@ -20,6 +20,7 @@ const APP_SHELL = [
   './src/domain/projects/errors.js',
   './src/domain/projects/finalized.js',
   './src/domain/competitors/trails.js',
+  './src/domain/media/camera-preference.js',
   './src/domain/templates/model.js',
   './src/domain/templates/errors.js',
   './src/domain/templates/built-ins.js',
