@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260804-stabilization-09" />
+  <link rel="stylesheet" href="app.css?v=20260804-stabilization-10" />
 </head>
 <body>
   <header class="topbar">
@@ -75,6 +75,9 @@
             <input id="projectInput" type="file" accept=".cmap,.json,application/json" />
           </label>
           <button id="saveProjectFileButton" class="button secondary">Save .cmap</button>
+          <button id="finalizeProjectButton" class="button primary">Finalize Project</button>
+          <button id="exportFinalizedProjectButton" class="button secondary" disabled>Export Finalized Project</button>
+          <label class="button secondary file-button">Import Finalized Project<input id="finalizedProjectInput" type="file" accept=".zip,.cmapproject.zip,application/zip" /></label>
           <button id="exportAllButton" class="button secondary">Export GPX</button>
           <button id="exportExcelButton" class="button secondary">Export Excel</button>
           <button id="exportCsvButton" class="button secondary">Export CSV</button>
@@ -196,8 +199,12 @@
           <div class="toggle-list">
             <label><input id="showCompetitorTrails" type="checkbox" /> Show breadcrumb trails</label>
             <label><input id="showCompetitorMarkers" type="checkbox" /> Show latest rider positions</label>
+            <label><input id="showStationaryEvents" type="checkbox" /> Show stationary events</label>
+            <label><input id="showCompetitorClusters" type="checkbox" /> Show tactical clusters</label>
           </div>
           <label class="field"><span>Freshness threshold</span><select id="competitorFreshMinutes"><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option></select></label>
+          <label class="field"><span>Trail history</span><select id="competitorTrailMinutes"><option value="60">1 hour</option><option value="240">4 hours</option><option value="480">8 hours</option><option value="1440">24 hours</option></select></label>
+          <label class="field"><span>Trail opacity</span><input id="competitorTrailOpacity" type="range" min="20" max="100" step="5" value="100" /></label>
           <div class="notice muted">A faded trail is stale. The backbone remains a separate optional reference layer and is never treated as the official route.</div>
         </details>
         <details open>
@@ -320,7 +327,7 @@
             <button id="rallyJourneyPhotoButton" type="button">Add Journey Photo</button>
             <input id="rallyJourneyPhotoInput" type="file" accept="image/*" capture="environment" hidden />
           </div>
-          <details class="rally-storage-diagnostics"><summary>Storage &amp; projects</summary><div id="rallyStorageSummary">Calculating storage…</div><button id="rallyRetryEvidence" type="button">Retry Failed Evidence</button><label>Active project <select id="rallyProjectSelect"></select></label><div class="rally-project-actions"><button id="rallyProjectCreate" type="button">Create Project</button><button id="rallyProjectSwitch" type="button">Switch Project</button><button id="rallyProjectRename" type="button">Rename Project</button><button id="rallyProjectArchive" type="button">Archive Project</button><button id="rallyProjectExport" type="button">Export Project</button><label for="rallyProjectRestore">Restore Project</label><input id="rallyProjectRestore" type="file" accept=".cmapproject,.cmap,.json,application/json" hidden /></div><small id="rallyUnbackedDays"></small></details>
+          <details class="rally-storage-diagnostics"><summary>Storage &amp; projects</summary><div id="rallyStorageSummary">Calculating storage…</div><button id="rallyRetryEvidence" type="button">Retry Failed Evidence</button><label>Active project <select id="rallyProjectSelect"></select></label><div class="rally-project-actions"><button id="rallyProjectCreate" type="button">Create Project</button><button id="rallyProjectSwitch" type="button">Switch Project</button><button id="rallyProjectRename" type="button">Rename Project</button><button id="rallyProjectArchive" type="button">Archive Project</button><button id="rallyProjectDelete" type="button">Delete Project</button><button id="rallyProjectExport" type="button">Export Project</button><label for="rallyProjectRestore">Restore Project</label><input id="rallyProjectRestore" type="file" accept=".cmapproject,.cmap,.json,application/json" hidden /></div><small id="rallyUnbackedDays"></small></details>
           <details class="rally-arrival-settings">
             <summary>Automatic checkpoint arrival</summary>
             <label><input id="autoCompleteCheckpoints" type="checkbox" /> Complete and advance automatically</label>
@@ -413,6 +420,13 @@
       </div>
     </form>
   </dialog>
+  <dialog id="finalizedProjectDialog">
+    <form method="dialog" class="dialog-form">
+      <h2>View Finalized Project</h2>
+      <div id="finalizedProjectReport" class="import-report"></div>
+      <div class="dialog-actions"><button value="close" class="button secondary">Close</button><button id="createExecutionCopyButton" value="create" class="button primary">Create Active Execution Copy</button></div>
+    </form>
+  </dialog>
 
   <dialog id="importDialog">
     <form method="dialog" id="importForm" class="dialog-form">
@@ -441,6 +455,6 @@
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260804-stabilization-09"></script>
+  <script type="module" src="app.js?v=20260804-stabilization-10"></script>
 </body>
 </html>

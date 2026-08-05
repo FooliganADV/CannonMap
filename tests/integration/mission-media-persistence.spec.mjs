@@ -13,7 +13,7 @@ test('v9 media storage is additive, durable, and project scoped',async({page},te
     const own=await repository.listCheckpointPhotos('project-1','cp-1'),other=await repository.listCheckpointPhotos('project-2','cp-1');
     const answer={version:database.version,reference,own:own.map(item=>({projectId:item.projectId,name:item.name,size:item.size,type:item.blob.type})),other};database.close();return answer;
   },`CannonMapDB-media-${testInfo.project.name}-${Date.now()}`);
-  expect(result.version).toBe(9);expect(result.reference.uri).toMatch(/^media:\/\//);
+  expect(result.version).toBe(10);expect(result.reference.uri).toMatch(/^media:\/\//);
   expect(result.own).toEqual([{projectId:'project-1',name:'checkpoint.jpg',size:5,type:'image/jpeg'}]);expect(result.other).toEqual([]);
 });
 

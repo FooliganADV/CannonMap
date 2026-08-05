@@ -38,7 +38,7 @@ test('v7 migration adds empty lifecycle state without changing existing data',as
     database.close();return answer;
   },uniqueName(testInfo));
   expect(result).toEqual({
-    version:9,legacy:[{id:'p1',name:'Legacy'}],projects:[{projectId:'p1',name:'Project'}],
+    version:10,legacy:[{id:'p1',name:'Legacy'}],projects:[{projectId:'p1',name:'Project'}],
     journal:[{eventId:'e1',projectId:'p1'}],
     search:[{projectId:'p1',sourceType:'project',sourceId:'p1'}],lifecycle:[]
   });

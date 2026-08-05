@@ -1,6 +1,6 @@
 import {createLayerRegistry} from './layer-registry.js';
 
-export const MAP_LAYER_TYPES=Object.freeze(['features','competitors','stationaryEvents','traffic','weather','radar']);
+export const MAP_LAYER_TYPES=Object.freeze(['features','competitors','competitorClusters','stationaryEvents','traffic','weather','radar']);
 
 export function createMapEngine({
   L,
@@ -12,6 +12,7 @@ export function createMapEngine({
 }={}){
   if(!L?.map||!container)throw new TypeError('Leaflet and a map container are required.');
   const map=L.map(container,{zoomControl:true,preferCanvas:true}).setView(initialCenter,initialZoom);
+  for(const [name,zIndex] of [['radarPane',250],['routePane',350],['competitorTrailsPane',450],['stationaryPane',500],['checkpointPane',600],['activeRiderPane',700]]){const pane=map.createPane?.(name);if(pane)pane.style.zIndex=String(zIndex);}
   const baseLayers={
     Streets:L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}),
     Topographic:L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:17,attribution:'© OpenStreetMap contributors, SRTM · OpenTopoMap'}),
@@ -24,6 +25,7 @@ export function createMapEngine({
   const layers=createLayerRegistry({map,L,layerTypes:MAP_LAYER_TYPES});
   L.control.layers(baseLayers,{
     'Competitor trails':layers.group('competitors'),
+    'Competitor clusters':layers.group('competitorClusters'),
     'Stationary events':layers.group('stationaryEvents'),
     'Traffic incidents':layers.group('traffic'),
     Weather:layers.group('weather'),

@@ -21,3 +21,4 @@ export {createBackupRepository,BACKUP_IMPORT_BOUNDARIES} from './backup-reposito
 export {createTemplateRepository} from './template-repository.js';
 export {createMissionMediaRepository} from './mission-media-repository.js';
 export {createJourneyRestoreRepository} from './journey-restore-repository.js';
+export {createFinalizedProjectRepository} from './finalized-project-repository.js';

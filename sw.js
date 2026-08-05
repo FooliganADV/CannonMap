@@ -1,12 +1,12 @@
-const CACHE = 'cannonmap-v0.7.1-20260804-rally-stabilization-09';
+const CACHE = 'cannonmap-v0.7.1-20260804-rally-stabilization-10';
 const RADAR_CACHE='cannonmap-radar-v1',RADAR_CACHE_LIMIT=96;
 const APP_SHELL = [
   './',
   './index.html',
-  './app.css?v=20260804-stabilization-09',
+  './app.css?v=20260804-stabilization-10',
   './gps-checkpoints-feed.js?v=20260725-02',
   './stationary-events.js?v=20260725-01',
-  './app.js?v=20260804-stabilization-09',
+  './app.js?v=20260804-stabilization-10',
   './src/core/clock.js',
   './src/core/compatibility.js',
   './src/core/errors.js',
@@ -18,6 +18,8 @@ const APP_SHELL = [
   './src/domain/projects/model.js',
   './src/domain/projects/lifecycle.js',
   './src/domain/projects/errors.js',
+  './src/domain/projects/finalized.js',
+  './src/domain/competitors/trails.js',
   './src/domain/templates/model.js',
   './src/domain/templates/errors.js',
   './src/domain/templates/built-ins.js',
@@ -43,6 +45,8 @@ const APP_SHELL = [
   './src/application/project-lifecycle-manager.js',
   './src/application/project-backup-service.js',
   './src/application/project-template-service.js',
+  './src/application/finalized-project-service.js',
+  './src/application/portable-zip.js',
   './src/application/checkpoint-camera-workflow.js',
   './src/application/photo-evidence-service.js',
   './src/application/photo-export-service.js',
@@ -68,6 +72,7 @@ const APP_SHELL = [
   './src/infrastructure/indexeddb/template-repository.js',
   './src/infrastructure/indexeddb/mission-media-repository.js',
   './src/infrastructure/indexeddb/journey-restore-repository.js',
+  './src/infrastructure/indexeddb/finalized-project-repository.js',
   './src/infrastructure/indexeddb/migration-runner.js',
   './src/infrastructure/indexeddb/observation-capture-repository.js',
   './src/infrastructure/indexeddb/observation-outbox.js',

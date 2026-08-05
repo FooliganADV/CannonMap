@@ -15,7 +15,7 @@ test('completion and backup assets are valid UTF-8 without mojibake',async()=>{
 
 test('service worker caches the current UTF-8 backup-interface assets',async()=>{
   const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-  assert.match(sw,/20260804-rally-stabilization-09/);
-  assert.match(sw,/app\.css\?v=20260804-stabilization-09/);
-  assert.match(sw,/app\.js\?v=20260804-stabilization-09/);
+  assert.match(sw,/20260804-rally-stabilization-10/);
+  assert.match(sw,/app\.css\?v=20260804-stabilization-10/);
+  assert.match(sw,/app\.js\?v=20260804-stabilization-10/);
 });

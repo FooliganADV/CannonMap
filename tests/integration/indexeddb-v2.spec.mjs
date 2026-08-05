@@ -43,10 +43,15 @@ test('upgrades the legacy database additively and preserves the authoritative pr
     return {project,stores,version,registry:module.SCHEMA_REGISTRY.map(store=>store.name)};
   },databaseName);
 
-  expect(result.version).toBe(9);
+  expect(result.version).toBe(10);
   expect(result.project).toEqual({id:'legacy',name:'Preserved'});
   expect(result.stores).toEqual(expect.arrayContaining(result.registry));
   await deleteDatabase(page,databaseName);
+});
+
+test('v10 stores immutable finalized masters additively and create-only',async({page},testInfo)=>{
+  const result=await page.evaluate(async name=>{const module=await import('/src/infrastructure/indexeddb/index.js'),database=await module.openIndexedDbV2({indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name}),repository=module.createFinalizedProjectRepository({database}),record={masterId:'master-1',manifest:{projectId:'plan-1',projectName:'Plan',finalizedAt:'2026-08-04T18:00:00Z'},project:{projectId:'plan-1'},immutable:true};await repository.create(record);let duplicate='';try{await repository.create({...record,project:{projectId:'changed'}});}catch(error){duplicate=error.name;}const stored=await repository.get('master-1'),count=(await repository.list()).length;database.close();return {stored,count,duplicate};},uniqueName(testInfo));
+  expect(result.count).toBe(1);expect(result.duplicate).toBe('ConstraintError');expect(result.stored.project.projectId).toBe('plan-1');expect(result.stored.immutable).toBeTruthy();
 });
 
 test('v4 copies the legacy current project into first-class project storage without changing the legacy record',async({page},testInfo)=>{

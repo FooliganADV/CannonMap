@@ -35,7 +35,7 @@ test('v5 migration is additive, creates no events, and preserves existing projec
     database.close();
     return answer;
   },uniqueName(testInfo));
-  expect(result.version).toBe(9);
+  expect(result.version).toBe(10);
   expect(result.project).toEqual({id:'legacy',name:'Preserved'});
   expect(result.events).toEqual([]);
   expect(result.stores).toContain('journalEvents');
