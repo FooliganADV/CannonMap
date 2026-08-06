@@ -38,7 +38,7 @@ import {createFirebaseAuthentication} from './src/infrastructure/firebase/authen
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
 const APP_VERSION = '0.7.1';
-const BUILD_ID = '2026.08.06.stabilization-12';
+const BUILD_ID = '2026.08.06.stabilization-13';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
@@ -139,7 +139,8 @@ function normalizeCheckpoint(feature,index=0){
 function rallyCheckpointNumber(value){return checkpoints.rallyCheckpointNumber(value);}
 function sanitizeProjectData(project,source='project import'){
   const safe=project&&typeof project==='object'?project:{};
-  safe.features=filterProhibitedFeatures(safe.features,source).map((feature,index)=>{const numbered=feature?.geometry?.kind==='point'&&feature.type==='waypoint'?rallyCheckpointNumber(feature.name):null;if(numbered){feature.type='checkpoint';feature.day=Number(feature.day)||numbered.day;feature.sequence=Number(feature.sequence)||numbered.sequence;console.info(`[CannonMap] Recognized numbered rally checkpoint: ${feature.name}`);}return normalizeCheckpoint(feature,index);});
+  const filtered=filterProhibitedFeatures(safe.features,source).map(feature=>{const numbered=feature?.geometry?.kind==='point'&&feature.type==='waypoint'?rallyCheckpointNumber(feature.name):null;if(numbered){feature.type='checkpoint';feature.day=Number(feature.day)||numbered.day;console.info(`[CannonMap] Recognized numbered rally checkpoint: ${feature.name}`);}return feature;});
+  checkpoints.resolveImportedCheckpointOrder(filtered,{preserveResolved:true});safe.features=filtered.map(normalizeCheckpoint);
   safe.competitors=Array.isArray(safe.competitors)?safe.competitors:[];
   return safe;
 }
@@ -619,7 +620,7 @@ function featureDuplicate(imported,existing) {
   return projectWorkflows.featureDuplicate(imported,existing);
 }
 function findDuplicate(feature,pool=state.project.features){return pool.find(existing=>featureDuplicate(feature,existing));}
-function buildImportReport(features,files,auto) {
+function buildImportReport(features,files,auto,ordering={}) {
   const byType=type=>features.filter(f=>f.type===type).length;
   const unassigned=features.filter(f=>!f.day).length;
   const duplicates=features.filter(f=>findDuplicate(f)).length;
@@ -627,7 +628,7 @@ function buildImportReport(features,files,auto) {
   const shortLines=features.filter(f=>f.geometry.kind==='line'&&f.geometry.coordinates.length<2).length;
   const warnings=[]; if(unassigned)warnings.push(`${unassigned} features still need day review.`); if(duplicates)warnings.push(`${duplicates} probable duplicates match the current project.`); if(unnamed)warnings.push(`${unnamed} features use generated or weak names.`); if(shortLines)warnings.push(`${shortLines} line features have insufficient geometry.`);
   return {
-    files,features,auto,unassigned,duplicates,unnamed,shortLines,warnings,
+    files,features,auto,unassigned,duplicates,unnamed,shortLines,warnings,ordering,
     counts:{tracks:byType('track'),routes:byType('route'),points:features.filter(f=>f.geometry.kind==='point').length,checkpoints:byType('checkpoint')}
   };
 }
@@ -638,7 +639,8 @@ async function importGpxFiles(files) {
     catch(error){errors.push(`${file.name}: ${error.message}`);}
   }
   if(!imported.length)return setStatus(errors.length?errors.join(' | '):'No GPX features were found.',true);
-  state.pendingImport=buildImportReport(imported,names,auto);
+  const ordering=checkpoints.resolveImportedCheckpointOrder(imported,{preserveResolved:true});
+  state.pendingImport=buildImportReport(imported,names,auto,ordering);
   const r=state.pendingImport;
   if($('importReport')) $('importReport').innerHTML=`
     <div><strong>${escapeHtml(r.files.join(', '))}</strong></div>
@@ -651,7 +653,13 @@ async function importGpxFiles(files) {
       <article><span>Points / Checkpoints</span><strong>${r.counts.points} / ${r.counts.checkpoints}</strong></article>
       <article><span>Weak names</span><strong>${r.unnamed}</strong></article>
       <article><span>Geometry warnings</span><strong>${r.shortLines}</strong></article>
+      <article><span>Explicit sequence</span><strong>${r.ordering.sortedByExplicitSequence+r.ordering.sortedByCannonMapSequence}</strong></article>
+      <article><span>Numeric name prefix</span><strong>${r.ordering.sortedByNumericNamePrefix}</strong></article>
+      <article><span>Original order retained</span><strong>${r.ordering.retainedOriginalOrder}</strong></article>
+      <article><span>Duplicate prefixes</span><strong>${r.ordering.duplicateNumericPrefixes.length}</strong></article>
     </div>
+    ${r.ordering.ambiguousNames.length?`<div class="notice muted"><strong>No sortable numeric prefix:</strong> ${r.ordering.ambiguousNames.map(escapeHtml).join(', ')}</div>`:''}
+    ${r.ordering.duplicateNumericPrefixes.length?`<ul class="inspector-warnings">${r.ordering.duplicateNumericPrefixes.map(item=>`<li>Duplicate ${escapeHtml(item.prefix)}: ${item.names.map(escapeHtml).join(', ')}</li>`).join('')}</ul>`:''}
     ${r.warnings.length?`<ul class="inspector-warnings">${r.warnings.map(w=>`<li>${escapeHtml(w)}</li>`).join('')}</ul>`:'<div class="notice muted">Inspector found no major structural warnings.</div>'}
     ${errors.length?`<ul class="import-warnings">${errors.map(e=>`<li>${escapeHtml(e)}</li>`).join('')}</ul>`:''}`;
   $('importDialog')?.showModal();
@@ -1012,11 +1020,17 @@ function preferredCamera(){return normalizeCameraPreference(state.settings.prefe
 function applyCameraPreference(){
   const preference=preferredCamera(),capture=cameraCaptureAttribute(preference),selfie=preference==='front';
   for(const id of ['rallyCameraInput','rallyJourneyPhotoInput'])$(id)?.setAttribute('capture',capture);
-  for(const id of ['rallyCameraSelfie','rallyPreferredCameraSelfie'])$(id)?.classList.toggle('is-active',selfie);
-  for(const id of ['rallyCameraForward','rallyPreferredCameraForward'])$(id)?.classList.toggle('is-active',!selfie);
-  if($('rallyPreferredCameraStatus'))$('rallyPreferredCameraStatus').textContent=`${selfie?'Selfie':'Forward'} camera requested`;
+  for(const id of ['rallyCameraSelfie','rallyJourneySelfieButton'])$(id)?.classList.toggle('is-active',selfie);
+  for(const id of ['rallyCameraForward','rallyJourneyForwardButton'])$(id)?.classList.toggle('is-active',!selfie);
 }
 async function setPreferredCamera(value){state.settings.preferredCamera=normalizeCameraPreference(value);applyCameraPreference();await saveProject(false);rallyDebug.record('camera_preference_changed',{requestedCamera:state.settings.preferredCamera});}
+function triggerCameraCapture(value,inputId,objectiveType){
+  const preference=normalizeCameraPreference(value),input=$(inputId);if(!input)return;
+  state.settings.preferredCamera=preference;applyCameraPreference();input.value='';
+  rallyDebug.record('photo_requested',{objectiveType,requestedCamera:preference,captureMethod:'file-input'});
+  input.click();void saveProject(false);
+}
+const captureCheckpointPhoto=value=>triggerCameraCapture(value,'rallyCameraInput',state.project.features.find(feature=>feature.id===pendingPhotoCheckpointId)?.type||'checkpoint');
 async function addCheckpointCameraFiles(files){
   if(!files?.length||!checkpointCamera)return;
   try{
@@ -1124,9 +1138,9 @@ async function exportDayBackupPackage(){
   const timestamp=new Date().toISOString();state.settings.mediaBackups||={};state.settings.mediaBackups[day]={completedAt:timestamp,filename:file.filename};
   await appendRallyJournalEvent('day_backup_exported',null,{eventIdentity:`day-backup:${day}:${timestamp}`,dayNumber:day,title:`Day ${day} Backup Exported`,summary:file.filename,mediaCount:file.manifest.mediaCount},timestamp);await markDayBackupProgress(day,'package');
 }
-function requestJourneyPhoto(){
+function requestJourneyPhoto(camera){
   const speed=Number(state.lastGpsPosition?.speedMph);if(Number.isFinite(speed)&&speed>1)return setStatus('Journey photos are available only while stationary.',true);
-  pendingJourneyCaption=prompt('Journey photo caption or note','')||'';applyCameraPreference();$('rallyJourneyPhotoInput')?.click();
+  pendingJourneyCaption=prompt('Journey photo caption or note','')||'';triggerCameraCapture(camera,'rallyJourneyPhotoInput','journey');
 }
 async function addJourneyPhoto(file){
   if(!file)return;const capturedAt=new Date().toISOString(),day=activeRallyDay()||Number(state.settings.dayFilter)||null,eventId=stableUuid(`${state.project.projectId}:journey-photo:${capturedAt}`),checkpointId=`journey:${eventId}`,gps=captureArrivalEvidence(state.lastGpsPosition,Date.now()),weather=weatherMaintenance?.getContext();
@@ -1956,10 +1970,11 @@ function wireUi() {
   $('mobileTrafficButton')?.addEventListener('click',loadTrafficHere);
   $('rallyPhotoViewerButton')?.addEventListener('click',()=>openPhotoViewer(false));
   $('rallyJourneyGalleryButton')?.addEventListener('click',openJourneyPhotoViewer);
-  $('rallyJourneyPhotoButton')?.addEventListener('click',requestJourneyPhoto);
+  $('rallyJourneySelfieButton')?.addEventListener('click',()=>requestJourneyPhoto('front'));
+  $('rallyJourneyForwardButton')?.addEventListener('click',()=>requestJourneyPhoto('rear'));
   $('rallyJourneyPhotoInput')?.addEventListener('change',event=>{const file=event.target.files?.[0];event.target.value='';addJourneyPhoto(file);});
-  for(const id of ['rallyCameraSelfie','rallyPreferredCameraSelfie'])$(id)?.addEventListener('click',()=>setPreferredCamera('front'));
-  for(const id of ['rallyCameraForward','rallyPreferredCameraForward'])$(id)?.addEventListener('click',()=>setPreferredCamera('rear'));
+  $('rallyCameraSelfie')?.addEventListener('click',()=>captureCheckpointPhoto('front'));
+  $('rallyCameraForward')?.addEventListener('click',()=>captureCheckpointPhoto('rear'));
   $('rallyBackupDayPhotos')?.addEventListener('click',()=>exportPhotoArchive('day'));
   $('rallyBackupDayJournal')?.addEventListener('click',exportDayJournal);
   $('rallyBackupDayPackage')?.addEventListener('click',exportDayBackupPackage);
@@ -1997,7 +2012,7 @@ function wireUi() {
     toggleMore:()=>setRallyMoreOpen(!$('rallyMode').classList.contains('more-open')),
     openPlanner:()=>{setRallyMoreOpen(false);setSidebarOpen(true);},toggleHotelBailout,
     complete:()=>completeCurrentCheckpoint(false),resumeDeferred:resumeDeferredQueue,finishDay:finishDayFromDeferredQueue,
-    addCameraFiles:addCheckpointCameraFiles,cancelCamera:cancelCheckpointCamera,retryCamera:()=>checkpointCamera?.retry(),resumePhotoCompletion:finalizePendingPhotoCheckpoint,failPhotoObjective:failPendingPhotoObjective,startNextDay:startNextRallyDay,warning:suppressWarning,
+    addCameraFiles:addCheckpointCameraFiles,cancelCamera:cancelCheckpointCamera,retryCamera:()=>{checkpointCamera?.retry();captureCheckpointPhoto(preferredCamera());},resumePhotoCompletion:finalizePendingPhotoCheckpoint,failPhotoObjective:failPendingPhotoObjective,startNextDay:startNextRallyDay,warning:suppressWarning,
     exportDebug:()=>downloadBlob(rallyDebug.exportJson(),`${safeFilename(state.project.name)}-rally-debug.json`,'application/json'),
     exportJournal:async()=>downloadBlob(JSON.stringify(await missionControlJournalEvents(),null,2),`${safeFilename(state.project.name)}-daily-journal.json`,'application/json'),
     saveArrivalSettings:()=>{state.settings.autoCompleteCheckpoints=$('autoCompleteCheckpoints')?.checked!==false;state.settings.checkpointArrivalRadius=Math.max(100,Number($('checkpointArrivalRadius')?.value)||500);state.settings.checkpointMaxAccuracy=Math.max(25,Number($('checkpointMaxAccuracy')?.value)||200);saveProject(false);renderRallyMode();},

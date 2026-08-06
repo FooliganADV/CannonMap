@@ -1,4 +1,5 @@
 import {distancePointToSegmentMiles,haversineMeters,lineDistanceMiles,validPoint} from '../domain/geo/geometry.js';
+import {resolveImportedCheckpointOrder} from '../domain/checkpoints/workflow.js';
 
 const textOf=(element,tag)=>{
   const node=element.getElementsByTagName(tag)[0]||element.getElementsByTagNameNS?.('*',tag)?.[0];
@@ -98,8 +99,8 @@ export function createProjectWorkflows({createId,now,parseXml,normalizeCheckpoin
       }
       features.push(feature);
     });
-    const safe=filterFeatures(features,`GPX ${filename}`).map(normalizeCheckpoint);
-    return {features:safe,auto:assignWaypointDays(safe,true)};
+    const filtered=filterFeatures(features,`GPX ${filename}`),ordering=resolveImportedCheckpointOrder(filtered,{preserveResolved:false}),safe=filtered.map(normalizeCheckpoint);
+    return {features:safe,auto:assignWaypointDays(safe,true),ordering};
   }
 
   const normalizedName=value=>String(value||'').toLowerCase().replace(/<[^>]*>/g,' ').replace(/[^a-z0-9]+/g,' ').trim();
@@ -123,6 +124,9 @@ export function createProjectWorkflows({createId,now,parseXml,normalizeCheckpoin
       const existing=project.features.find(item=>featureDuplicate(incoming,item));
       if(existing){
         Object.assign(existing,{name:incoming.name||existing.name,type:incoming.type||existing.type,notes:incoming.notes||existing.notes,source:incoming.source||existing.source,geometry:incoming.geometry,updatedAt:now()});
+        for(const key of ['sequence','originalSequence','importOrderSource','importOrderResolved','resolvedImportIndex']){
+          if(incoming[key]!==undefined)existing[key]=incoming[key];
+        }
         if(incoming.photoRequired===true)existing.photoRequired=true;
         if(incoming.day)existing.day=incoming.day;
         updated++;

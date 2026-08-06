@@ -30,6 +30,51 @@ export function rallyCheckpointNumber(value){
   return match?{day:Number(match[1]),sequence:Number(match[2])}:null;
 }
 
+export function numericCheckpointPrefix(value){
+  const match=String(value||'').trim().match(/^(\d+)\.(\d+)(?=$|\s)/);
+  return match?Object.freeze({segments:Object.freeze([Number(match[1]),Number(match[2])]),key:`${Number(match[1])}.${Number(match[2])}`}):null;
+}
+
+const finitePositive=value=>Number.isFinite(Number(value))&&Number(value)>0?Number(value):null;
+const firstOrderValue=feature=>[
+  feature?.manifestSequence,feature?.manifestOrder,feature?.order,
+  feature?.metadata?.manifestSequence,feature?.metadata?.manifestOrder,feature?.metadata?.order,
+  feature?.properties?.manifestSequence,feature?.properties?.manifestOrder,feature?.properties?.order
+].map(finitePositive).find(value=>value!==null)??null;
+
+/** Resolves immutable imported execution order without renaming or rewriting rally evidence. */
+export function resolveImportedCheckpointOrder(features,{preserveResolved=true}={}){
+  const rows=(features||[]).filter(feature=>feature?.type==='checkpoint');
+  const report={sortedByExplicitSequence:0,sortedByCannonMapSequence:0,sortedByNumericNamePrefix:0,retainedOriginalOrder:0,duplicateNumericPrefixes:[],ambiguousNames:[]};
+  const prefixGroups=new Map(),pendingFallback=[];
+  rows.forEach((feature,index)=>{
+    const sourceIndex=Number.isFinite(Number(feature.sourceOrder))?Number(feature.sourceOrder):index;
+    const prefix=numericCheckpointPrefix(feature.name);
+    if(prefix){const list=prefixGroups.get(prefix.key)||[];list.push(feature.name);prefixGroups.set(prefix.key,list);}
+    if(preserveResolved&&feature.importOrderResolved===true&&Number.isFinite(Number(feature.originalSequence))){
+      feature.resolvedImportIndex=Number.isFinite(Number(feature.resolvedImportIndex))?Number(feature.resolvedImportIndex):sourceIndex;
+      const source=feature.importOrderSource||'cannonmap-sequence';
+      if(source==='explicit-sequence')report.sortedByExplicitSequence++;
+      else if(source==='numeric-prefix')report.sortedByNumericNamePrefix++;
+      else if(source==='source-order'){report.retainedOriginalOrder++;report.ambiguousNames.push(feature.name);}
+      else report.sortedByCannonMapSequence++;
+      return;
+    }
+    const manifest=firstOrderValue(feature),cannon=finitePositive(feature.originalSequence)??finitePositive(feature.sequence);
+    let sequence=null,source='';
+    if(manifest!==null){sequence=manifest;source='explicit-sequence';report.sortedByExplicitSequence++;}
+    else if(cannon!==null){sequence=cannon;source='cannonmap-sequence';report.sortedByCannonMapSequence++;}
+    else if(prefix){sequence=prefix.segments[1];source='numeric-prefix';report.sortedByNumericNamePrefix++;if(!finitePositive(feature.day))feature.day=prefix.segments[0];}
+    else{source='source-order';pendingFallback.push({feature,sourceIndex});report.retainedOriginalOrder++;report.ambiguousNames.push(feature.name||'Unnamed checkpoint');}
+    if(sequence!==null){feature.sequence=sequence;feature.originalSequence=sequence;}
+    feature.importOrderSource=source;feature.importOrderResolved=true;feature.resolvedImportIndex=sourceIndex;
+  });
+  const maxima=new Map();for(const feature of rows){if(feature.importOrderSource==='source-order')continue;const day=Number(feature.day)||0;maxima.set(day,Math.max(maxima.get(day)||0,Number(feature.sequence)||0));}
+  const offsets=new Map();for(const {feature} of pendingFallback){const day=Number(feature.day)||0,next=(offsets.get(day)||0)+1;offsets.set(day,next);feature.sequence=(maxima.get(day)||0)+next;feature.originalSequence=feature.sequence;}
+  report.duplicateNumericPrefixes=[...prefixGroups].filter(([,names])=>names.length>1).map(([prefix,names])=>({prefix,names:[...names]}));
+  return Object.freeze({...report,ambiguousNames:Object.freeze([...report.ambiguousNames]),duplicateNumericPrefixes:Object.freeze(report.duplicateNumericPrefixes.map(item=>Object.freeze({prefix:item.prefix,names:Object.freeze(item.names)})))});
+}
+
 export function normalizeCheckpoint(feature,index=0){
   if(!['checkpoint','hotel'].includes(feature?.type))return feature;
   feature.extreme=feature.extreme===true||/\bextreme\b/i.test(`${feature.name||''} ${feature.notes||''}`);
@@ -58,7 +103,7 @@ export function dayCheckpoints(project,settings){
   return (project?.features||[])
     .filter(feature=>['checkpoint','hotel'].includes(feature.type)&&(!day||Number(feature.day)===day))
     .map(normalizeCheckpoint)
-    .sort((a,b)=>(a.type==='hotel')-(b.type==='hotel')||(Number(a.sequence)||9999)-(Number(b.sequence)||9999));
+    .sort((a,b)=>(a.type==='hotel')-(b.type==='hotel')||(Number(a.sequence)||9999)-(Number(b.sequence)||9999)||(Number(a.resolvedImportIndex)||0)-(Number(b.resolvedImportIndex)||0));
 }
 
 export function currentCheckpoint(project,settings){

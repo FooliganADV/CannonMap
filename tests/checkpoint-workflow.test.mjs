@@ -105,3 +105,45 @@ test('checkpoint colors have exactly one authoritative meaning',()=>{
   assert.equal(new Set(Object.values(workflow.CHECKPOINT_COLOR)).size,Object.keys(workflow.CHECKPOINT_COLOR).length);
   assert.equal(workflow.CHECKPOINT_COLOR.deferred,'#f59e0b');
 });
+
+test('imported checkpoint names use stable natural numeric ordering without renaming metadata',()=>{
+  const rows=['1.10 I-10','1.2 Hwy 190','1.1 I-12','2.1 Next day'].map((name,index)=>({
+    id:`cp-${index}`,name,type:'checkpoint',day:0,notes:`note-${index}`,points:index+10,sourceOrder:index
+  }));
+  const before=rows.map(({name,notes,points})=>({name,notes,points}));
+  const report=workflow.resolveImportedCheckpointOrder(rows,{preserveResolved:false});
+  assert.deepEqual(workflow.dayCheckpoints({features:rows},{dayFilter:'1'}).map(item=>item.name),['1.1 I-12','1.2 Hwy 190','1.10 I-10']);
+  assert.deepEqual(rows.map(({name,notes,points})=>({name,notes,points})),before);
+  assert.equal(report.sortedByNumericNamePrefix,4);
+});
+
+test('explicit manifest and CannonMap sequences take precedence over numeric checkpoint names',()=>{
+  const rows=[
+    {id:'manifest',name:'1.10 Named later',type:'checkpoint',day:1,manifestSequence:1,sourceOrder:0},
+    {id:'cannonmap',name:'1.1 Named first',type:'checkpoint',day:1,sequence:2,sourceOrder:1},
+    {id:'prefix',name:'1.3 Prefix',type:'checkpoint',day:1,sourceOrder:2}
+  ];
+  const report=workflow.resolveImportedCheckpointOrder(rows,{preserveResolved:false});
+  assert.deepEqual(workflow.dayCheckpoints({features:rows},{dayFilter:'1'}).map(item=>item.id),['manifest','cannonmap','prefix']);
+  assert.equal(report.sortedByExplicitSequence,1);assert.equal(report.sortedByCannonMapSequence,1);assert.equal(report.sortedByNumericNamePrefix,1);
+});
+
+test('ambiguous and duplicate imported names retain stable order and are reported',()=>{
+  const rows=[
+    {id:'first-duplicate',name:'1.2 North',type:'checkpoint',day:1,sourceOrder:0},
+    {id:'second-duplicate',name:'1.2 South',type:'checkpoint',day:1,sourceOrder:1},
+    {id:'ambiguous-a',name:'Town square',type:'checkpoint',day:1,sourceOrder:2},
+    {id:'ambiguous-b',name:'Museum',type:'checkpoint',day:1,sourceOrder:3}
+  ];
+  const report=workflow.resolveImportedCheckpointOrder(rows,{preserveResolved:false});
+  assert.deepEqual(workflow.dayCheckpoints({features:rows},{dayFilter:'1'}).map(item=>item.id),['first-duplicate','second-duplicate','ambiguous-a','ambiguous-b']);
+  assert.deepEqual(report.duplicateNumericPrefixes,[{prefix:'1.2',names:['1.2 North','1.2 South']}]);
+  assert.deepEqual(report.ambiguousNames,['Town square','Museum']);assert.equal(report.retainedOriginalOrder,2);
+});
+
+test('restore imported order restores the resolved order rather than raw GPX order',()=>{
+  const rows=['1.10 Last','1.2 Middle','1.1 First'].map((name,index)=>({id:`cp-${index}`,name,type:'checkpoint',day:1,sourceOrder:index}));
+  workflow.resolveImportedCheckpointOrder(rows,{preserveResolved:false});rows.forEach((row,index)=>row.sequence=rows.length-index);
+  workflow.restoreImportedOrder(rows);
+  assert.deepEqual(workflow.dayCheckpoints({features:rows},{dayFilter:'1'}).map(item=>item.name),['1.1 First','1.2 Middle','1.10 Last']);
+});

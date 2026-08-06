@@ -319,7 +319,7 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
   }
   .rally-deferred-prompt strong,.rally-camera-workflow strong{display:block;font-size:1.05rem}
   .rally-deferred-prompt>div{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
-  .rally-deferred-prompt button,.rally-camera-workflow label{min-height:52px;display:grid;place-items:center;border:1px solid #64748b;border-radius:10px;background:#1f2937;color:#fff;font-weight:900}
+  .rally-deferred-prompt button{min-height:52px;display:grid;place-items:center;border:1px solid #64748b;border-radius:10px;background:#1f2937;color:#fff;font-weight:900}
   .rally-camera-workflow{border-color:#38bdf8;text-align:center}
   .rally-camera-workflow>span{display:block;margin:5px auto;font-size:2rem;font-weight:900;color:#7dd3fc}
   .rally-camera-workflow p{font-size:.75rem;color:#cbd5e1}
@@ -329,12 +329,15 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
   .rally-camera-facing{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
   .rally-camera-facing button{min-height:48px;margin:0;border:2px solid #64748b;border-radius:10px;background:#1f2937;color:#fff;font-weight:900}
   .rally-camera-facing button.is-active{border-color:#38bdf8;background:#075985;box-shadow:0 0 0 2px rgba(56,189,248,.2)}
+  #rallyCameraFailObjective{border-color:#64748b;background:#1f2937;color:#cbd5e1;font-weight:700}
   .rally-camera-error{color:#fecaca!important}
   .rally-day-complete{top:calc(max(8px,env(safe-area-inset-top)) + 42px);left:max(10px,env(safe-area-inset-left));right:max(10px,env(safe-area-inset-right));max-height:calc(100dvh - max(8px,env(safe-area-inset-top)) - max(82px,calc(70px + env(safe-area-inset-bottom))));overflow:auto;border-color:#22c55e;text-align:center;font-size:1.2rem;font-weight:900;background:rgba(5,46,22,.97)}
   .rally-day-complete strong,.rally-day-complete small{display:block}.rally-day-complete small{margin-top:7px;color:#bbf7d0;font-size:.75rem}
   [hidden]{display:none!important}
   .rally-actions:has(#rallyNextButton:not([hidden])){grid-template-columns:repeat(3,1fr)}
   .map-area:has(.intel-sheet.open) .rally-recenter-fab{display:none}
+  .map-area:has(.rally-camera-workflow:not([hidden])) .rally-recenter-fab,
+  .map-area:has(.rally-camera-workflow:not([hidden])) .rally-actions{visibility:hidden;pointer-events:none}
   .map-area:has(.leaflet-control-layers-expanded) .leaflet-top.leaflet-right{z-index:1400}
   .map-area:has(.leaflet-control-layers-expanded) .rally-head,
   .map-area:has(.leaflet-control-layers-expanded) .rally-primary-card,
@@ -384,8 +387,7 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
   .rally-more-actions button[hidden]{display:none}
   .rally-hotel-action{border:2px solid #fb7185!important;background:#881337!important}
   .rally-arrival-settings{margin-top:9px;border-top:1px solid #475569;padding-top:8px}
-  .rally-camera-settings{margin-top:9px;border-top:1px solid #475569;padding-top:8px}
-  .rally-camera-settings summary{font-weight:900;cursor:pointer}.rally-camera-settings p,.rally-camera-settings small{font-size:.76rem;color:#cbd5e1}
+  #rallyJourneySelfieButton.is-active,#rallyJourneyForwardButton.is-active{border-color:#38bdf8;background:#075985;box-shadow:0 0 0 2px rgba(56,189,248,.2)}
   .rally-arrival-settings summary{font-weight:900;cursor:pointer}
   .rally-arrival-settings label{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;font-size:.76rem}
   .rally-arrival-settings input[type="number"]{width:86px;padding:7px}
