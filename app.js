@@ -38,7 +38,7 @@ import {createFirebaseAuthentication} from './src/infrastructure/firebase/authen
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
 const APP_VERSION = '0.7.1';
-const BUILD_ID = '2026.08.05.stabilization-11';
+const BUILD_ID = '2026.08.06.stabilization-12';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
@@ -1098,7 +1098,7 @@ async function openPhotoViewer(allProjects=false){
 const openJourneyPhotoViewer=()=>openPhotoViewer(true);
 async function exportPhotoSelection(role){const group=photoViewerGroups[photoViewerIndex],record=group?.[role];if(!record)return setStatus(`${role==='original'?'Original':'Evidence'} photo is unavailable.`,true);const file=await photoExports.single(record.mediaId);downloadStoredBlob(file.blob,file.filename);}
 async function exportPhotoArchive(scope){
-  const day=activeRallyDay()||photoViewerGroups.find(item=>item.day)?.day||1,file=scope==='day'?await photoExports.day(state.project.projectId,day):await photoExports.rally(state.project.projectId);downloadStoredBlob(file.blob,file.filename);state.settings.lastMediaExportAt=new Date().toISOString();if(scope==='day')await markDayBackupProgress(day,'photos');else await saveProject(false);
+  const day=activeRallyDay()||photoViewerGroups.find(item=>item.day)?.day||1,journal=await missionControlJournalEvents(),file=scope==='day'?await photoExports.day(state.project.projectId,day,{journal}):await photoExports.rally(state.project.projectId,{journal});downloadStoredBlob(file.blob,file.filename);state.settings.lastMediaExportAt=new Date().toISOString();if(scope==='day')await markDayBackupProgress(day,'photos');else await saveProject(false);
 }
 async function exportEntireJourney(){
   const projects=await projectLifecycle.listProjects(),manifest={format:'cannonmap-journey-archive-set',version:1,createdAt:new Date().toISOString(),projects:[]};

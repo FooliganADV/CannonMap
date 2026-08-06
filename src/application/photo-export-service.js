@@ -10,6 +10,27 @@ export function checkpointPhotoFilename({dayNumber,checkpointNumber,role}){
   return `Day${day}_CP${checkpoint}_${role==='evidence'?'Evidence':'Original'}.jpg`;
 }
 
+const mediaIdsForEvent=event=>[event?.references?.originalMediaId,event?.references?.evidenceMediaId,...(event?.attachments?.photos||[]).map(photo=>photo?.mediaId)].filter(Boolean).map(String);
+function journalMediaMetadata(journal=[]){
+  const byId=new Map();for(const event of journal)for(const mediaId of mediaIdsForEvent(event))byId.set(mediaId,{...(event.metadata||{}),objectiveType:event.metadata?.objectiveType||null});return byId;
+}
+function resolvedMediaRecord(record,journalByMediaId){
+  const journal=journalByMediaId.get(String(record.mediaId))||{},metadata={...journal,...(record.metadata||{})};
+  if(!Number.isFinite(Number(metadata.dayNumber))||Number(metadata.dayNumber)<1)metadata.dayNumber=journal.dayNumber??null;
+  if(!metadata.objectiveType&&journal.objectiveType)metadata.objectiveType=journal.objectiveType;
+  return {...record,metadata};
+}
+export function photoArchiveCategory(record){
+  const type=String(record.metadata?.objectiveType||'').toLowerCase(),eventName=String(record.metadata?.eventName||'').toLowerCase(),checkpointId=String(record.checkpointId||'').toLowerCase();
+  if(type==='journey'||checkpointId.startsWith('journey:')||eventName==='journey photo')return 'Journey';
+  if(type==='hotel'||eventName==='hotel arrival'||/_hotel/i.test(String(record.name||'')))return 'Hotels';
+  return 'Checkpoints';
+}
+function archiveRows(rows,journal=[]){
+  const journalByMediaId=journalMediaMetadata(journal),seen=new Set();return rows.filter(record=>{const id=String(record.mediaId||'');if(!id||seen.has(id))return false;seen.add(id);return true;}).map(record=>resolvedMediaRecord(record,journalByMediaId));
+}
+function photoZipFiles(rows){return rows.map(record=>({name:`${photoArchiveCategory(record)}/${record.name}`,blob:record.blob,mediaId:record.mediaId,size:Number(record.blob?.size)||0}));}
+
 export async function createStoredZip(files,{maxBytes=256*1024*1024}={}){
   const declaredSize=files.reduce((sum,file)=>sum+(Number(file.blob?.size)||0),0);
   if(declaredSize>maxBytes){const error=new Error('This photo archive is too large for safe in-browser creation. Export smaller day or project archives.');error.code='PHOTO_EXPORT_TOO_LARGE';error.declaredSize=declaredSize;throw error;}
@@ -28,9 +49,9 @@ export function createPhotoExportService({repository}={}){
   return Object.freeze({
     checkpointPhotoFilename,
     async single(mediaId){const record=await repository.getMedia(mediaId);if(!record)throw new Error('Photo is unavailable.');return {blob:record.blob,filename:record.name};},
-    async day(projectId,dayNumber){const rows=(await records(projectId)).filter(item=>Number(item.metadata?.dayNumber)===Number(dayNumber));return {blob:await createStoredZip(rows.map(item=>({name:item.name,blob:item.blob}))),filename:`Day${String(dayNumber).padStart(2,'0')}_Photos.zip`};},
+    async day(projectId,dayNumber,{journal=[]}={}){const rows=archiveRows(await records(projectId),journal).filter(item=>Number(item.metadata?.dayNumber)===Number(dayNumber)),files=photoZipFiles(rows);return {blob:await createStoredZip(files),filename:`Day${String(dayNumber).padStart(2,'0')}_Photos.zip`,manifest:{dayNumber:Number(dayNumber),entryCount:files.length,totalBytes:files.reduce((sum,file)=>sum+file.size,0),entries:files.map(({name,mediaId,size})=>({name,mediaId,size}))}};},
     async dayBackup(projectId,dayNumber,{journal=[],project=null}={}){
-      const rows=(await records(projectId)).filter(item=>Number(item.metadata?.dayNumber)===Number(dayNumber)),json=(name,value)=>({name,blob:new Blob([JSON.stringify(value,null,2)],{type:'application/json;charset=utf-8'})});
+      const rows=archiveRows(await records(projectId),journal).filter(item=>Number(item.metadata?.dayNumber)===Number(dayNumber)),json=(name,value)=>({name,blob:new Blob([JSON.stringify(value,null,2)],{type:'application/json;charset=utf-8'})});
       const mediaIndex=rows.map(({blob,...record})=>record),manifest={format:'cannonmap-day-backup',version:1,projectId:String(projectId),projectName:project?.name||null,dayNumber:Number(dayNumber),createdAt:new Date().toISOString(),mediaCount:rows.length,originalCount:rows.filter(item=>item.role==='original').length,evidenceCount:rows.filter(item=>item.role==='evidence').length};
       const files=[...rows.map(item=>({name:`media/${item.name}`,blob:item.blob})),json('Daily_Journal.json',journal),json('day-manifest.json',manifest),json('media-index.json',mediaIndex),json('project-metadata.json',{projectId,projectName:project?.name||null,features:(project?.features||[]).filter(item=>Number(item.day)===Number(dayNumber)).map(({geometry,...feature})=>feature)})];
       return {blob:await createStoredZip(files),filename:`Day${String(dayNumber).padStart(2,'0')}_Backup.cmapday`,manifest};
@@ -40,6 +61,6 @@ export function createPhotoExportService({repository}={}){
       const mediaIndex=rows.map(({blob,...record})=>record),files=[...rows.map(item=>({name:`media/${item.name}`,blob:item.blob})),json('Project.json',project),json('Journal.json',journal),json('Settings.json',settings),json('project-manifest.json',manifest),json('media-index.json',mediaIndex)];
       return {blob:await createStoredZip(files),filename:`${String(project?.name||'CannonMap_Project').replace(/[^a-z0-9.-]+/gi,'_')}_Backup.cmapproject`,manifest};
     },
-    async rally(projectId){const rows=await records(projectId);return {blob:await createStoredZip(rows.map(item=>({name:item.name,blob:item.blob}))),filename:'Entire_Rally_Photos.zip'};}
+    async rally(projectId,{journal=[]}={}){const files=photoZipFiles(archiveRows(await records(projectId),journal));return {blob:await createStoredZip(files),filename:'Entire_Rally_Photos.zip',manifest:{entryCount:files.length,totalBytes:files.reduce((sum,file)=>sum+file.size,0),entries:files.map(({name,mediaId,size})=>({name,mediaId,size}))}};}
   });
 }
