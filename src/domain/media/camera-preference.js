@@ -14,5 +14,5 @@ export function detectActualCamera(file){
 
 export function cameraSelectionMetadata(preference,file){
   const requestedCamera=normalizeCameraPreference(preference),actualCamera=detectActualCamera(file);
-  return Object.freeze({requestedCamera,actualCamera,cameraSelectionHonored:actualCamera==='unknown'?'unknown':actualCamera===requestedCamera});
+  return Object.freeze({requestedCamera,actualCamera,cameraSelectionHonored:actualCamera==='unknown'?'unknown':actualCamera===requestedCamera,captureMethod:'file-input'});
 }

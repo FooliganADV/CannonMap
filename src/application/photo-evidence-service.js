@@ -18,7 +18,7 @@ export function buildPhotoEvidenceMetadata(context={}){
     motion:unavailable(context.motion),gpsSampleTimestamp:unavailable(context.gpsSampleTimestamp),gpsSampleAge:context.gpsSampleAgeMs===null||context.gpsSampleAgeMs===undefined?'Unavailable':`${(Number(context.gpsSampleAgeMs)/1000).toFixed(1)} sec`,
     deviceHeading:context.deviceHeading===null||context.deviceHeading===undefined?'Unavailable':`${Math.round(Number(context.deviceHeading))}°`,
     travelDirection:unavailable(context.travelDirection),weatherContext:unavailable(context.weatherContext),mediaId:unavailable(context.mediaId),journalEventId:unavailable(context.journalEventId),
-    requestedCamera:unavailable(context.requestedCamera),actualCamera:unavailable(context.actualCamera),cameraSelectionHonored:context.cameraSelectionHonored??'unknown',
+    requestedCamera:unavailable(context.requestedCamera),actualCamera:unavailable(context.actualCamera),cameraSelectionHonored:context.cameraSelectionHonored??'unknown',captureMethod:context.captureMethod||'file-input',captureTimestamp:context.captureTimestamp||context.capturedAt||null,
     capturedAt:context.capturedAt||null
   });
 }

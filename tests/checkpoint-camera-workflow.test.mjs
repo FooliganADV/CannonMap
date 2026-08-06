@@ -53,7 +53,7 @@ test('checkpoint and hotel photo Journal events record requested and actual came
   const events=[],workflow=createCheckpointCameraWorkflow({mediaRepository:{addPhoto:async()=>({mediaId:'photo',name:'photo.jpg'})},journal:{appendEvent:async event=>events.push(event)},clock:{iso:()=> '2026-08-05T12:00:00.000Z'}});
   workflow.start({projectId:'project',checkpoint:{id:'hotel',name:'Hotel',type:'hotel',day:1},journalEvent:{eventId:'arrival'},cameraPreference:'front',evidenceContext:{cameraMetadata:file=>({requestedCamera:'front',actualCamera:file.actualCamera||'unknown',cameraSelectionHonored:file.actualCamera?file.actualCamera==='front':'unknown'})}});
   await workflow.addFiles([{name:'selfie.jpg',actualCamera:'front'}]);
-  assert.deepEqual(Object.fromEntries(['requestedCamera','actualCamera','cameraSelectionHonored'].map(key=>[key,events[0].metadata[key]])),{requestedCamera:'front',actualCamera:'front',cameraSelectionHonored:true});
+  assert.deepEqual(Object.fromEntries(['requestedCamera','actualCamera','cameraSelectionHonored','captureMethod','captureTimestamp'].map(key=>[key,events[0].metadata[key]])),{requestedCamera:'front',actualCamera:'front',cameraSelectionHonored:true,captureMethod:'file-input',captureTimestamp:'2026-08-05T12:00:00.000Z'});
   workflow.start({projectId:'project',checkpoint:{id:'checkpoint',name:'1.1'},journalEvent:{eventId:'arrival-2'},cameraPreference:'rear'});
   await workflow.addFiles([{name:'fallback.jpg'}]);
   assert.equal(events[1].metadata.requestedCamera,'rear');assert.equal(events[1].metadata.actualCamera,'unknown');assert.equal(events[1].metadata.cameraSelectionHonored,'unknown');
