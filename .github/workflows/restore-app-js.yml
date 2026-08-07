@@ -2,6 +2,9 @@ name: Restore complete app.js
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/restore-app-js.yml'
 
 permissions:
   contents: write
@@ -69,23 +72,23 @@ jobs:
 
           # Controller actions
           old = """    resetOrder:restoreImportedCheckpointOrder,render:renderRallyMode
-  }});"""
+  });"""
           new = """    resetOrder:restoreImportedCheckpointOrder,render:renderRallyMode,
     capturePhotoPair:(...a)=>photoWiring?.capturePhotoPair?.(...a),
     captureFrontPhoto:(...a)=>photoWiring?.captureFrontPhoto?.(...a),
     captureRearPhoto:(...a)=>photoWiring?.captureRearPhoto?.(...a),
     submitPhotoPair:(...a)=>photoWiring?.submitPhotoPair?.(...a)
-  }});"""
+  });"""
           if old not in base:
               raise SystemExit('actions anchor missing')
           base = base.replace(old, new, 1)
 
           # Presenter model fields
           old = """    arrivalRadius:state.settings.checkpointArrivalRadius||500,maxAccuracy:state.settings.checkpointMaxAccuracy||200,checkpoints:rows
-  }});"""
+  });"""
           new = """    arrivalRadius:state.settings.checkpointArrivalRadius||500,maxAccuracy:state.settings.checkpointMaxAccuracy||200,checkpoints:rows,
     ...(photoWiring?.photoModelFields?.()||{})
-  }});"""
+  });"""
           if old not in base:
               raise SystemExit('model anchor missing')
           base = base.replace(old, new, 1)
