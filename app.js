@@ -1,1 +1,1 @@
-PLACEHOLDER_WILL_REPLACE
+import {createCoreCompatibility} from './src/core/compatibility.js';
