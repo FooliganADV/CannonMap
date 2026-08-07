@@ -285,6 +285,17 @@
             <button id="goHotelButton" class="rally-hotel-action" type="button">GO TO HOTEL</button>
             <button id="rallyPlannerButton" type="button">Open Planner</button>
           </div>
+          <div id="rallyPhotoSection" class="rally-photo-section" hidden>
+            <p class="rally-photo-label">Checkpoint photos</p>
+            <div class="rally-photo-actions">
+              <button id="rallyPhotoFrontButton" type="button">FRONT</button>
+              <button id="rallyPhotoRearButton" type="button">REAR</button>
+              <button id="rallyPhotoSubmitPair" type="button" disabled>SAVE PAIR</button>
+            </div>
+            <p id="rallyPhotoStatus" class="rally-photo-status"></p>
+            <input id="rallyPhotoFrontInput" type="file" accept="image/*" capture="environment" hidden />
+            <input id="rallyPhotoRearInput" type="file" accept="image/*" capture="environment" hidden />
+          </div>
           <details class="rally-arrival-settings">
             <summary>Automatic checkpoint arrival</summary>
             <label><input id="autoCompleteCheckpoints" type="checkbox" /> Complete and advance automatically</label>
