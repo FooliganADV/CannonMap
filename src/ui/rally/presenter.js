@@ -70,37 +70,35 @@ export function renderRally({getElement,model,escapeHtml}){
   if(getElement('checkpointMaxAccuracy'))getElement('checkpointMaxAccuracy').value=model.maxAccuracy;
   renderCheckpointOrder({container:getElement('checkpointOrderList'),rows:model.checkpoints,escapeHtml});
 
-  // Paired photo capture UI state
+  // One-tap paired photo capture UI
   const photoSection=getElement('rallyPhotoSection');
   if(photoSection){
     const canCapture=Boolean(model.next)&&model.photoCaptureEnabled!==false;
     photoSection.hidden=!canCapture;
-    const frontReady=Boolean(model.pendingFrontPhoto);
-    const rearReady=Boolean(model.pendingRearPhoto);
-    const frontBtn=getElement('rallyPhotoFrontButton');
-    const rearBtn=getElement('rallyPhotoRearButton');
-    const submitBtn=getElement('rallyPhotoSubmitPair');
-    if(frontBtn){
-      frontBtn.disabled=!canCapture;
-      frontBtn.textContent=frontReady?'FRONT ✓':'FRONT';
-      frontBtn.classList.toggle('is-ready',frontReady);
+
+    const capturing=Boolean(model.photoCapturing);
+    const captureBtn=getElement('rallyPhotoCapturePair');
+    if(captureBtn){
+      captureBtn.disabled=!canCapture||capturing;
+      captureBtn.classList.toggle('is-busy',capturing);
+      if(capturing){
+        captureBtn.textContent=model.photoStatus||'CAPTURING…';
+      }else if(model.photoStatus==='Pair saved'){
+        captureBtn.textContent='PAIR SAVED ✓';
+      }else{
+        captureBtn.textContent='CAPTURE PAIR';
+      }
     }
-    if(rearBtn){
-      rearBtn.disabled=!canCapture;
-      rearBtn.textContent=rearReady?'REAR ✓':'REAR';
-      rearBtn.classList.toggle('is-ready',rearReady);
-    }
-    if(submitBtn){
-      submitBtn.disabled=!canCapture||!frontReady||!rearReady;
-      submitBtn.hidden=!canCapture;
-    }
+
     const status=getElement('rallyPhotoStatus');
     if(status){
       if(model.photoStatus)status.textContent=model.photoStatus;
-      else if(frontReady&&rearReady)status.textContent='Both photos ready — save pair';
-      else if(frontReady)status.textContent='Front ready — capture rear';
-      else if(rearReady)status.textContent='Rear ready — capture front';
-      else status.textContent=canCapture?'Capture front + rear photos':'';
+      else if(canCapture)status.textContent='One tap: front + rear photos';
+      else status.textContent='';
     }
+
+    // Debug controls stay hidden unless explicitly enabled
+    const debugWrap=getElement('rallyPhotoDebug');
+    if(debugWrap)debugWrap.hidden=!model.photoDebugMode;
   }
 }
