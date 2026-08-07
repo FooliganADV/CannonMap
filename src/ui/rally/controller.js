@@ -32,7 +32,12 @@ export function wireRallyController({getElement,actions,windowTarget=window}){
   });
   on('resetCheckpointOrder','click',actions.resetOrder);
 
-  // Paired photo capture (front + rear)
+  // One-tap paired photo capture (field-ready sequential front + rear)
+  on('rallyPhotoCapturePair','click',()=>{
+    if(typeof actions.capturePhotoPair==='function')actions.capturePhotoPair();
+  });
+
+  // Debug-only manual front/rear file inputs (hidden unless debug mode is active)
   on('rallyPhotoFrontButton','click',()=>getElement('rallyPhotoFrontInput')?.click());
   on('rallyPhotoRearButton','click',()=>getElement('rallyPhotoRearInput')?.click());
   on('rallyPhotoFrontInput','change',event=>{
