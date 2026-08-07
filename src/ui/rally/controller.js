@@ -31,6 +31,24 @@ export function wireRallyController({getElement,actions,windowTarget=window}){
     if(button&&row)actions.order(row.dataset.checkpointId,button.dataset.orderAction);
   });
   on('resetCheckpointOrder','click',actions.resetOrder);
+
+  // Paired photo capture (front + rear)
+  on('rallyPhotoFrontButton','click',()=>getElement('rallyPhotoFrontInput')?.click());
+  on('rallyPhotoRearButton','click',()=>getElement('rallyPhotoRearInput')?.click());
+  on('rallyPhotoFrontInput','change',event=>{
+    const file=event.target?.files?.[0];
+    if(file&&typeof actions.captureFrontPhoto==='function')actions.captureFrontPhoto(file);
+    if(event.target)event.target.value='';
+  });
+  on('rallyPhotoRearInput','change',event=>{
+    const file=event.target?.files?.[0];
+    if(file&&typeof actions.captureRearPhoto==='function')actions.captureRearPhoto(file);
+    if(event.target)event.target.value='';
+  });
+  on('rallyPhotoSubmitPair','click',()=>{
+    if(typeof actions.submitPhotoPair==='function')actions.submitPhotoPair();
+  });
+
   windowTarget.addEventListener('online',actions.render);
   windowTarget.addEventListener('offline',actions.render);
 }
