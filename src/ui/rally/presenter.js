@@ -69,4 +69,38 @@ export function renderRally({getElement,model,escapeHtml}){
   if(getElement('checkpointArrivalRadius'))getElement('checkpointArrivalRadius').value=model.arrivalRadius;
   if(getElement('checkpointMaxAccuracy'))getElement('checkpointMaxAccuracy').value=model.maxAccuracy;
   renderCheckpointOrder({container:getElement('checkpointOrderList'),rows:model.checkpoints,escapeHtml});
+
+  // Paired photo capture UI state
+  const photoSection=getElement('rallyPhotoSection');
+  if(photoSection){
+    const canCapture=Boolean(model.next)&&model.photoCaptureEnabled!==false;
+    photoSection.hidden=!canCapture;
+    const frontReady=Boolean(model.pendingFrontPhoto);
+    const rearReady=Boolean(model.pendingRearPhoto);
+    const frontBtn=getElement('rallyPhotoFrontButton');
+    const rearBtn=getElement('rallyPhotoRearButton');
+    const submitBtn=getElement('rallyPhotoSubmitPair');
+    if(frontBtn){
+      frontBtn.disabled=!canCapture;
+      frontBtn.textContent=frontReady?'FRONT ✓':'FRONT';
+      frontBtn.classList.toggle('is-ready',frontReady);
+    }
+    if(rearBtn){
+      rearBtn.disabled=!canCapture;
+      rearBtn.textContent=rearReady?'REAR ✓':'REAR';
+      rearBtn.classList.toggle('is-ready',rearReady);
+    }
+    if(submitBtn){
+      submitBtn.disabled=!canCapture||!frontReady||!rearReady;
+      submitBtn.hidden=!canCapture;
+    }
+    const status=getElement('rallyPhotoStatus');
+    if(status){
+      if(model.photoStatus)status.textContent=model.photoStatus;
+      else if(frontReady&&rearReady)status.textContent='Both photos ready — save pair';
+      else if(frontReady)status.textContent='Front ready — capture rear';
+      else if(rearReady)status.textContent='Rear ready — capture front';
+      else status.textContent=canCapture?'Capture front + rear photos':'';
+    }
+  }
 }
