@@ -1,7 +1,7 @@
 import {normalizeProject} from '../../domain/projects/model.js';
 
 export const DATABASE_NAME='CannonMapDB';
-export const DATABASE_VERSION=8;
+export const DATABASE_VERSION=9;
 export const V2_FEATURE_FLAG='architecture.indexeddb.v2';
 
 const stores=[
@@ -14,6 +14,10 @@ const stores=[
     ['projectTimestamp',['projectId','timestamp']],
     ['projectTypeTimestamp',['projectId','eventType','timestamp']],
     ['projectCreatedAt',['projectId','createdAt']]
+  ]},
+  {name:'mediaRecords',keyPath:'mediaId',indexes:[
+    ['projectId','projectId'],['checkpointId','checkpointId'],['pairId','pairId'],
+    ['createdAt','createdAt'],['projectCreatedAt',['projectId','createdAt']]
   ]},
   {name:'searchDocuments',keyPath:['projectId','sourceType','sourceId'],indexes:[
     ['projectId','projectId'],['sourceType','sourceType'],
