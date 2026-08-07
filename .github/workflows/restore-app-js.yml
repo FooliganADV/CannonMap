@@ -1,0 +1,130 @@
+name: Restore complete app.js
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore app.js from last known-good blob and wire photos
+        run: |
+          set -euo pipefail
+          # Last known complete app.js before PLACEHOLDER corruption
+          git show c9a8fb6f38b3fc6f309f2dc5ecc721b97f924650:app.js > app.js
+          test -s app.js
+          python3 - <<'PY'
+          from pathlib import Path
+          base = Path('app.js').read_text()
+          assert 'createCoreCompatibility' in base
+          assert 'PLACEHOLDER' not in base
+          assert 'SEE_LOCAL_FILE' not in base
+
+          # Imports
+          old = "import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';"
+          new = old + "\nimport {createRallyPhotoWiring,CHECKPOINT_PHOTO_FEATURE_FLAG} from './src/application/rally-photo-wiring.js';"
+          if old not in base:
+              raise SystemExit('import anchor missing')
+          base = base.replace(old, new, 1)
+
+          # Service handle
+          old = "let analyticsDatabase=null;\nlet observationSequence=0;"
+          new = "let analyticsDatabase=null;\nlet photoWiring=null;\nlet observationSequence=0;"
+          if old not in base:
+              raise SystemExit('lets anchor missing')
+          base = base.replace(old, new, 1)
+
+          # Initialize in composition root
+          old = """  try{await initializeRallyAnalytics();}catch(error){console.warn(`[CannonMap analytics] ${error?.message||error}`);}
+  initMap();wireUi();"""
+          new = """  try{await initializeRallyAnalytics();}catch(error){console.warn(`[CannonMap analytics] ${error?.message||error}`);}
+  try{
+    photoWiring=createRallyPhotoWiring({
+      featureFlags,
+      openIndexedDb:openIndexedDbV2,
+      observationDatabase,
+      analyticsDatabase,
+      createId:uid,
+      clock:core.clock,
+      state,
+      setStatus,
+      renderRallyMode,
+      currentCheckpoint,
+      currentProjectId:()=>String(state.project?.projectId||state.project?.id||'legacy-current')
+    });
+    await photoWiring.initializeCheckpointPhotos();
+  }catch(error){console.warn(`[CannonMap checkpoint photos] ${error?.message||error}`);}
+  initMap();wireUi();"""
+          if old not in base:
+              raise SystemExit('init anchor missing')
+          base = base.replace(old, new, 1)
+
+          # Controller actions
+          old = """    resetOrder:restoreImportedCheckpointOrder,render:renderRallyMode
+  }});"""
+          new = """    resetOrder:restoreImportedCheckpointOrder,render:renderRallyMode,
+    capturePhotoPair:(...a)=>photoWiring?.capturePhotoPair?.(...a),
+    captureFrontPhoto:(...a)=>photoWiring?.captureFrontPhoto?.(...a),
+    captureRearPhoto:(...a)=>photoWiring?.captureRearPhoto?.(...a),
+    submitPhotoPair:(...a)=>photoWiring?.submitPhotoPair?.(...a)
+  }});"""
+          if old not in base:
+              raise SystemExit('actions anchor missing')
+          base = base.replace(old, new, 1)
+
+          # Presenter model fields
+          old = """    arrivalRadius:state.settings.checkpointArrivalRadius||500,maxAccuracy:state.settings.checkpointMaxAccuracy||200,checkpoints:rows
+  }});"""
+          new = """    arrivalRadius:state.settings.checkpointArrivalRadius||500,maxAccuracy:state.settings.checkpointMaxAccuracy||200,checkpoints:rows,
+    ...(photoWiring?.photoModelFields?.()||{})
+  }});"""
+          if old not in base:
+              raise SystemExit('model anchor missing')
+          base = base.replace(old, new, 1)
+
+          # Clear pending photos on checkpoint transitions
+          replacements = [
+            ("function selectNextCheckpoint(){const rows=dayCheckpoints();snapshot();",
+             "function selectNextCheckpoint(){const rows=dayCheckpoints();snapshot();photoWiring?.clearPendingPhotos?.();"),
+            ("function completeCurrentCheckpoint(automatic=false){const checkpoint=currentCheckpoint();if(!checkpoint)return setStatus('No active checkpoint.',true);snapshot();",
+             "function completeCurrentCheckpoint(automatic=false){const checkpoint=currentCheckpoint();if(!checkpoint)return setStatus('No active checkpoint.',true);snapshot();photoWiring?.clearPendingPhotos?.();"),
+            ("function deferCurrentCheckpoint(reason='Rider deferred'){const checkpoint=currentCheckpoint();if(!checkpoint)return setStatus('No active checkpoint.',true);snapshot();",
+             "function deferCurrentCheckpoint(reason='Rider deferred'){const checkpoint=currentCheckpoint();if(!checkpoint)return setStatus('No active checkpoint.',true);snapshot();photoWiring?.clearPendingPhotos?.();"),
+            ("function skipCurrentCheckpoint(){const checkpoint=currentCheckpoint();if(!checkpoint)return setStatus('No active checkpoint.',true);if(!confirm(`Skip ${checkpoint.name}? It will remain in the project as skipped.`))return;snapshot();",
+             "function skipCurrentCheckpoint(){const checkpoint=currentCheckpoint();if(!checkpoint)return setStatus('No active checkpoint.',true);if(!confirm(`Skip ${checkpoint.name}? It will remain in the project as skipped.`))return;snapshot();photoWiring?.clearPendingPhotos?.();"),
+          ]
+          for old, new in replacements:
+              if old not in base:
+                  raise SystemExit(f'checkpoint clear anchor missing: {old[:60]}')
+              base = base.replace(old, new, 1)
+
+          Path('app.js').write_text(base)
+          print('app.js restored+wired bytes', len(base))
+          PY
+          node --check app.js
+          # Guardrails
+          ! grep -q 'PLACEHOLDER\|SEE_LOCAL_FILE\|/home/workdir/artifacts' app.js
+          grep -q 'createRallyPhotoWiring' app.js
+          grep -q 'capturePhotoPair' app.js
+          wc -c app.js
+
+      - name: Commit restored app.js
+        run: |
+          set -euo pipefail
+          git config user.name 'FooliganADV'
+          git config user.email 'fooliganadv@gmail.com'
+          git add app.js
+          if git diff --cached --quiet; then
+            echo 'No changes to commit'
+            exit 0
+          fi
+          git commit -m 'fix(photos): restore complete app.js with one-tap sequential photo wiring'
+          git push origin HEAD:main
