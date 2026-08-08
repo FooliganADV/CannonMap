@@ -15,8 +15,9 @@ async function interceptNativePicker(page,inputId){
 test('More has no duplicate camera preference and checkpoint buttons open the requested native camera directly',async({page},testInfo)=>{
   test.skip(!testInfo.project.name.startsWith('iPhone 13'),'Mission Control camera controls are a mobile workflow.');await open(page);
   await page.locator('#rallyMoreButton').click();await expect(page.locator('.rally-camera-settings')).toHaveCount(0);await page.locator('#rallyMoreButton').click();
-  await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();
-  await expect(page.locator('#rallyCameraWorkflow')).not.toContainText('Open Camera');await interceptNativePicker(page,'rallyCameraInput');
+  await interceptNativePicker(page,'rallyCameraInput');await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();
+  await expect(page.locator('#rallyCameraInput')).toHaveAttribute('data-direct-triggers','0');
+  await expect(page.locator('#rallyCameraWorkflow')).not.toContainText(/Open Camera|CAPTURE PAIR|60-second|Checkpoint Captured/);
   await page.locator('#rallyCameraSelfie').click();await expect(page.locator('#rallyCameraInput')).toHaveAttribute('capture','user');await expect(page.locator('#rallyCameraInput')).toHaveAttribute('data-direct-triggers','1');await expect(page.locator('#rallyCameraSelfie')).toHaveClass(/is-active/);
   await page.locator('#rallyCameraForward').click();await expect(page.locator('#rallyCameraInput')).toHaveAttribute('capture','environment');await expect(page.locator('#rallyCameraInput')).toHaveAttribute('data-direct-triggers','2');await expect(page.locator('#rallyCameraForward')).toHaveClass(/is-active/);
   await page.reload();await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');await expect(page.locator('#rallyCameraInput')).toHaveAttribute('capture','environment');
@@ -42,5 +43,6 @@ test('camera prompt remains glove-friendly without GPS overlap in iPhone portrai
   test.skip(!testInfo.project.name.startsWith('iPhone 13'));await open(page);await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));
   const selfie=await page.locator('#rallyCameraSelfie').boundingBox(),forward=await page.locator('#rallyCameraForward').boundingBox(),modal=await page.locator('#rallyCameraWorkflow').boundingBox(),gps=await page.locator('#rallyRecenterFab').boundingBox();
   expect(selfie.width).toBeGreaterThanOrEqual(48);expect(selfie.height).toBeGreaterThanOrEqual(48);expect(forward.width).toBeGreaterThanOrEqual(48);expect(forward.height).toBeGreaterThanOrEqual(48);
-  const overlaps=modal&&gps&&modal.x<gps.x+gps.width&&modal.x+modal.width>gps.x&&modal.y<gps.y+gps.height&&modal.y+modal.height>gps.y;expect(overlaps).toBe(false);
+  await expect(page.locator('#rallyRecenterFab')).toBeHidden();
+  const overlaps=modal&&gps&&modal.x<gps.x+gps.width&&modal.x+modal.width>gps.x&&modal.y<gps.y+gps.height&&modal.y+modal.height>gps.y;expect(Boolean(overlaps&&await page.locator('#rallyRecenterFab').isVisible())).toBe(false);
 });

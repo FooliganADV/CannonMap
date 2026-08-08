@@ -321,7 +321,6 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
   .rally-deferred-prompt>div{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
   .rally-deferred-prompt button{min-height:52px;display:grid;place-items:center;border:1px solid #64748b;border-radius:10px;background:#1f2937;color:#fff;font-weight:900}
   .rally-camera-workflow{border-color:#38bdf8;text-align:center}
-  .rally-camera-workflow>span{display:block;margin:5px auto;font-size:2rem;font-weight:900;color:#7dd3fc}
   .rally-camera-workflow p{font-size:.75rem;color:#cbd5e1}
   .rally-camera-workflow input{position:absolute;width:1px;height:1px;overflow:hidden;opacity:0}
   .rally-camera-workflow small{display:block;margin-top:8px;color:#cbd5e1}

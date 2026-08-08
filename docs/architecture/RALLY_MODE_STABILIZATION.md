@@ -1,5 +1,11 @@
 # Rally Mode Stabilization
 
+## Reconciliation invariants
+
+Checkpoint and hotel arrivals stop in `photo_required` and wait for an explicit rider choice: **Selfie** or **Forward**. Each choice opens the corresponding advisory native file-input camera and accepts one photograph. There is no automatic camera launch, countdown, automatic continuation, mandatory second photograph, or front/rear capture pair. A successful capture retains the untouched full-resolution Original and generates a separate Evidence image before objective completion.
+
+`missionMedia` is the only writable Mission Control media store. It persists Safari-safe `ArrayBuffer` payloads and verifies reopened bytes after each write. The historical IndexedDB v9 `mediaRecords` store used front/rear pair semantics and cannot be truthfully converted into Original/Evidence records. IndexedDB retains that unknown store and its records during the additive v10 upgrade; CannonMap deliberately does not copy, relabel, or delete them. Any future legacy export tool must expose their original `front`/`rear` provenance explicitly and remain read-only.
+
 ## Authoritative runtime state
 
 High-frequency GPS observations are inputs. Checkpoint, photo, deferred, and

@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260806-stabilization-13" />
+  <link rel="stylesheet" href="app.css?v=20260808-reconciliation-1" />
 </head>
 <body>
   <header class="topbar">
@@ -280,8 +280,7 @@
           <div><button id="rallyResumeDeferredButton" type="button">Resume Deferred</button><button id="rallyFinishDayButton" type="button">Finish Day</button></div>
         </section>
         <section id="rallyCameraWorkflow" class="rally-camera-workflow" hidden aria-live="polite">
-          <strong>Checkpoint Captured</strong><span id="rallyCameraCountdown">60</span>
-          <p><strong id="rallyCameraHeading">Checkpoint Reached</strong><br>Capture required rally evidence. Mission Control continues only after durable storage succeeds.</p>
+          <p><strong id="rallyCameraHeading">Checkpoint Reached</strong><br>Choose one camera. Mission Control continues only after the full-resolution Original and Evidence copy are stored.</p>
           <div class="rally-camera-facing" role="group" aria-label="Capture rally evidence"><button id="rallyCameraSelfie" type="button">Selfie</button><button id="rallyCameraForward" type="button">Forward</button></div>
           <input id="rallyCameraInput" type="file" accept="image/*" capture="user" />
           <small id="rallyCameraPhotoCount">No photos captured</small>
@@ -456,6 +455,6 @@
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260806-stabilization-13"></script>
+  <script type="module" src="app.js?v=20260808-reconciliation-1"></script>
 </body>
 </html>

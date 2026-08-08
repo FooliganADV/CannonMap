@@ -22,11 +22,13 @@ next checkpoint. CannonRoute text is reduced to a concise operational state.
 It does not invent route confidence. Navigation guidance is primary and exact
 distance is secondary.
 
-Automatic capture records Journal and Analytics evidence before opening a
-60-second, no-cancel camera window. Each interaction resets the inactivity
-timer; ignored windows close automatically. Photos are stored in a dedicated,
-project-scoped IndexedDB store while Journal events retain only `media://`
-references to the checkpoint completion event.
+Automatic arrival records Journal and Analytics evidence and then stops in
+`photo_required`. The rider explicitly taps **Selfie** or **Forward**, which
+opens that advisory native camera directly for one photograph. There is no
+automatic camera launch, inactivity timer, automatic continuation, mandatory
+second photograph, or front/rear capture pair. The untouched full-resolution
+Original and a separate Evidence copy are stored in the project-scoped
+`missionMedia` store; Journal events retain their `media://` references.
 
 ## Foundation integration
 
@@ -44,9 +46,9 @@ references to the checkpoint completion event.
 ## Day progression
 
 The official `type="hotel"` record participates in the execution sequence
-after regular checkpoints. Completing it advances to the next available rally
-day, activates that day's first objective, fits the route, and persists the day
-selection. The hotel is mandatory and cannot be deferred. When regular planned
+after regular checkpoints. Completing it finalizes the current day and exposes
+the next available configured day without activating it. The rider explicitly
+starts that next day. The hotel is mandatory and cannot be deferred. When regular planned
 objectives are exhausted, deferred checkpoints are presented as a queue with
 only `Resume Deferred` and `Finish Day`; the latter activates the official
 hotel. Hotel completion records a day-finished debrief event and never leaves
@@ -57,9 +59,11 @@ Mission Control with an undefined objective message.
 Legacy projects still load through `projects/current`; Project Lifecycle
 promotes that record additively. Imports without an active Project identity
 continue through the legacy-compatible save path and are promoted on restart.
-IndexedDB v9 adds only the project-scoped `missionMedia` store. All existing
-stores and records remain unchanged, and project deletion includes media in
-the existing atomic deletion transaction.
+IndexedDB v10 adds the project-scoped `missionMedia` and finalized-project
+stores. Existing stores and records remain unchanged. Historical v9
+`mediaRecords` data is retained without being relabeled as Original/Evidence,
+and project deletion includes current Mission Control media in the existing
+atomic deletion transaction.
 
 ## Deferred
 

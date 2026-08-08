@@ -94,12 +94,16 @@ test('hotel completion persists Day Complete and requires explicit next-day star
   await expect(page.locator('#rallyNextName')).toContainText('Day 2 Checkpoint');
 });
 
-test('automatic checkpoint capture opens camera and attaches photo references to Journal',async({page},testInfo)=>{
+test('automatic checkpoint arrival waits for a direct camera choice and attaches one photo to Journal',async({page},testInfo)=>{
   test.skip(testInfo.project.name==='desktop');
   await loadProject(page);
+  await page.evaluate(()=>{const input=document.getElementById('rallyCameraInput');input.dataset.directTriggers='0';input.click=()=>{input.dataset.directTriggers=String(Number(input.dataset.directTriggers)+1);};});
   await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(true));
   await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();
-  await expect(page.locator('#rallyCameraCountdown')).toHaveText(/^[5-6][0-9]$/);
+  await expect(page.locator('#rallyCameraInput')).toHaveAttribute('data-direct-triggers','0');
+  await page.locator('#rallyCameraSelfie').click();
+  await expect(page.locator('#rallyCameraInput')).toHaveAttribute('capture','user');
+  await expect(page.locator('#rallyCameraInput')).toHaveAttribute('data-direct-triggers','1');
   await page.locator('#rallyCameraInput').setInputFiles({name:'checkpoint.jpg',mimeType:'image/jpeg',buffer:photoBuffer});
   await expect(page.locator('#rallyCameraPhotoCount')).toContainText('1 photo captured');
   await page.waitForFunction(async()=>{

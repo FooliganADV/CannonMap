@@ -1,20 +1,13 @@
 /** Durable checkpoint photo gate. Required photos never auto-finish without media. */
-export function createCheckpointCameraWorkflow({mediaRepository,photoEvidence,journal,clock,timeoutMs=60000,setTimer=setTimeout,clearTimer=clearTimeout,onState=()=>{},onRequested=()=>{},onDiagnostic=()=>{}}={}){
+export function createCheckpointCameraWorkflow({mediaRepository,photoEvidence,journal,clock,onState=()=>{},onRequested=()=>{},onDiagnostic=()=>{}}={}){
   if(!mediaRepository||!journal||!clock)throw new TypeError('Camera workflow dependencies are required.');
-  let active=null,timer=null;
+  let active=null;
   const snapshot=()=>active?{...active,photos:[...active.photos]}:{status:'idle'};
   const publish=()=>onState(snapshot());
-  const clear=()=>{if(timer)clearTimer(timer);timer=null;};
-  const expire=()=>{
-    clear();if(!active)return;
-    if(active.required&&!active.photos.length){active.status='awaiting_photo';active.error='A photo is required before this checkpoint can complete.';publish();return;}
-    active.status='ready';publish();
-  };
-  const arm=()=>{clear();active.deadline=Date.now()+timeoutMs;timer=setTimer(expire,timeoutMs);publish();};
   return Object.freeze({
     start({projectId,checkpoint,journalEvent,required=Boolean(checkpoint?.photoRequired),evidenceContext={},cameraPreference='front'}){
-      clear();active={status:'requesting',required:Boolean(required),projectId,checkpoint,journalEvent,evidenceContext,cameraPreference,photos:[],startedAt:clock.iso(),deadline:0,error:''};
-      arm();onRequested(snapshot());return snapshot();
+      active={status:'awaiting_photo',required:Boolean(required),projectId,checkpoint,journalEvent,evidenceContext,cameraPreference,photos:[],startedAt:clock.iso(),error:''};
+      publish();onRequested(snapshot());return snapshot();
     },
     async addFiles(files){
       if(!active)throw new Error('Camera workflow is not active.');
@@ -37,7 +30,7 @@ export function createCheckpointCameraWorkflow({mediaRepository,photoEvidence,jo
           });}catch(error){if(pair)await mediaRepository.deleteEvidencePair?.(pair);throw error;}
           active.photos.push(reference);
         }
-        active.status='ready';active.error='';clear();publish();return [...active.photos];
+        active.status='ready';active.error='';publish();return [...active.photos];
       }catch(error){
         const technical={exceptionName:error?.diagnostics?.exceptionName||error?.name||'Error',exceptionMessage:error?.diagnostics?.exceptionMessage||error?.message||String(error),stackTrace:error?.diagnostics?.stackTrace||error?.stack||'Unavailable',objectConstructor:error?.diagnostics?.objectConstructor||files?.[0]?.constructor?.name||'Unavailable',objectType:error?.diagnostics?.objectType||files?.[0]?.constructor?.name||'Unavailable',objectSize:(error?.diagnostics?.objectSize??Number(files?.[0]?.size))||0,mimeType:error?.diagnostics?.mimeType||files?.[0]?.type||'Unavailable',transactionState:error?.diagnostics?.transactionState||'Unavailable',objectStore:error?.diagnostics?.objectStore||'missionMedia',browser:error?.diagnostics?.browser||globalThis.navigator?.userAgent||'Unavailable',appVersion:error?.diagnostics?.appVersion||globalThis.navigator?.appVersion||'Unavailable'};
         onDiagnostic(technical);active.status='failed';active.error='Photo could not be saved.\n\nYour checkpoint has NOT been completed.\n\nPlease retry the photo.\n\nIf the problem continues you may mark the objective as failed.';
@@ -52,18 +45,18 @@ export function createCheckpointCameraWorkflow({mediaRepository,photoEvidence,jo
       }
     },
     cancel(){if(!active)return null;active.status='awaiting_photo';active.error=active.required?'Photo capture was canceled. Retry is required.':'Photo skipped.';publish();return snapshot();},
-    retry(){if(!active)return null;active.status='requesting';active.error='';arm();onRequested(snapshot());return snapshot();},
+    retry(){if(!active)return null;active.status='awaiting_photo';active.error='';publish();onRequested(snapshot());return snapshot();},
     restorePhoto(reference){
       if(!active||!reference)return null;
       if(!active.photos.some(photo=>photo.mediaId===reference.mediaId))active.photos.push(reference);
-      active.status='ready';active.error='';clear();publish();return snapshot();
+      active.status='ready';active.error='';publish();return snapshot();
     },
     finish(){
       if(!active)return null;
       if(active.required&&!active.photos.length){active.status='awaiting_photo';active.error='A required photo has not been recorded.';publish();return null;}
-      clear();const result=snapshot();active=null;publish();return result;
+      const result=snapshot();active=null;publish();return result;
     },
-    abandon(){clear();const result=snapshot();active=null;publish();return result;},
+    abandon(){const result=snapshot();active=null;publish();return result;},
     getState:snapshot
   });
 }

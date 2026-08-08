@@ -54,6 +54,34 @@ test('v10 stores immutable finalized masters additively and create-only',async({
   expect(result.count).toBe(1);expect(result.duplicate).toBe('ConstraintError');expect(result.stored.project.projectId).toBe('plan-1');expect(result.stored.immutable).toBeTruthy();
 });
 
+test('v10 upgrade retains legacy v9 mediaRecords without relabeling or copying them',async({page},testInfo)=>{
+  const databaseName=uniqueName(testInfo);
+  const result=await page.evaluate(async name=>{
+    const legacy=await new Promise((resolve,reject)=>{
+      const request=indexedDB.open(name,9);
+      request.onupgradeneeded=()=>{
+        const store=request.result.createObjectStore('mediaRecords',{keyPath:'mediaId'});
+        store.createIndex('projectId','projectId');store.createIndex('checkpointId','checkpointId');store.createIndex('pairId','pairId');
+      };
+      request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);
+    });
+    const legacyRecord={mediaId:'legacy-front',projectId:'project-1',checkpointId:'cp-1',pairId:'legacy-pair',orientation:'front',blob:new Blob(['legacy-bytes'],{type:'image/jpeg'})};
+    await new Promise((resolve,reject)=>{const transaction=legacy.transaction('mediaRecords','readwrite');transaction.objectStore('mediaRecords').add(legacyRecord);transaction.oncomplete=resolve;transaction.onerror=()=>reject(transaction.error);});
+    legacy.close();
+    const module=await import('/src/infrastructure/indexeddb/index.js');
+    const database=await module.openIndexedDbV2({indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name});
+    const transaction=database.transaction(['mediaRecords','missionMedia'],'readonly');
+    const read=(store,key)=>new Promise((resolve,reject)=>{const request=transaction.objectStore(store).get(key);request.onsuccess=()=>resolve(request.result||null);request.onerror=()=>reject(request.error);});
+    const [retained,copied]=await Promise.all([read('mediaRecords','legacy-front'),read('missionMedia','legacy-front')]);
+    const stores=[...database.objectStoreNames],version=database.version;database.close();
+    return {version,stores,retained:{...retained,blobSize:retained?.blob?.size},copied};
+  },databaseName);
+  expect(result.version).toBe(10);expect(result.stores).toContain('mediaRecords');expect(result.stores).toContain('missionMedia');
+  expect(result.retained).toMatchObject({mediaId:'legacy-front',orientation:'front',pairId:'legacy-pair',blobSize:12});
+  expect(result.copied).toBeNull();
+  await deleteDatabase(page,databaseName);
+});
+
 test('v4 copies the legacy current project into first-class project storage without changing the legacy record',async({page},testInfo)=>{
   const databaseName=uniqueName(testInfo);
   const result=await page.evaluate(async name=>{

@@ -38,7 +38,7 @@ import {createFirebaseAuthentication} from './src/infrastructure/firebase/authen
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
 const APP_VERSION = '0.7.1';
-const BUILD_ID = '2026.08.06.stabilization-13';
+const BUILD_ID = '2026.08.08.reconciliation-1';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
@@ -91,7 +91,6 @@ let photoViewerZoom=1;
 let photoViewerUrls=[];
 let pendingJourneyCaption='';
 let rideExportSource=null;
-let cameraCountdownTimer=null;
 let gpsFollow=null;
 let pendingPhotoCheckpointId=null;
 let checkpointCompletionInFlight=false;
@@ -1006,11 +1005,8 @@ function recordJournalCheckpoint(checkpoint,automatic){
 function renderCheckpointCameraState(cameraState){
   const section=$('rallyCameraWorkflow');if(!section)return;
   const active=cameraState&&cameraState.status!=='idle';section.hidden=!active;
-  if(cameraCountdownTimer){clearInterval(cameraCountdownTimer);cameraCountdownTimer=null;}
   if(!active)return;
   const checkpoint=state.project.features.find(feature=>feature.id===pendingPhotoCheckpointId),heading=$('rallyCameraHeading');if(heading)heading.textContent=checkpoint?.type==='hotel'?'Hotel Reached':'Checkpoint Reached';
-  const update=()=>{const seconds=Math.max(0,Math.ceil((cameraState.deadline-Date.now())/1000));if($('rallyCameraCountdown'))$('rallyCameraCountdown').textContent=String(seconds);};
-  update();cameraCountdownTimer=setInterval(update,1000);
   if($('rallyCameraPhotoCount'))$('rallyCameraPhotoCount').textContent=cameraState.photos.length?`${cameraState.photos.length} photo${cameraState.photos.length===1?'':'s'} captured`:'No photos captured';
   if($('rallyCameraError')){$('rallyCameraError').textContent=cameraState.error||'';$('rallyCameraError').hidden=!cameraState.error;}
   if($('rallyCameraRetry'))$('rallyCameraRetry').hidden=!['failed','awaiting_photo'].includes(cameraState.status);
@@ -1836,7 +1832,7 @@ async function beginPhotoWorkflow(checkpoint,automatic){
   const arrival=await appendRallyJournalEvent('checkpoint_arrival',checkpoint,{eventIdentity:`arrival:${checkpoint.id}`,checkpointArrivalTimestamp:timestamp,
     photoRequired:Boolean(checkpoint.photoRequired),photoStatus:checkpoint.photoStatus,arrivalEvidence:checkpoint.arrivalEvidence,source:automatic?'gps_capture':'manual_fallback',title:checkpoint.type==='hotel'?'Hotel Reached':checkpoint.name,summary:checkpoint.type==='hotel'?'Hotel arrival recorded; photo evidence is required before day completion.':'Checkpoint arrival recorded.'},timestamp);
   const cameraPreference=preferredCamera();applyCameraPreference();pendingPhotoCheckpointId=checkpoint.id;rallyDebug.record('photo_requested',{checkpointId:checkpoint.id,required:Boolean(checkpoint.photoRequired),requestedCamera:cameraPreference,actualCamera:'unknown',cameraSelectionHonored:'unknown'});
-  checkpointCamera?.start({projectId:state.project.projectId,checkpoint,journalEvent:arrival,required:Boolean(checkpoint.photoRequired),evidenceContext:photoEvidenceContext(checkpoint,arrival),cameraPreference});setTimeout(()=>$('rallyCameraInput')?.click(),0);
+  checkpointCamera?.start({projectId:state.project.projectId,checkpoint,journalEvent:arrival,required:Boolean(checkpoint.photoRequired),evidenceContext:photoEvidenceContext(checkpoint,arrival),cameraPreference});
 }
 async function finalizePendingPhotoCheckpoint(){
   const checkpoint=state.project.features.find(feature=>feature.id===pendingPhotoCheckpointId);if(!checkpoint)return;
