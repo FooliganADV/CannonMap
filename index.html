@@ -263,13 +263,16 @@
           <div class="rally-score-slot" aria-hidden="true"><span>Score</span><strong id="rallyScore">0</strong></div>
         </header>
         <div id="rallyPrimaryCard" class="rally-primary-card is-none">
-          <small id="rallyNextType">NEXT CHECKPOINT</small>
-          <strong id="rallyNextName">No checkpoint selected</strong>
-          <div class="rally-primary-metrics">
-            <span id="rallyNextDistance">—</span>
-            <em id="rallyNextPoints">—</em>
+          <div class="rally-objective-heading">
+            <div><small>CURRENT OBJECTIVE</small><strong id="rallyNextName">No checkpoint selected</strong></div>
+            <button id="rallyDeferIcon" type="button" aria-label="Defer current checkpoint" title="Defer current checkpoint">⇥</button>
           </div>
-          <p id="rallyNextHint" class="rally-hint">Select Next to load the active day checkpoint.</p>
+          <span id="rallyNextDistance" class="rally-objective-distance">Distance unavailable</span>
+          <div class="rally-objective-sections">
+            <section><h3>Rider Notes</h3><p id="rallyRiderNotes">No rider notes.</p></section>
+            <section><h3>CannonRoute Intelligence</h3><p id="rallyRouteIntelligence">Backbone route active. Live route intelligence is not yet available.</p></section>
+            <section id="rallyWarningsSection"><h3>Warnings</h3><ul id="rallyWarnings"><li>No active operational warnings.</li></ul></section>
+          </div>
         </div>
         <button id="rallyRecenterFab" class="rally-recenter-fab" type="button" aria-label="Start GPS tracking">START</button>
         <section id="rallyMoreSheet" class="rally-more-sheet" aria-hidden="true">
@@ -315,8 +318,7 @@
         </section>
         <nav class="rally-actions" aria-label="Rally actions">
           <button id="rallyNextButton" type="button">NEXT</button>
-          <button id="rallyCompleteButton" type="button">COMPLETE</button>
-          <button id="rallyDeferButton" type="button">DEFER</button>
+          <button id="rallyCompleteButton" type="button" title="Manual completion fallback">COMPLETE</button>
           <button id="rallyMoreButton" type="button" aria-expanded="false">MORE</button>
         </nav>
       </section>

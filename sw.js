@@ -1,4 +1,4 @@
-const CACHE = 'cannonmap-v0.7.1-20260807-css-recovery-01';
+const CACHE = 'cannonmap-v0.7.1-20260807-mission-control-photo-recovery-01';
 const APP_SHELL = [
   './',
   './index.html',

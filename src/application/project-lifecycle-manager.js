@@ -154,6 +154,17 @@ export function createProjectLifecycleManager({
     initialize:()=>enqueue(initializeInternal),
     getActiveProject:()=>clone(activeProject),
     getActiveRepositories:()=>activeScope?.repositories||null,
+    saveActiveProject:project=>enqueue(async()=>{
+      await initializeInternal();
+      const id=identityOrNull(project);
+      if(!activeProject||id!==activeProject.projectId){
+        throw new Error('Only the active Project can be saved through Project Lifecycle.');
+      }
+      const saved=await projectRepository.save(project);
+      await legacyCurrentRepository.save(saved);
+      activeProject=saved;
+      return clone(saved);
+    }),
     listProjects:()=>projectRepository.list(),
     openProject:projectId=>enqueue(()=>switchInternal(projectId)),
     setActiveProject:projectId=>enqueue(()=>switchInternal(projectId)),
