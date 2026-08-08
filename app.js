@@ -23,6 +23,7 @@ import {createRallyDebugLog} from './src/application/rally-debug-log.js';
 import {createRideExportSource} from './src/application/ride-export-source.js';
 import {createPhotoEvidenceService} from './src/application/photo-evidence-service.js';
 import {createPhotoExportService} from './src/application/photo-export-service.js';
+import {resolveRallyExportDay,journalEventsForDay} from './src/application/day-export-context.js';
 import {createMissionStorageService} from './src/application/mission-storage-service.js';
 import {createJourneyMediaService} from './src/application/journey-media-service.js';
 import {createJourneyPackageRestoreService} from './src/application/journey-package-restore.js';
@@ -39,8 +40,8 @@ import {
 import {createFirebaseAuthentication} from './src/infrastructure/firebase/authentication.js';
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
-const APP_VERSION = '0.7.2';
-const BUILD_ID = '2026.08.08.capture-pair-reconciliation-1';
+const APP_VERSION = '0.7.3';
+const BUILD_ID = '2026.08.08.field-export-recovery-1';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
@@ -1076,7 +1077,7 @@ function photoEvidenceContext(checkpoint,journalEvent){
   const gps=checkpoint.arrivalEvidence||captureArrivalEvidence(state.lastGpsPosition,Date.parse(journalEvent.timestamp)||Date.now()),weather=weatherMaintenance?.getContext(),weatherNearCapture=gps&&weather?.requestCoordinates&&haversine({lat:gps.latitude,lon:gps.longitude},weather.requestCoordinates)<=5000;
   const temperature=weatherNearCapture?weather?.temperature:null,weatherAge=weather?.fetchedAt?Math.max(0,Date.parse(journalEvent.timestamp)-Date.parse(weather.fetchedAt)):null;
   const numbered=rallyCheckpointNumber(checkpoint.name),checkpointNumber=numbered?`${numbered.day}.${numbered.sequence}`:(Number.isFinite(Number(checkpoint.sequence))?String(checkpoint.sequence):null);
-  return {eventName:checkpoint.type==='hotel'?'Hotel Arrival':'America 250 ADV Cannonball',rallyName:state.project.name||null,dayNumber:Number(checkpoint.day)||null,
+  return {eventName:checkpoint.type==='hotel'?'Hotel Arrival':'America 250 ADV Cannonball',objectiveType:checkpoint.type||'checkpoint',rallyName:state.project.name||null,dayNumber:Number(checkpoint.day)||null,
     checkpointName:checkpoint.name||null,checkpointNumber,
     points:checkpoint.points===null||checkpoint.points===undefined?null:Number(checkpoint.points),capturedAt:journalEvent.timestamp,
     latitude:gps?.latitude??null,longitude:gps?.longitude??null,elevation:gps?.elevationFeet??null,temperature:Number.isFinite(Number(temperature))?Number(temperature):null,
@@ -1127,7 +1128,13 @@ async function openPhotoViewer(allProjects=false){
 const openJourneyPhotoViewer=()=>openPhotoViewer(true);
 async function exportPhotoSelection(role){const group=photoViewerGroups[photoViewerIndex],record=group?.[role];if(!record)return setStatus(`${role==='original'?'Original':'Evidence'} photo is unavailable.`,true);const file=await photoExports.single(record.mediaId);downloadStoredBlob(file.blob,file.filename);}
 async function exportPhotoArchive(scope){
-  const day=activeRallyDay()||photoViewerGroups.find(item=>item.day)?.day||1,journal=await missionControlJournalEvents(),file=scope==='day'?await photoExports.day(state.project.projectId,day,{journal}):await photoExports.rally(state.project.projectId,{journal});downloadStoredBlob(file.blob,file.filename);state.settings.lastMediaExportAt=new Date().toISOString();if(scope==='day')await markDayBackupProgress(day,'photos');else await saveProject(false);
+  const day=resolveRallyExportDay({settings:state.settings,project:state.project}),journal=await missionControlJournalEvents();
+  try{
+    if(scope==='day'&&!day)throw Object.assign(new Error('Photo export stopped: CannonMap could not identify the rally day for the stored media.'),{code:'PHOTO_EXPORT_DAY_UNKNOWN'});
+    const file=scope==='day'?await photoExports.day(state.project.projectId,day,{journal}):await photoExports.rally(state.project.projectId,{journal});
+    if(file.manifest.entryCount<1)throw new Error('Photo export failed because the verified archive contains no media files.');
+    downloadStoredBlob(file.blob,file.filename);state.settings.lastMediaExportAt=new Date().toISOString();if(scope==='day')await markDayBackupProgress(day,'photos');else await saveProject(false);setStatus(`Exported ${file.manifest.entryCount} verified media files${scope==='day'?` for Day ${day}`:''}.`);
+  }catch(error){rallyDebug.record('photo_export_failed',{scope,day,errorCode:error?.code||'PHOTO_EXPORT_FAILED',error:error?.message||String(error)});setStatus(error?.message||'Photo export failed.',true);}
 }
 async function exportEntireJourney(){
   const projects=await projectLifecycle.listProjects(),manifest={format:'cannonmap-journey-archive-set',version:1,createdAt:new Date().toISOString(),projects:[]};
@@ -1147,9 +1154,13 @@ async function markDayBackupProgress(day,kind){
 }
 function openDayBackupSheet(){setRallyMoreOpen(false);$('rallyBackupSheet').hidden=false;$('rallyMode')?.classList.add('backup-open');$('rallyBackupSheetStatus').textContent=dayBackupStatus();setTimeout(()=>$('rallyBackupDayPhotos')?.focus(),0);}
 function closeDayBackupSheet(){$('rallyBackupSheet').hidden=true;$('rallyMode')?.classList.remove('backup-open');}
-async function exportDayJournal(){const day=activeRallyDay(),events=(await missionControlJournalEvents()).filter(event=>Number(event.metadata?.dayNumber||event.references?.dayNumber)===day);downloadBlob(JSON.stringify(events,null,2),`Day${String(day).padStart(2,'0')}_Journal.json`,'application/json;charset=utf-8');await markDayBackupProgress(day,'journal');}
+async function exportDayJournal(){
+  const day=resolveRallyExportDay({settings:state.settings,project:state.project}),events=journalEventsForDay(await missionControlJournalEvents(),day);
+  if(!day||!events.length){const message=!day?'Journal export stopped: CannonMap could not identify the rally day.':`Journal export failed. No Journal events were found for Day ${day}.`;rallyDebug.record('journal_export_failed',{day,error:message});return setStatus(message,true);}
+  downloadBlob(JSON.stringify(events,null,2),`Day${String(day).padStart(2,'0')}_Journal.json`,'application/json;charset=utf-8');await markDayBackupProgress(day,'journal');setStatus(`Exported ${events.length} Journal events for Day ${day}.`);
+}
 async function exportDayBackupPackage(){
-  const day=activeRallyDay(),events=(await missionControlJournalEvents()).filter(event=>Number(event.metadata?.dayNumber||event.references?.dayNumber)===day),file=await photoExports.dayBackup(state.project.projectId,day,{journal:events,project:state.project});downloadStoredBlob(file.blob,file.filename);
+  const day=resolveRallyExportDay({settings:state.settings,project:state.project}),events=journalEventsForDay(await missionControlJournalEvents(),day);if(!day)return setStatus('Day backup stopped: CannonMap could not identify the rally day.',true);const file=await photoExports.dayBackup(state.project.projectId,day,{journal:events,project:state.project});downloadStoredBlob(file.blob,file.filename);
   const timestamp=new Date().toISOString();state.settings.mediaBackups||={};state.settings.mediaBackups[day]={completedAt:timestamp,filename:file.filename};
   await appendRallyJournalEvent('day_backup_exported',null,{eventIdentity:`day-backup:${day}:${timestamp}`,dayNumber:day,title:`Day ${day} Backup Exported`,summary:file.filename,mediaCount:file.manifest.mediaCount},timestamp);await markDayBackupProgress(day,'package');
 }
@@ -1822,7 +1833,7 @@ function checkpointDiagnostic(checkpoint,priorState,newState,distanceFeet,radius
 function evaluateCheckpointArrival(accuracyFeet){
   if(state.settings.autoCompleteCheckpoints===false)return;
   const checkpoint=ensureNextCheckpoint(),radius=Math.max(100,Number(state.settings.checkpointArrivalRadius)||500),maxAccuracy=Math.max(25,Number(state.settings.checkpointMaxAccuracy)||200);
-  if(!checkpoint){rallyDebug.record('objective_selection_failed',{reason:rallyDayState(activeRallyDay()).status==='complete'?'day-complete':'no-objective'});return;}
+  if(!checkpoint){if(rallyDayState(activeRallyDay()).status!=='complete')rallyDebug.record('objective_selection_failed',{reason:'no-objective'});return;}
   if(checkpoint.status===checkpoints.CHECKPOINT_STATE.PHOTO_REQUIRED)return;
   const distance=distanceFromCurrent(checkpoint),distanceFeet=distance===null?null:distance*5280,prior=checkpoint.status;
   const result=evaluateArrivalSample({checkpointId:checkpoint.id,distanceFeet,accuracyFeet,radiusFeet:radius,maxAccuracyFeet:maxAccuracy,
@@ -1850,7 +1861,7 @@ async function beginPhotoWorkflow(checkpoint,automatic){
   weatherMaintenance?.onArrival({lat:checkpoint.arrivalEvidence.latitude??state.lastGpsPosition?.lat,lon:checkpoint.arrivalEvidence.longitude??state.lastGpsPosition?.lon}).catch(()=>{});
   const arrival=await appendRallyJournalEvent('checkpoint_arrival',checkpoint,{eventIdentity:`arrival:${checkpoint.id}`,checkpointArrivalTimestamp:timestamp,
     photoRequired:Boolean(checkpoint.photoRequired),photoStatus:checkpoint.photoStatus,arrivalEvidence:checkpoint.arrivalEvidence,source:automatic?'gps_capture':'manual_fallback',title:checkpoint.type==='hotel'?'Hotel Reached':checkpoint.name,summary:checkpoint.type==='hotel'?'Hotel arrival recorded; photo evidence is required before day completion.':'Checkpoint arrival recorded.'},timestamp);
-  const cameraPreference=preferredCamera();applyCameraPreference();pendingPhotoCheckpointId=checkpoint.id;rallyDebug.record('photo_requested',{checkpointId:checkpoint.id,required:Boolean(checkpoint.photoRequired),requestedCamera:cameraPreference,actualCamera:'unknown',cameraSelectionHonored:'unknown'});
+  applyCameraPreference();pendingPhotoCheckpointId=checkpoint.id;
   const pairState=checkpoint.pendingPhotoPair||{};const workflow=checkpointCamera?.start({projectId:state.project.projectId,checkpoint,journalEvent:arrival,required:Boolean(checkpoint.photoRequired),evidenceContext:photoEvidenceContext(checkpoint,arrival),pairId:pairState.pairId,pairJournalEventId:pairState.pairJournalEventId});
   checkpoint.pendingPhotoPair={pairId:workflow.pairId,pairJournalEventId:workflow.pairJournalEventId,status:'pending'};await saveProject(false);
 }

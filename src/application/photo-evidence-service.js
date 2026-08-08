@@ -8,7 +8,7 @@ const localParts=timestamp=>{
 export function buildPhotoEvidenceMetadata(context={}){
   const local=localParts(context.capturedAt);
   return Object.freeze({
-    eventName:unavailable(context.eventName),rallyName:unavailable(context.rallyName),dayNumber:unavailable(context.dayNumber),
+    eventName:unavailable(context.eventName),objectiveType:unavailable(context.objectiveType),rallyName:unavailable(context.rallyName),dayNumber:unavailable(context.dayNumber),
     checkpointName:unavailable(context.checkpointName),checkpointNumber:unavailable(context.checkpointNumber),points:unavailable(context.points),
     captureDate:local.date,captureTime:local.time,latitude:fixed(context.latitude),longitude:fixed(context.longitude),
     elevation:context.elevation===null||context.elevation===undefined?'Unavailable':`${Math.round(Number(context.elevation))} ft`,

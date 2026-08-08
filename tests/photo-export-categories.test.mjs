@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createPhotoExportService,photoArchiveCategory} from '../src/application/photo-export-service.js';
+import {inspectStoredZip} from '../src/application/portable-zip.js';
 
 const u16=(bytes,offset)=>bytes[offset]|bytes[offset+1]<<8;
 const u32=(bytes,offset)=>(bytes[offset]|bytes[offset+1]<<8|bytes[offset+2]<<16|bytes[offset+3]<<24)>>>0;
@@ -38,6 +39,22 @@ test('Entire Rally includes every unique checkpoint, hotel, and Journey record',
   const exportResult=await serviceFor([...records,records[0]]).rally('project',{journal}),entries=await zipEntries(exportResult.blob);assert.equal(entries.length,5);assert.equal(exportResult.manifest.entryCount,5);assert.equal(entries.filter(entry=>entry.name.startsWith('Hotels/')).length,2);assert.equal(entries.filter(entry=>entry.name.startsWith('Journey/')).length,1);
 });
 
-test('empty day and rally exports are valid empty ZIPs with zero inventory',async()=>{
-  const service=serviceFor([]),day=await service.day('project',1,{journal:[]}),rally=await service.rally('project',{journal:[]});assert.deepEqual(await zipEntries(day.blob),[]);assert.deepEqual(await zipEntries(rally.blob),[]);assert.deepEqual({count:day.manifest.entryCount,bytes:day.manifest.totalBytes},{count:0,bytes:0});assert.equal(rally.manifest.entryCount,0);
+test('completed front and rear pair contributes four verified checkpoint entries',async()=>{
+  const pair=['Front_Original','Front_Evidence','Rear_Original','Rear_Evidence'].map((role,index)=>row(`pair-${index}`,`Day09_CP9.1_${role}.jpg`,role,{dayNumber:9,objectiveType:'checkpoint',pairId:'pair-9'}));
+  const result=await serviceFor(pair).day('project',9),entries=await inspectStoredZip(result.blob);assert.equal(result.manifest.entryCount,4);assert.equal(entries.length,4);assert.ok(entries.every(entry=>entry.size>0));
+});
+
+test('multiple checkpoint, hotel, and Journey pairs export the exact mixed count',async()=>{
+  const mixed=[];for(const [prefix,type,checkpoint] of [['CP9.1','checkpoint','cp'],['Hotel','hotel','hotel'],['Journey','journey','journey:1']])for(const role of ['Front_Original','Front_Evidence','Rear_Original','Rear_Evidence'])mixed.push(row(`${checkpoint}-${role}`,`Day09_${prefix}_${role}.jpg`,`${checkpoint}-${role}`,{dayNumber:9,objectiveType:type,pairId:`pair-${checkpoint}`},checkpoint));
+  const result=await serviceFor(mixed).day('project',9),entries=await zipEntries(result.blob);assert.equal(result.manifest.entryCount,12);assert.equal(entries.length,12);assert.equal(entries.filter(entry=>entry.name.startsWith('Hotels/')).length,4);assert.equal(entries.filter(entry=>entry.name.startsWith('Journey/')).length,4);
+});
+
+test('day filtering never creates an empty ZIP when project media exists',async()=>{
+  await assert.rejects(()=>serviceFor(records).day('project',9,{journal}),error=>error.code==='PHOTO_EXPORT_DAY_EMPTY'&&error.storedMediaCount===5);
+  await assert.rejects(()=>serviceFor([]).day('project',1),error=>error.code==='PHOTO_EXPORT_NO_MEDIA');
+});
+
+test('zero-byte media is rejected and duplicate filenames are made deterministic and unique',async()=>{
+  const empty=row('empty','Day01_CP1.1_Original.jpg','',{dayNumber:1});await assert.rejects(()=>serviceFor([empty]).day('project',1),error=>error.code==='PHOTO_EXPORT_EMPTY_ENTRY');
+  const duplicates=[row('one','Same.jpg','one',{dayNumber:1}),row('two','Same.jpg','two',{dayNumber:1})],result=await serviceFor(duplicates).day('project',1),entries=await inspectStoredZip(result.blob);assert.deepEqual(entries.map(entry=>entry.name),['Checkpoints/Same.jpg','Checkpoints/Same_02.jpg']);
 });

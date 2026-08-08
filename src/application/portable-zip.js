@@ -16,3 +16,19 @@ export async function readStoredZip(input){
 }
 
 export const jsonZipFile=(name,value)=>({name,blob:new Blob([typeof value==='string'?value:JSON.stringify(value)],{type:'application/json;charset=utf-8'})});
+
+/** Inspect CannonMap's stored ZIP without decoding binary photo payloads. */
+export async function inspectStoredZip(input){
+  const bytes=new Uint8Array(input instanceof ArrayBuffer?input:await input.arrayBuffer()),entries=[];let offset=0;
+  while(offset+30<=bytes.length&&u32(bytes,offset)===0x04034b50){
+    const method=u16(bytes,offset+8),size=u32(bytes,offset+18),nameLength=u16(bytes,offset+26),extraLength=u16(bytes,offset+28),nameStart=offset+30,dataStart=nameStart+nameLength+extraLength,dataEnd=dataStart+size;
+    if(method!==0)throw new Error('Photo archive contains an unsupported compression method.');if(dataEnd>bytes.length)throw new Error('Photo archive is truncated.');
+    entries.push({name:decoder.decode(bytes.slice(nameStart,nameStart+nameLength)),size});offset=dataEnd;
+  }
+  if(offset+22>bytes.length||u32(bytes,offset)!==0x02014b50){
+    const endOffset=bytes.length-22;if(endOffset<0||u32(bytes,endOffset)!==0x06054b50)throw new Error('Photo archive cannot be reopened.');
+  }
+  const endOffset=bytes.length-22;if(endOffset<0||u32(bytes,endOffset)!==0x06054b50)throw new Error('Photo archive finalization is invalid.');
+  const declaredEntries=u16(bytes,endOffset+10);if(declaredEntries!==entries.length)throw new Error(`Photo archive entry mismatch: expected ${declaredEntries}, reopened ${entries.length}.`);
+  return entries;
+}
