@@ -135,6 +135,9 @@ test('GPX import and export remain available',async({page})=>{
 });
 
 test('application shell starts offline after installation',async({page,context})=>{
-  await page.goto('/?offline-install=1');await page.waitForTimeout(1200);await page.reload();
+  await page.goto('/?offline-install=1');
+  await page.evaluate(()=>navigator.serviceWorker.ready);
+  await page.reload();
+  await page.waitForFunction(()=>Boolean(navigator.serviceWorker.controller));
   await context.setOffline(true);await page.reload();await expect(page.locator('h1')).toHaveText('CannonMap');await context.setOffline(false);
 });
