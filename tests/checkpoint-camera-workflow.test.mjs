@@ -1,58 +1,17 @@
-import assert from 'node:assert/strict';
-import test from 'node:test';
+import assert from 'node:assert/strict';import test from 'node:test';
 import {createCheckpointCameraWorkflow} from '../src/application/checkpoint-camera-workflow.js';
 
-test('one selected photo becomes ready without a timer or mandatory second capture',async()=>{
-  const states=[],media=[],events=[];
-  const workflow=createCheckpointCameraWorkflow({
-    mediaRepository:{async addPhoto(input){media.push(input);return {mediaId:`media-${media.length}`,uri:`media://media-${media.length}`,kind:'photo'};}},
-    journal:{async appendEvent(event){events.push(event);return event;}},clock:{iso:()=> '2026-07-31T12:00:00.000Z'},onState:state=>states.push(state)
-  });
-  workflow.start({projectId:'project-1',checkpoint:{id:'cp-1',name:'Checkpoint'},journalEvent:{eventId:'event-1'}});
-  assert.equal(workflow.getState().status,'awaiting_photo');assert.equal('deadline' in workflow.getState(),false);
-  await workflow.addFiles([{name:'one.jpg',type:'image/jpeg',size:1}]);
-  assert.equal(media.length,1);assert.equal(events.length,1);assert.equal(events[0].references.parentEventId,'event-1');
-  assert.deepEqual(events[0].attachments.photos,[{mediaId:'media-1',uri:'media://media-1',kind:'photo'}]);
-  assert.equal(workflow.getState().status,'ready');assert.equal(states.at(-1).status,'ready');
-  assert.equal(workflow.finish().photos.length,1);assert.equal(workflow.getState().status,'idle');
-});
+const ids=['10000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000003','10000000-0000-4000-8000-000000000004'];
+function harness({capture}={}){let index=0;const events=[],completed=[];const workflow=createCheckpointCameraWorkflow({
+  mediaRepository:{markPairComplete:async(pairId,eventId)=>completed.push({pairId,eventId})},
+  photoEvidence:{capture:capture||(async input=>({mediaGroupId:`group-${input.context.cameraRole}`,original:{mediaId:`${input.context.cameraRole}-original`},evidence:{mediaId:`${input.context.cameraRole}-evidence`},metadata:input.context}))},
+  journal:{appendEventIdempotent:async event=>{events.push(event);return event;}},clock:{iso:()=> '2026-08-08T12:00:00.000Z'},createId:()=>ids[index++],onState:()=>{}
+});workflow.start({projectId:'project',checkpoint:{id:'cp',name:'1.1',day:1,photoRequired:true},journalEvent:{eventId:'arrival'},required:true});return {workflow,events,completed};}
 
-test('required photo cancellation blocks finish and retry waits for explicit rider capture',async()=>{
-  let attempts=0;
-  const workflow=createCheckpointCameraWorkflow({
-    mediaRepository:{async addPhoto(){attempts++;if(attempts===1)throw new Error('storage failed');return {mediaId:'photo',uri:'media://photo'};}},
-    journal:{async appendEvent(event){return event;}},clock:{iso:()=> '2026-07-31T12:00:00.000Z'},onState:()=>{}
-  });
-  workflow.start({projectId:'project-1',checkpoint:{id:'required',name:'Required',photoRequired:true},journalEvent:{eventId:'arrival'},required:true});
-  workflow.cancel();assert.equal(workflow.getState().status,'awaiting_photo');assert.equal(workflow.finish(),null);
-  workflow.retry();assert.equal(workflow.getState().status,'awaiting_photo');
-  await assert.rejects(workflow.addFiles([{name:'bad.jpg'}]),/storage failed/);assert.equal(workflow.getState().status,'failed');
-  workflow.retry();await workflow.addFiles([{name:'good.jpg'}]);assert.equal(workflow.getState().status,'ready');assert.equal(workflow.finish().photos.length,1);
-});
+test('front and rear share one pair identity and completion requires four durable assets',async()=>{const {workflow,events,completed}=harness(),pairId=workflow.getState().pairId;await workflow.addSide('front',new Blob(['front']));assert.equal(workflow.getState().status,'rear_required');assert.equal(workflow.finish(),null);await workflow.addSide('rear',new Blob(['rear']));const state=workflow.getState();assert.equal(state.pairId,pairId);assert.equal(state.status,'ready');assert.equal(events.length,1);assert.equal(events[0].references.pairId,pairId);assert.deepEqual(events[0].attachments.photos.map(row=>row.mediaId),['front-original','front-evidence','rear-original','rear-evidence']);assert.equal(completed[0].pairId,pairId);assert.equal(workflow.finish().status,'ready');});
 
-test('durably stored photo can restore and finish an interrupted required workflow',()=>{
-  const workflow=createCheckpointCameraWorkflow({
-    mediaRepository:{async addPhoto(){throw new Error('not used');}},journal:{async appendEvent(){}},clock:{iso:()=>new Date().toISOString()}
-  });
-  workflow.start({projectId:'project-1',checkpoint:{id:'required',name:'Required'},journalEvent:{eventId:'arrival'},required:true});
-  workflow.restorePhoto({mediaId:'photo-1',uri:'media://photo-1'});
-  assert.equal(workflow.getState().status,'ready');
-  assert.equal(workflow.finish().photos[0].mediaId,'photo-1');
-});
+test('front success and rear cancellation remain PHOTO_REQUIRED and resume without front recapture',async()=>{const {workflow}=harness();await workflow.addSide('front',new Blob(['front']));workflow.cancel('rear');assert.match(workflow.getState().error,/Front captured safely/);assert.equal(workflow.getState().status,'rear_required');assert.equal(workflow.finish(),null);workflow.retry();assert.equal(workflow.getState().status,'rear_required');await workflow.addSide('rear',new Blob(['rear']));assert.equal(workflow.getState().status,'ready');});
 
-test('storage failure is visible, journaled, and never reports a required photo as complete',async()=>{
-  const events=[],diagnostics=[],workflow=createCheckpointCameraWorkflow({mediaRepository:{},photoEvidence:{capture:async()=>{throw new DOMException('Quota full','QuotaExceededError');}},journal:{appendEvent:async event=>events.push(event)},clock:{iso:()=> '2026-09-05T12:00:00.000Z'},onDiagnostic:details=>diagnostics.push(details)});
-  workflow.start({projectId:'project',checkpoint:{id:'cp',name:'1.1',day:1,photoRequired:true},journalEvent:{eventId:'arrival'},required:true});
-  await assert.rejects(()=>workflow.addFiles([new Blob(['full-resolution'])]),error=>error.name==='QuotaExceededError');
-  assert.equal(workflow.getState().status,'failed');assert.match(workflow.getState().error,/checkpoint has NOT been completed/);assert.equal(workflow.finish(),null);assert.equal(workflow.getState().status,'awaiting_photo');assert.equal(events[0].eventType,'media_storage_failure');assert.equal(events[0].metadata.status,'write_failed');assert.equal(events[0].metadata.error,undefined);assert.equal(diagnostics[0].exceptionName,'QuotaExceededError');assert.equal(diagnostics[0].objectStore,'missionMedia');
-});
+test('restart restores front and resumes the missing rear side with the same pairId',async()=>{const first=harness();const pairId=first.workflow.getState().pairId,journalId=first.workflow.getState().pairJournalEventId;await first.workflow.addSide('front',new Blob(['front']));let index=0;const restored=createCheckpointCameraWorkflow({mediaRepository:{markPairComplete:async()=>4},photoEvidence:{capture:async input=>({original:{mediaId:'rear-original'},evidence:{mediaId:'rear-evidence'},metadata:input.context})},journal:{appendEventIdempotent:async event=>event},clock:{iso:()=> '2026-08-08T12:01:00.000Z'},createId:()=>ids[index++]});restored.start({projectId:'project',checkpoint:{id:'cp',name:'1.1'},journalEvent:{eventId:'arrival'},pairId,pairJournalEventId:journalId});restored.restoreSide('front',first.workflow.getState().sides.front);assert.equal(restored.getState().status,'rear_required');await restored.addSide('rear',new Blob(['rear']));assert.equal(restored.getState().pairId,pairId);assert.equal(restored.getState().status,'ready');});
 
-test('checkpoint and hotel photo Journal events record requested and actual camera state without blocking fallback',async()=>{
-  const events=[],workflow=createCheckpointCameraWorkflow({mediaRepository:{addPhoto:async()=>({mediaId:'photo',name:'photo.jpg'})},journal:{appendEvent:async event=>events.push(event)},clock:{iso:()=> '2026-08-05T12:00:00.000Z'}});
-  workflow.start({projectId:'project',checkpoint:{id:'hotel',name:'Hotel',type:'hotel',day:1},journalEvent:{eventId:'arrival'},cameraPreference:'front',evidenceContext:{cameraMetadata:file=>({requestedCamera:'front',actualCamera:file.actualCamera||'unknown',cameraSelectionHonored:file.actualCamera?file.actualCamera==='front':'unknown'})}});
-  await workflow.addFiles([{name:'selfie.jpg',actualCamera:'front'}]);
-  assert.deepEqual(Object.fromEntries(['requestedCamera','actualCamera','cameraSelectionHonored','captureMethod','captureTimestamp'].map(key=>[key,events[0].metadata[key]])),{requestedCamera:'front',actualCamera:'front',cameraSelectionHonored:true,captureMethod:'file-input',captureTimestamp:'2026-08-05T12:00:00.000Z'});
-  workflow.start({projectId:'project',checkpoint:{id:'checkpoint',name:'1.1'},journalEvent:{eventId:'arrival-2'},cameraPreference:'rear'});
-  await workflow.addFiles([{name:'fallback.jpg'}]);
-  assert.equal(events[1].metadata.requestedCamera,'rear');assert.equal(events[1].metadata.actualCamera,'unknown');assert.equal(events[1].metadata.cameraSelectionHonored,'unknown');
-});
+test('persistence failure never reports pair success or completes the objective',async()=>{const {workflow,events}=harness({capture:async()=>{throw new DOMException('Quota full','QuotaExceededError');}});await assert.rejects(()=>workflow.addSide('front',new Blob(['front'])),error=>error.name==='QuotaExceededError');assert.equal(workflow.getState().status,'failed');assert.equal(workflow.finish(),null);assert.equal(events[0].eventType,'media_storage_failure');});

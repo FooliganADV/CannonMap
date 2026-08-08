@@ -18,14 +18,14 @@ export function buildPhotoEvidenceMetadata(context={}){
     motion:unavailable(context.motion),gpsSampleTimestamp:unavailable(context.gpsSampleTimestamp),gpsSampleAge:context.gpsSampleAgeMs===null||context.gpsSampleAgeMs===undefined?'Unavailable':`${(Number(context.gpsSampleAgeMs)/1000).toFixed(1)} sec`,
     deviceHeading:context.deviceHeading===null||context.deviceHeading===undefined?'Unavailable':`${Math.round(Number(context.deviceHeading))}°`,
     travelDirection:unavailable(context.travelDirection),weatherContext:unavailable(context.weatherContext),mediaId:unavailable(context.mediaId),journalEventId:unavailable(context.journalEventId),
-    requestedCamera:unavailable(context.requestedCamera),actualCamera:unavailable(context.actualCamera),cameraSelectionHonored:context.cameraSelectionHonored??'unknown',captureMethod:context.captureMethod||'file-input',captureTimestamp:context.captureTimestamp||context.capturedAt||null,
+    cameraRole:unavailable(context.cameraRole),pairId:unavailable(context.pairId),requestedCamera:unavailable(context.requestedCamera),actualCamera:unavailable(context.actualCamera),cameraSelectionHonored:context.cameraSelectionHonored??'unknown',captureMethod:context.captureMethod||'file-input',captureTimestamp:context.captureTimestamp||context.capturedAt||null,
     capturedAt:context.capturedAt||null
   });
 }
 
 export function photoEvidenceOverlayEntries(metadata){
   const objective=metadata.eventName==='Hotel Arrival'?'Hotel':'Checkpoint';
-  return [['Rally',metadata.rallyName],['Day',metadata.dayNumber],[objective,`${metadata.checkpointNumber} · ${metadata.checkpointName}`],['Points',metadata.points],['Captured',`${metadata.captureDate} ${metadata.captureTime}`],['Coordinates',`${metadata.latitude}, ${metadata.longitude}`],['Elevation',metadata.elevation],['Temperature',metadata.temperature],['Weather',metadata.weatherContext],['Speed / Motion',`${metadata.speed} · ${metadata.motion}`],['GPS Accuracy',metadata.gpsAccuracy],['GPS Sample',`${metadata.gpsSampleTimestamp} (${metadata.gpsSampleAge})`],['Heading',metadata.deviceHeading],['Travel Direction',metadata.travelDirection],['Media ID',metadata.mediaId],['Journal Event ID',metadata.journalEventId]];
+  return [['Rally',metadata.rallyName],['Day',metadata.dayNumber],[objective,`${metadata.checkpointNumber} · ${metadata.checkpointName}`],['Camera Role',metadata.cameraRole==='front'?'FRONT / SELFIE':metadata.cameraRole==='rear'?'REAR / FORWARD':metadata.cameraRole],['Points',metadata.points],['Captured',`${metadata.captureDate} ${metadata.captureTime}`],['Coordinates',`${metadata.latitude}, ${metadata.longitude}`],['Elevation',metadata.elevation],['Temperature',metadata.temperature],['Weather',metadata.weatherContext],['Speed / Motion',`${metadata.speed} · ${metadata.motion}`],['GPS Accuracy',metadata.gpsAccuracy],['GPS Sample',`${metadata.gpsSampleTimestamp} (${metadata.gpsSampleAge})`],['Heading',metadata.deviceHeading],['Travel Direction',metadata.travelDirection],['Pair ID',metadata.pairId],['Media ID',metadata.mediaId],['Journal Event ID',metadata.journalEventId]];
 }
 
 async function imageSource(file){
@@ -66,7 +66,7 @@ export function createPhotoEvidenceService({repository,render=renderEvidenceJpeg
       const identities={mediaGroupId:createId(),originalMediaId:createId(),evidenceMediaId:createId()};
       const sourceDimensions=await inspect(file),metadata=buildPhotoEvidenceMetadata({...context,mediaId:identities.mediaGroupId,journalEventId,imageWidth:sourceDimensions.width,imageHeight:sourceDimensions.height});
       const existing=await repository.listCheckpointPhotos?.(projectId,checkpointId)||[],sequence=existing.filter(item=>(item.role||'original')==='original').length+1;
-      const label=context.eventName==='Hotel Arrival'?'Hotel':'CP',base=`Day${String(context.dayNumber||0).padStart(2,'0')}_${label}${String(context.checkpointNumber||checkpointId).replace(/[^a-z0-9.-]+/gi,'_')}${sequence>1?`_${String(sequence).padStart(2,'0')}`:''}`;
+      const label=context.eventName==='Hotel Arrival'?'Hotel':'CP',cameraSuffix=context.cameraRole==='front'?'_Front':context.cameraRole==='rear'?'_Rear':'',base=`Day${String(context.dayNumber||0).padStart(2,'0')}_${label}${String(context.checkpointNumber||checkpointId).replace(/[^a-z0-9.-]+/gi,'_')}${cameraSuffix}${sequence>1?`_${String(sequence).padStart(2,'0')}`:''}`;
       const filenames={original:`${base}_Original.jpg`,evidence:`${base}_Evidence.jpg`};
       if(typeof repository.addOriginal!=='function'){
         const evidenceBlob=await render(file,metadata);

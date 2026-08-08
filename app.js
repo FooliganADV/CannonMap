@@ -16,6 +16,7 @@ import {createRallyJournalService} from './src/application/rally-journal-service
 import {createProjectLifecycleManager} from './src/application/project-lifecycle-manager.js';
 import {createProjectRepositoryScope} from './src/application/project-repository-scope.js';
 import {createCheckpointCameraWorkflow} from './src/application/checkpoint-camera-workflow.js';
+import {createSequentialPairCapture} from './src/application/camera-pair-capture.js';
 import {normalizeCameraPreference,cameraCaptureAttribute,cameraSelectionMetadata} from './src/domain/media/camera-preference.js';
 import {createGpsFollowController} from './src/application/gps-follow-controller.js';
 import {createRallyDebugLog} from './src/application/rally-debug-log.js';
@@ -38,8 +39,8 @@ import {
 import {createFirebaseAuthentication} from './src/infrastructure/firebase/authentication.js';
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
-const APP_VERSION = '0.7.1';
-const BUILD_ID = '2026.08.08.trail-intel-event-27-1';
+const APP_VERSION = '0.7.2';
+const BUILD_ID = '2026.08.08.capture-pair-reconciliation-1';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
@@ -73,6 +74,7 @@ let projectLifecycle=null;
 let activeLifecycleProjectId=null;
 let rallyJournal=null;
 let checkpointCamera=null;
+let sequentialPairCapture=null;
 let missionMedia=null;
 let photoEvidence=null;
 let photoExports=null;
@@ -581,9 +583,10 @@ async function initializeMissionControlFoundations(){
   finalizedProjects=createFinalizedProjectService({repository:createFinalizedProjectRepository({database:foundationDatabase}),projectLifecycle,createId:uid,clock:core.clock,applicationVersion:APP_VERSION,buildId:BUILD_ID});
   checkpointCamera=createCheckpointCameraWorkflow({
     mediaRepository:missionMedia,photoEvidence,
-    journal:rallyJournal,clock:core.clock,onState:renderCheckpointCameraState,
+    journal:rallyJournal,clock:core.clock,createId:uid,onState:renderCheckpointCameraState,
     onDiagnostic:details=>{const diagnostic={...details,cannonMapVersion:APP_VERSION,buildId:BUILD_ID};rallyDebug.record('media_storage_diagnostic',diagnostic);console.error('[CannonMap media storage]',diagnostic);}
   });
+  sequentialPairCapture=createSequentialPairCapture();
 }
 async function loadProject() {
   try {
@@ -1010,10 +1013,12 @@ function renderCheckpointCameraState(cameraState){
   const active=cameraState&&cameraState.status!=='idle';section.hidden=!active;
   if(!active)return;
   const checkpoint=state.project.features.find(feature=>feature.id===pendingPhotoCheckpointId),heading=$('rallyCameraHeading');if(heading)heading.textContent=checkpoint?.type==='hotel'?'Hotel Reached':'Checkpoint Reached';
-  if($('rallyCameraPhotoCount'))$('rallyCameraPhotoCount').textContent=cameraState.photos.length?`${cameraState.photos.length} photo${cameraState.photos.length===1?'':'s'} captured`:'No photos captured';
+  const front=Boolean(cameraState.sides?.front),rear=Boolean(cameraState.sides?.rear),count=$('rallyCameraPhotoCount');
+  if(count)count.textContent=front&&rear?'Front captured ✓\nRear captured ✓':front?'Front captured ✓\nRear required':rear?'Front required\nRear captured ✓':'No photos captured';
+  const capture=$('rallyCameraCapturePair');if(capture){capture.hidden=cameraState.status==='ready';capture.disabled=/^(capturing|saving)/.test(cameraState.status);capture.textContent=front&&!rear?'RESUME PAIR':'CAPTURE PAIR';}
   if($('rallyCameraError')){$('rallyCameraError').textContent=cameraState.error||'';$('rallyCameraError').hidden=!cameraState.error;}
-  if($('rallyCameraRetry'))$('rallyCameraRetry').hidden=!['failed','awaiting_photo'].includes(cameraState.status);
-  if($('rallyCameraResumeCompletion'))$('rallyCameraResumeCompletion').hidden=cameraState.status!=='ready';
+  if($('rallyCameraRetry'))$('rallyCameraRetry').hidden=!cameraState.error||!['failed','rear_required','awaiting_pair'].includes(cameraState.status);
+  if($('rallyCameraDebugInputs'))$('rallyCameraDebugInputs').hidden=!(new URLSearchParams(location.search).has('debugPhotos')||globalThis.__CANNONMAP_PHOTO_DEBUG__===true);
 }
 function preferredCamera(){return normalizeCameraPreference(state.settings.preferredCamera);}
 function applyCameraPreference(){
@@ -1029,13 +1034,12 @@ function triggerCameraCapture(value,inputId,objectiveType){
   rallyDebug.record('photo_requested',{objectiveType,requestedCamera:preference,captureMethod:'file-input'});
   input.click();void saveProject(false);
 }
-const captureCheckpointPhoto=value=>triggerCameraCapture(value,'rallyCameraInput',state.project.features.find(feature=>feature.id===pendingPhotoCheckpointId)?.type||'checkpoint');
-async function addCheckpointCameraFiles(files){
-  if(!files?.length||!checkpointCamera)return;
+async function addCheckpointCameraSide(role,file){
+  if(!(file instanceof Blob)||!checkpointCamera)return;
   try{
-    const photos=await checkpointCamera.addFiles(files);if($('rallyCameraInput'))$('rallyCameraInput').value='';
-    rallyDebug.record('photo_completed',{checkpointId:pendingPhotoCheckpointId,count:photos.length});
-    if(pendingPhotoCheckpointId&&photos.length){
+    const result=await checkpointCamera.addSide(role,file);const input=$(role==='front'?'rallyCameraFrontInput':'rallyCameraRearInput');if(input)input.value='';
+    rallyDebug.record('photo_side_completed',{checkpointId:pendingPhotoCheckpointId,pairId:result?.pairId,role});
+    if(pendingPhotoCheckpointId&&result?.status==='ready'){
       const checkpoint=state.project.features.find(feature=>feature.id===pendingPhotoCheckpointId);
       if(checkpoint?.photoRequired)await finalizePendingPhotoCheckpoint();else{checkpointCamera.finish();pendingPhotoCheckpointId=null;}
     }
@@ -1046,10 +1050,18 @@ async function addCheckpointCameraFiles(files){
     setStatus('Photo could not be saved. Your checkpoint has NOT been completed. Please retry the photo. If the problem continues you may mark the objective as failed.',true);
   }
 }
-async function cancelCheckpointCamera(){
+async function addTestCheckpointCameraPair(file){if(!(file instanceof Blob)||!new URLSearchParams(location.search).has('e2e'))return;await addCheckpointCameraSide('front',file);await addCheckpointCameraSide('rear',file);}
+async function captureCheckpointPair(){
+  const checkpoint=state.project.features.find(feature=>feature.id===pendingPhotoCheckpointId);if(!checkpoint||!checkpointCamera||!sequentialPairCapture)return;
+  const current=checkpointCamera.request();if(!current)return;const frontBlob=current.sides?.front?await missionMedia.getMedia(current.sides.front.original.mediaId).then(row=>row?.blob):null;
+  rallyDebug.record('photo_pair_requested',{checkpointId:checkpoint.id,pairId:current.pairId,resumeFrom:frontBlob?'rear':'front'});
+  try{await sequentialPairCapture.capture({frontBlob,onPhase:phase=>{const next=checkpointCamera.getState();if(next.status!=='idle'){next.status=`capturing_${phase}`;}rallyDebug.record('photo_pair_phase',{checkpointId:checkpoint.id,pairId:current.pairId,phase});},onSide:addCheckpointCameraSide});}
+  catch(error){const role=checkpointCamera.getState().sides?.front?'rear':'front';await cancelCheckpointCamera(role);if(error?.name!=='AbortError')setStatus(`Photo pair capture failed: ${error?.message||error}`,true);}
+}
+async function cancelCheckpointCamera(role){
   const checkpoint=state.project.features.find(feature=>feature.id===pendingPhotoCheckpointId);
-  checkpointCamera?.cancel();rallyDebug.record('photo_failed',{checkpointId:pendingPhotoCheckpointId,reason:'canceled'});
-  if(checkpoint)await appendRallyJournalEvent('photo_canceled',checkpoint,{eventIdentity:`photo-canceled:${checkpoint.id}`,photoRequired:Boolean(checkpoint.photoRequired),photoStatus:'canceled'});
+  sequentialPairCapture?.cancel();checkpointCamera?.cancel(role);rallyDebug.record('photo_failed',{checkpointId:pendingPhotoCheckpointId,reason:'canceled',cameraRole:role});
+  if(checkpoint)await appendRallyJournalEvent('photo_canceled',checkpoint,{eventIdentity:`photo-canceled:${checkpoint.id}:${role}`,photoRequired:Boolean(checkpoint.photoRequired),photoStatus:'canceled',cameraRole:role,pairId:checkpointCamera?.getState()?.pairId});
 }
 async function failPendingPhotoObjective(){
   const checkpoint=state.project.features.find(feature=>feature.id===pendingPhotoCheckpointId);if(!checkpoint)return;const reason=prompt('Required reason for marking this objective failed');if(!String(reason||'').trim())return setStatus('A reason is required to mark the objective failed.',true);
@@ -1090,12 +1102,16 @@ async function openPhotoViewer(allProjects=false){
   const projects=allProjects?await projectLifecycle.listProjects():[state.project],records=allProjects?await missionMedia.listAllPhotos():await missionMedia.listProjectPhotos(state.project.projectId),journals=await Promise.all(projects.map(project=>rallyJournal.getProjectJournal(project.projectId))),journal=journals.flatMap(item=>item.events),byId=new Map(records.map(record=>[record.mediaId,record])),referenced=new Set(),items=[],projectById=new Map(projects.map(project=>[String(project.projectId),project]));
   const journalById=new Map(journal.map(event=>[event.eventId,event]));
   for(const event of journal.filter(item=>item.eventType==='photo_added')){
-    const originalId=event.references?.originalMediaId||event.attachments?.original?.mediaId||event.attachments?.photos?.find(photo=>photo.role==='original')?.mediaId||event.attachments?.photos?.[0]?.mediaId;
-    const evidenceId=event.references?.evidenceMediaId||event.attachments?.evidence?.mediaId||event.attachments?.photos?.find(photo=>photo.role==='evidence')?.mediaId;
-    if(originalId)referenced.add(originalId);if(evidenceId)referenced.add(evidenceId);
-    const original=byId.get(originalId),evidence=byId.get(evidenceId),record=original||evidence,parent=journalById.get(event.references?.parentEventId),checkpointId=event.references?.checkpointId||record?.checkpointId;
-    const project=projectById.get(String(event.projectId||record?.projectId)),checkpoint=project?.features?.find(feature=>feature.id===checkpointId),numbered=rallyCheckpointNumber(checkpoint?.name),day=Number(record?.metadata?.dayNumber||parent?.metadata?.dayNumber||checkpoint?.day)||0;
-    items.push({mediaGroupId:event.references?.mediaGroupId||record?.mediaGroupId||event.eventId,projectId:project?.projectId||record?.projectId,projectName:project?.name||'Unknown Project',original,evidence,checkpointId,day,objectiveType:event.metadata?.objectiveType||checkpoint?.type||'checkpoint',checkpointName:checkpoint?.name||record?.metadata?.checkpointName||event.metadata?.caption||'Unknown checkpoint',checkpointNumber:record?.metadata?.checkpointNumber||(numbered?`${numbered.day}.${numbered.sequence}`:'Unavailable'),capturedAt:record?.capturedAt||event.timestamp,missing:[originalId&&!original?'Original':null,evidenceId&&!evidence?'Evidence':null].filter(Boolean),journalEventId:event.eventId});
+    const pairRoles=event.references?.pairId?['front','rear']:[null];
+    for(const cameraRole of pairRoles){
+      const roleTitle=cameraRole?`${cameraRole[0].toUpperCase()}${cameraRole.slice(1)} `:'';
+      const originalId=cameraRole?event.references?.[`${cameraRole}OriginalMediaId`]:(event.references?.originalMediaId||event.attachments?.original?.mediaId||event.attachments?.photos?.find(photo=>photo.role==='original')?.mediaId||event.attachments?.photos?.[0]?.mediaId);
+      const evidenceId=cameraRole?event.references?.[`${cameraRole}EvidenceMediaId`]:(event.references?.evidenceMediaId||event.attachments?.evidence?.mediaId||event.attachments?.photos?.find(photo=>photo.role==='evidence')?.mediaId);
+      if(originalId)referenced.add(originalId);if(evidenceId)referenced.add(evidenceId);
+      const original=byId.get(originalId),evidence=byId.get(evidenceId),record=original||evidence,parent=journalById.get(event.references?.parentEventId),checkpointId=event.references?.checkpointId||record?.checkpointId;
+      const project=projectById.get(String(event.projectId||record?.projectId)),checkpoint=project?.features?.find(feature=>feature.id===checkpointId),numbered=rallyCheckpointNumber(checkpoint?.name),day=Number(record?.metadata?.dayNumber||parent?.metadata?.dayNumber||checkpoint?.day)||0;
+      items.push({mediaGroupId:event.references?.pairId||event.references?.mediaGroupId||record?.mediaGroupId||event.eventId,projectId:project?.projectId||record?.projectId,projectName:project?.name||'Unknown Project',original,evidence,checkpointId,day,objectiveType:event.metadata?.objectiveType||checkpoint?.type||'checkpoint',checkpointName:`${roleTitle}${checkpoint?.name||record?.metadata?.checkpointName||event.metadata?.caption||'Unknown checkpoint'}`,checkpointNumber:record?.metadata?.checkpointNumber||(numbered?`${numbered.day}.${numbered.sequence}`:'Unavailable'),capturedAt:record?.capturedAt||event.timestamp,missing:[originalId&&!original?`${roleTitle}Original`:null,evidenceId&&!evidence?`${roleTitle}Evidence`:null].filter(Boolean),journalEventId:event.eventId,cameraRole});
+    }
   }
   const orphanGroups=new Map();for(const record of records.filter(row=>!referenced.has(row.mediaId))){const key=record.mediaGroupId||record.mediaId;if(!orphanGroups.has(key))orphanGroups.set(key,{mediaGroupId:key});orphanGroups.get(key)[record.role||'original']=record;}
   for(const item of orphanGroups.values()){const record=item.original||item.evidence,project=projectById.get(String(record.projectId)),checkpoint=project?.features?.find(feature=>feature.id===record.checkpointId),numbered=rallyCheckpointNumber(checkpoint?.name);items.push({...item,projectId:record.projectId,projectName:project?.name||'Unknown Project',checkpointId:record.checkpointId,day:Number(record.metadata?.dayNumber||checkpoint?.day)||0,objectiveType:String(record.checkpointId).startsWith('journey:')?'journey':checkpoint?.type,checkpointName:checkpoint?.name||record.metadata?.checkpointName||'Unknown checkpoint',checkpointNumber:record.metadata?.checkpointNumber||(numbered?`${numbered.day}.${numbered.sequence}`:'Unavailable'),capturedAt:record.capturedAt,missing:[],journalEventId:record.journalEventId});}
@@ -1835,11 +1851,12 @@ async function beginPhotoWorkflow(checkpoint,automatic){
   const arrival=await appendRallyJournalEvent('checkpoint_arrival',checkpoint,{eventIdentity:`arrival:${checkpoint.id}`,checkpointArrivalTimestamp:timestamp,
     photoRequired:Boolean(checkpoint.photoRequired),photoStatus:checkpoint.photoStatus,arrivalEvidence:checkpoint.arrivalEvidence,source:automatic?'gps_capture':'manual_fallback',title:checkpoint.type==='hotel'?'Hotel Reached':checkpoint.name,summary:checkpoint.type==='hotel'?'Hotel arrival recorded; photo evidence is required before day completion.':'Checkpoint arrival recorded.'},timestamp);
   const cameraPreference=preferredCamera();applyCameraPreference();pendingPhotoCheckpointId=checkpoint.id;rallyDebug.record('photo_requested',{checkpointId:checkpoint.id,required:Boolean(checkpoint.photoRequired),requestedCamera:cameraPreference,actualCamera:'unknown',cameraSelectionHonored:'unknown'});
-  checkpointCamera?.start({projectId:state.project.projectId,checkpoint,journalEvent:arrival,required:Boolean(checkpoint.photoRequired),evidenceContext:photoEvidenceContext(checkpoint,arrival),cameraPreference});
+  const pairState=checkpoint.pendingPhotoPair||{};const workflow=checkpointCamera?.start({projectId:state.project.projectId,checkpoint,journalEvent:arrival,required:Boolean(checkpoint.photoRequired),evidenceContext:photoEvidenceContext(checkpoint,arrival),pairId:pairState.pairId,pairJournalEventId:pairState.pairJournalEventId});
+  checkpoint.pendingPhotoPair={pairId:workflow.pairId,pairJournalEventId:workflow.pairJournalEventId,status:'pending'};await saveProject(false);
 }
 async function finalizePendingPhotoCheckpoint(){
   const checkpoint=state.project.features.find(feature=>feature.id===pendingPhotoCheckpointId);if(!checkpoint)return;
-  const result=checkpointCamera?.finish();if(!result)return;pendingPhotoCheckpointId=null;await completeCurrentCheckpoint(true,{photoRecorded:true,checkpoint});
+  const result=checkpointCamera?.finish();if(!result)return;checkpoint.photoPair={pairId:result.pairId,journalEventId:result.journalPairEvent?.eventId,status:'complete',frontOriginalMediaId:result.sides.front.original.mediaId,frontEvidenceMediaId:result.sides.front.evidence.mediaId,rearOriginalMediaId:result.sides.rear.original.mediaId,rearEvidenceMediaId:result.sides.rear.evidence.mediaId};delete checkpoint.pendingPhotoPair;pendingPhotoCheckpointId=null;await completeCurrentCheckpoint(true,{photoRecorded:true,checkpoint});
 }
 async function completeCurrentCheckpoint(automatic=false,{photoRecorded=false,checkpoint:specified}={}){
   if(checkpointCompletionInFlight)return;
@@ -1972,8 +1989,6 @@ function wireUi() {
   $('rallyJourneySelfieButton')?.addEventListener('click',()=>requestJourneyPhoto('front'));
   $('rallyJourneyForwardButton')?.addEventListener('click',()=>requestJourneyPhoto('rear'));
   $('rallyJourneyPhotoInput')?.addEventListener('change',event=>{const file=event.target.files?.[0];event.target.value='';addJourneyPhoto(file);});
-  $('rallyCameraSelfie')?.addEventListener('click',()=>captureCheckpointPhoto('front'));
-  $('rallyCameraForward')?.addEventListener('click',()=>captureCheckpointPhoto('rear'));
   $('rallyBackupDayPhotos')?.addEventListener('click',()=>exportPhotoArchive('day'));
   $('rallyBackupDayJournal')?.addEventListener('click',exportDayJournal);
   $('rallyBackupDayPackage')?.addEventListener('click',exportDayBackupPackage);
@@ -2011,7 +2026,7 @@ function wireUi() {
     toggleMore:()=>setRallyMoreOpen(!$('rallyMode').classList.contains('more-open')),
     openPlanner:()=>{setRallyMoreOpen(false);setSidebarOpen(true);},toggleHotelBailout,
     complete:()=>completeCurrentCheckpoint(false),resumeDeferred:resumeDeferredQueue,finishDay:finishDayFromDeferredQueue,
-    addCameraFiles:addCheckpointCameraFiles,cancelCamera:cancelCheckpointCamera,retryCamera:()=>{checkpointCamera?.retry();captureCheckpointPhoto(preferredCamera());},resumePhotoCompletion:finalizePendingPhotoCheckpoint,failPhotoObjective:failPendingPhotoObjective,startNextDay:startNextRallyDay,warning:suppressWarning,
+    capturePair:captureCheckpointPair,addCameraSide:addCheckpointCameraSide,addTestCameraPair:addTestCheckpointCameraPair,cancelCamera:cancelCheckpointCamera,failPhotoObjective:failPendingPhotoObjective,startNextDay:startNextRallyDay,warning:suppressWarning,
     exportDebug:()=>downloadBlob(rallyDebug.exportJson(),`${safeFilename(state.project.name)}-rally-debug.json`,'application/json'),
     exportJournal:async()=>downloadBlob(JSON.stringify(await missionControlJournalEvents(),null,2),`${safeFilename(state.project.name)}-daily-journal.json`,'application/json'),
     saveArrivalSettings:()=>{state.settings.autoCompleteCheckpoints=$('autoCompleteCheckpoints')?.checked!==false;state.settings.checkpointArrivalRadius=Math.max(100,Number($('checkpointArrivalRadius')?.value)||500);state.settings.checkpointMaxAccuracy=Math.max(25,Number($('checkpointMaxAccuracy')?.value)||200);saveProject(false);renderRallyMode();},
@@ -2056,16 +2071,11 @@ async function initializeApplication() {
   if(state.settings.radarEnabled)showRadar({silent:true});
   const pendingPhoto=state.project.features.find(feature=>checkpoints.checkpointState(feature.status)===checkpoints.CHECKPOINT_STATE.PHOTO_REQUIRED);
   if(pendingPhoto){
-    const durablePhotos=await missionMedia.listCheckpointPhotos(state.project.projectId,pendingPhoto.id);
-    const journalEvents=(await rallyJournal.getProjectJournal(state.project.projectId)).events;
-    const journalPhotos=journalEvents.filter(event=>event.eventType==='photo_added'&&event.references?.checkpointId===pendingPhoto.id).flatMap(event=>event.attachments?.photos||[]);
-    const recordedPhotos=journalPhotos.filter(reference=>durablePhotos.some(record=>record.mediaId===reference.mediaId));
-    if(recordedPhotos.length){
-      pendingPhotoCheckpointId=pendingPhoto.id;
-      checkpointCamera.start({projectId:state.project.projectId,checkpoint:pendingPhoto,journalEvent:await appendRallyJournalEvent('checkpoint_arrival',pendingPhoto,{eventIdentity:`arrival:${pendingPhoto.id}`}),required:true});
-      for(const photo of recordedPhotos)checkpointCamera.restorePhoto(photo);
-      setStatus('Stored photo evidence was recovered. Tap Resume Completion to finish this objective.');
-    }else await beginPhotoWorkflow(pendingPhoto,true);
+    await beginPhotoWorkflow(pendingPhoto,true);const workflow=checkpointCamera.getState(),durablePhotos=await missionMedia.listCheckpointPhotos(state.project.projectId,pendingPhoto.id),pairRows=durablePhotos.filter(row=>row.pairId===workflow.pairId);
+    const restore=role=>{const original=pairRows.find(row=>row.cameraRole===role&&row.role==='original'),evidence=pairRows.find(row=>row.cameraRole===role&&row.role==='evidence');if(!original||!evidence)return null;const ref=row=>({mediaId:row.mediaId,mediaGroupId:row.mediaGroupId,uri:`media://${row.mediaId}`,kind:'photo',role:row.role,mimeType:row.mimeType,name:row.name,size:row.size,capturedAt:row.capturedAt,pairedMediaId:row.pairedMediaId});return {mediaGroupId:original.mediaGroupId,original:ref(original),evidence:ref(evidence),metadata:original.metadata};};
+    const front=restore('front'),rear=restore('rear');if(front)checkpointCamera.restoreSide('front',front);if(rear)checkpointCamera.restoreSide('rear',rear);
+    if(front&&rear){await checkpointCamera.finalizeRestoredPair();await finalizePendingPhotoCheckpoint();setStatus('Completed photo pair recovered and objective finalized.');}
+    else if(front){setStatus('Front captured safely. Tap RESUME PAIR to capture the required rear photo.');}
   }
   rallyDebug.record('application_restored',{day:activeRallyDay(),dayStatus:rallyDayState(activeRallyDay()).status,activeObjectiveId:currentCheckpoint()?.id||null,pendingPhotoCheckpointId:pendingPhoto?.id||null});
   setTimeout(()=>{if(state.project.features.length&&rallyDayState(activeRallyDay()).status!=='complete')fitMap();},200);

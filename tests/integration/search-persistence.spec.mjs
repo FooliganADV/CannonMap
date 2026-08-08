@@ -35,7 +35,7 @@ test('v6 migration adds empty search stores without changing projects or journal
     database.close();return answer;
   },uniqueName(testInfo));
   expect(result).toEqual({
-    version:10,projects:[{id:'legacy',name:'Preserved'}],
+    version:11,projects:[{id:'legacy',name:'Preserved'}],
     journal:[{eventId:'event-1',projectId:'legacy'}],search:[],state:[]
   });
 });

@@ -94,21 +94,19 @@ test('hotel completion persists Day Complete and requires explicit next-day star
   await expect(page.locator('#rallyNextName')).toContainText('Day 2 Checkpoint');
 });
 
-test('automatic checkpoint arrival waits for a direct camera choice and attaches one photo to Journal',async({page},testInfo)=>{
+test('automatic checkpoint arrival waits for CAPTURE PAIR and attaches four media references to Journal',async({page},testInfo)=>{
   test.skip(testInfo.project.name==='desktop');
   await loadProject(page);
-  await page.evaluate(()=>{const input=document.getElementById('rallyCameraInput');input.dataset.directTriggers='0';input.click=()=>{input.dataset.directTriggers=String(Number(input.dataset.directTriggers)+1);};});
   await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(true));
   await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();
-  await expect(page.locator('#rallyCameraInput')).toHaveAttribute('data-direct-triggers','0');
-  await page.locator('#rallyCameraSelfie').click();
-  await expect(page.locator('#rallyCameraInput')).toHaveAttribute('capture','user');
-  await expect(page.locator('#rallyCameraInput')).toHaveAttribute('data-direct-triggers','1');
+  await expect(page.locator('#rallyCameraCapturePair')).toHaveText('CAPTURE PAIR');
+  await expect(page.locator('#rallyCameraSelfie, #rallyCameraForward')).toHaveCount(0);
+  await expect(page.locator('#rallyCameraRetry')).toBeHidden();
   await page.locator('#rallyCameraInput').setInputFiles({name:'checkpoint.jpg',mimeType:'image/jpeg',buffer:photoBuffer});
-  await expect(page.locator('#rallyCameraPhotoCount')).toContainText('1 photo captured');
+  await expect(page.locator('#rallyCameraWorkflow')).toBeHidden();
   await page.waitForFunction(async()=>{
     const events=await window.CannonMapTest.missionControlJournalEvents();
-    return events.some(event=>event.eventType==='photo_added'&&event.references.parentEventId&&event.attachments.photos?.[0]?.uri?.startsWith('media://'));
+    return events.some(event=>event.eventType==='photo_added'&&event.references.pairId&&event.attachments.photos?.length===4&&event.attachments.photos.every(photo=>photo.uri?.startsWith('media://')));
   });
 });
 

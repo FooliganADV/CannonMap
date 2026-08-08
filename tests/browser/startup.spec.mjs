@@ -57,7 +57,7 @@ test('offline shell includes and loads locally cached dependency assets',async({
   await expect(page.locator('html')).toHaveAttribute('data-cannonmap-startup-state','ready');
   const cached=await page.evaluate(async()=>{
     const names=await caches.keys();
-    const cache=await caches.open(names.find(name=>name.startsWith('cannonmap-v0.7.1-')));
+    const cache=await caches.open(names.find(name=>name.startsWith('cannonmap-v0.7.2-')));
     const assets=['vendor/leaflet/leaflet.js','vendor/leaflet-geoman/leaflet-geoman.min.js','vendor/xlsx/xlsx.full.min.js','vendor/firebase/firebase-app.js','vendor/firebase/firebase-database.js'];
     return Promise.all(assets.map(async asset=>Boolean(await cache.match(asset))));
   });

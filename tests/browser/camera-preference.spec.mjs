@@ -5,44 +5,39 @@ const point=(id,name,type,sequence)=>({id,name,type,day:1,sequence,status:'plann
 const payload={format:'CannonMap Project',project:{projectId:'camera-objectives',name:'Camera Objectives',features:[point('cp','1.1 Camera','checkpoint',1),point('hotel','1.2 Hotel','hotel',2)],competitors:[]}};
 
 async function open(page){
-  await page.goto('/?e2e=camera-direct');await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
+  await page.goto('/?e2e=camera-pair');await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
   await page.locator('#projectInput').setInputFiles({name:'camera-objectives.cmap',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(payload))});
 }
-async function interceptNativePicker(page,inputId){
-  await page.evaluate(id=>{const input=document.getElementById(id);input.dataset.directTriggers='0';input.click=()=>{input.dataset.directTriggers=String(Number(input.dataset.directTriggers)+1);};},inputId);
-}
 
-test('More has no duplicate camera preference and checkpoint buttons open the requested native camera directly',async({page},testInfo)=>{
+test('PHOTO_REQUIRED exposes one rider-facing CAPTURE PAIR action and no legacy camera controls',async({page},testInfo)=>{
   test.skip(!testInfo.project.name.startsWith('iPhone 13'),'Mission Control camera controls are a mobile workflow.');await open(page);
-  await page.locator('#rallyMoreButton').click();await expect(page.locator('.rally-camera-settings')).toHaveCount(0);await page.locator('#rallyMoreButton').click();
-  await interceptNativePicker(page,'rallyCameraInput');await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();
-  await expect(page.locator('#rallyCameraInput')).toHaveAttribute('data-direct-triggers','0');
-  await expect(page.locator('#rallyCameraWorkflow')).not.toContainText(/Open Camera|CAPTURE PAIR|60-second|Checkpoint Captured/);
-  await page.locator('#rallyCameraSelfie').click();await expect(page.locator('#rallyCameraInput')).toHaveAttribute('capture','user');await expect(page.locator('#rallyCameraInput')).toHaveAttribute('data-direct-triggers','1');await expect(page.locator('#rallyCameraSelfie')).toHaveClass(/is-active/);
-  await page.locator('#rallyCameraForward').click();await expect(page.locator('#rallyCameraInput')).toHaveAttribute('capture','environment');await expect(page.locator('#rallyCameraInput')).toHaveAttribute('data-direct-triggers','2');await expect(page.locator('#rallyCameraForward')).toHaveClass(/is-active/);
-  await page.reload();await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');await expect(page.locator('#rallyCameraInput')).toHaveAttribute('capture','environment');
+  await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();
+  await expect(page.locator('#rallyCameraCapturePair')).toBeVisible();await expect(page.locator('#rallyCameraCapturePair')).toHaveText('CAPTURE PAIR');
+  await expect(page.locator('#rallyCameraWorkflow')).not.toContainText(/60-second|countdown|Save Pair|Open Camera/);
+  await expect(page.locator('#rallyCameraSelfie, #rallyCameraForward')).toHaveCount(0);await expect(page.locator('#rallyCameraRetry')).toBeHidden();
+  await expect(page.locator('#rallyCameraPhotoCount')).toContainText('No photos captured');
 });
 
-test('checkpoint and hotel direct capture preserve durable camera metadata',async({page},testInfo)=>{
+test('checkpoint and hotel CAPTURE PAIR records durable four-asset Journal relationships',async({page},testInfo)=>{
   test.skip(testInfo.project.name!=='iPhone 13 portrait','Durable workflow is covered once on the primary field viewport.');await open(page);
-  await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));await page.locator('#rallyCameraForward').click();await page.locator('#rallyCameraInput').setInputFiles({name:'checkpoint.png',mimeType:'image/png',buffer:photo});
-  await expect(page.locator('#rallyNextName')).toContainText('Hotel');await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));await page.locator('#rallyCameraSelfie').click();await page.locator('#rallyCameraInput').setInputFiles({name:'hotel.png',mimeType:'image/png',buffer:photo});
-  await page.waitForFunction(async()=>{const events=await window.CannonMapTest.missionControlJournalEvents();return events.filter(event=>event.eventType==='photo_added').length===2;});
-  const events=await page.evaluate(()=>window.CannonMapTest.missionControlJournalEvents()),photos=events.filter(event=>event.eventType==='photo_added');
-  expect(photos.map(event=>event.metadata.objectiveType)).toEqual(['checkpoint','hotel']);expect(photos.map(event=>event.metadata.requestedCamera)).toEqual(['rear','front']);
-  for(const event of photos){expect(event.metadata).toMatchObject({actualCamera:'unknown',cameraSelectionHonored:'unknown',captureMethod:'file-input'});expect(event.metadata.captureTimestamp).toBeTruthy();}
+  await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));await page.locator('#rallyCameraInput').setInputFiles({name:'checkpoint.png',mimeType:'image/png',buffer:photo});
+  await expect(page.locator('#rallyNextName')).toContainText('Hotel');await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));await page.locator('#rallyCameraInput').setInputFiles({name:'hotel.png',mimeType:'image/png',buffer:photo});
+  await expect(page.locator('#rallyDayComplete')).toBeVisible();await page.waitForFunction(async()=>{const events=await window.CannonMapTest.missionControlJournalEvents();return events.filter(event=>event.eventType==='photo_added').length===2;});
+  const result=await page.evaluate(async()=>({events:await window.CannonMapTest.missionControlJournalEvents(),media:await window.CannonMapTest.missionMediaRecords()})),photos=result.events.filter(event=>event.eventType==='photo_added');
+  expect(photos.map(event=>event.metadata.objectiveType)).toEqual(['checkpoint','hotel']);expect(result.media).toHaveLength(8);
+  for(const event of photos){expect(event.references.pairId).toBeTruthy();expect(event.attachments.photos).toHaveLength(4);expect(event.metadata.persistenceStatus).toBe('complete');}
+  expect(new Set(result.media.map(row=>row.metadata.cameraRole))).toEqual(new Set(['front','rear']));
 });
 
-test('Journey Selfie and Forward are direct actions and retain the last-used highlight',async({page},testInfo)=>{
-  test.skip(testInfo.project.name!=='iPhone 13 portrait');await open(page);await page.locator('#rallyMoreButton').click();await page.evaluate(()=>{window.prompt=()=>'';});await interceptNativePicker(page,'rallyJourneyPhotoInput');
+test('Journey Selfie and Forward remain low-friction direct actions',async({page},testInfo)=>{
+  test.skip(testInfo.project.name!=='iPhone 13 portrait');await open(page);await page.locator('#rallyMoreButton').click();await page.evaluate(()=>{window.prompt=()=>'';const input=document.getElementById('rallyJourneyPhotoInput');input.dataset.directTriggers='0';input.click=()=>{input.dataset.directTriggers=String(Number(input.dataset.directTriggers)+1);};});
   await page.locator('#rallyJourneySelfieButton').click();await expect(page.locator('#rallyJourneyPhotoInput')).toHaveAttribute('capture','user');await expect(page.locator('#rallyJourneyPhotoInput')).toHaveAttribute('data-direct-triggers','1');
   await page.locator('#rallyJourneyForwardButton').click();await expect(page.locator('#rallyJourneyPhotoInput')).toHaveAttribute('capture','environment');await expect(page.locator('#rallyJourneyPhotoInput')).toHaveAttribute('data-direct-triggers','2');await expect(page.locator('#rallyJourneyForwardButton')).toHaveClass(/is-active/);
 });
 
-test('camera prompt remains glove-friendly without GPS overlap in iPhone portrait and landscape',async({page},testInfo)=>{
+test('CAPTURE PAIR remains glove-friendly without GPS overlap in iPhone portrait and landscape',async({page},testInfo)=>{
   test.skip(!testInfo.project.name.startsWith('iPhone 13'));await open(page);await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));
-  const selfie=await page.locator('#rallyCameraSelfie').boundingBox(),forward=await page.locator('#rallyCameraForward').boundingBox(),modal=await page.locator('#rallyCameraWorkflow').boundingBox(),gps=await page.locator('#rallyRecenterFab').boundingBox();
-  expect(selfie.width).toBeGreaterThanOrEqual(48);expect(selfie.height).toBeGreaterThanOrEqual(48);expect(forward.width).toBeGreaterThanOrEqual(48);expect(forward.height).toBeGreaterThanOrEqual(48);
-  await expect(page.locator('#rallyRecenterFab')).toBeHidden();
+  const capture=await page.locator('#rallyCameraCapturePair').boundingBox(),modal=await page.locator('#rallyCameraWorkflow').boundingBox(),gps=await page.locator('#rallyRecenterFab').boundingBox();
+  expect(capture.width).toBeGreaterThanOrEqual(48);expect(capture.height).toBeGreaterThanOrEqual(48);await expect(page.locator('#rallyRecenterFab')).toBeHidden();
   const overlaps=modal&&gps&&modal.x<gps.x+gps.width&&modal.x+modal.width>gps.x&&modal.y<gps.y+gps.height&&modal.y+modal.height>gps.y;expect(Boolean(overlaps&&await page.locator('#rallyRecenterFab').isVisible())).toBe(false);
 });

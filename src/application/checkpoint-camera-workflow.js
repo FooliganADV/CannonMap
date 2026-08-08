@@ -1,62 +1,45 @@
-/** Durable checkpoint photo gate. Required photos never auto-finish without media. */
-export function createCheckpointCameraWorkflow({mediaRepository,photoEvidence,journal,clock,onState=()=>{},onRequested=()=>{},onDiagnostic=()=>{}}={}){
-  if(!mediaRepository||!journal||!clock)throw new TypeError('Camera workflow dependencies are required.');
+/** Durable paired checkpoint photo gate. A checkpoint is ready only after both sides and one Journal relationship are durable. */
+export function createCheckpointCameraWorkflow({mediaRepository,photoEvidence,journal,clock,createId,onState=()=>{},onRequested=()=>{},onDiagnostic=()=>{}}={}){
+  if(!mediaRepository||!photoEvidence||!journal||!clock||typeof createId!=='function')throw new TypeError('Paired camera workflow dependencies are required.');
   let active=null;
-  const snapshot=()=>active?{...active,photos:[...active.photos]}:{status:'idle'};
+  const snapshot=()=>active?{...active,sides:{...active.sides}}:{status:'idle',sides:{front:null,rear:null}};
   const publish=()=>onState(snapshot());
+  const refs=pair=>[pair.original,pair.evidence];
+  async function recordFailure(error,role,status='write_failed'){
+    onDiagnostic({exceptionName:error?.name||'Error',exceptionMessage:error?.message||String(error),stackTrace:error?.stack||'Unavailable',objectStore:'missionMedia',pairId:active.pairId,cameraRole:role});
+    try{await journal.appendEventIdempotent({eventId:createId(),projectId:active.projectId,eventType:'media_storage_failure',source:'checkpoint_camera',title:`Photo pair storage failed · ${active.checkpoint.name}`,summary:`${role.toUpperCase()} capture did not complete durable pair persistence.`,references:{checkpointId:active.checkpoint.id,parentEventId:active.journalEvent.eventId,pairId:active.pairId},metadata:{pairId:active.pairId,cameraRole:role,status,retryable:true}});}catch(_){ }
+  }
+  async function finalizePair(){
+    if(!active?.sides.front||!active?.sides.rear)return null;
+    active.status='saving_pair';publish();
+    const front=active.sides.front,rear=active.sides.rear,event=await journal.appendEventIdempotent({
+      eventId:active.pairJournalEventId,projectId:active.projectId,eventType:'photo_added',source:'checkpoint_camera',title:`Capture Pair · ${active.checkpoint.name}`,
+      summary:active.checkpoint.type==='hotel'?'Hotel front/selfie and rear/forward evidence pair captured.':'Checkpoint front/selfie and rear/forward evidence pair captured.',
+      references:{checkpointId:active.checkpoint.id,objectiveId:active.checkpoint.id,objectiveType:active.checkpoint.type||'checkpoint',parentEventId:active.journalEvent.eventId,pairId:active.pairId,frontOriginalMediaId:front.original.mediaId,frontEvidenceMediaId:front.evidence.mediaId,rearOriginalMediaId:rear.original.mediaId,rearEvidenceMediaId:rear.evidence.mediaId},
+      attachments:{photos:[...refs(front),...refs(rear)],front:{originalMediaId:front.original.mediaId,evidenceMediaId:front.evidence.mediaId},rear:{originalMediaId:rear.original.mediaId,evidenceMediaId:rear.evidence.mediaId}},
+      metadata:{pairId:active.pairId,persistenceStatus:'complete',checkpointId:active.checkpoint.id,objectiveType:active.checkpoint.type||'checkpoint',dayNumber:Number(active.checkpoint.day)||null,projectId:active.projectId,frontCapturedAt:front.metadata.captureTimestamp||front.metadata.capturedAt,rearCapturedAt:rear.metadata.captureTimestamp||rear.metadata.capturedAt}
+    });
+    await mediaRepository.markPairComplete?.(active.pairId,event.eventId);
+    active.status='ready';active.error='';active.journalPairEvent=event;publish();return snapshot();
+  }
   return Object.freeze({
-    start({projectId,checkpoint,journalEvent,required=Boolean(checkpoint?.photoRequired),evidenceContext={},cameraPreference='front'}){
-      active={status:'awaiting_photo',required:Boolean(required),projectId,checkpoint,journalEvent,evidenceContext,cameraPreference,photos:[],startedAt:clock.iso(),error:''};
-      publish();onRequested(snapshot());return snapshot();
+    start({projectId,checkpoint,journalEvent,required=true,evidenceContext={},pairId=null,pairJournalEventId=null}){
+      active={status:'awaiting_pair',required:Boolean(required),projectId:String(projectId),checkpoint,journalEvent,evidenceContext,pairId:pairId||createId(),pairJournalEventId:pairJournalEventId||createId(),sides:{front:null,rear:null},startedAt:clock.iso(),error:''};publish();return snapshot();
     },
-    async addFiles(files){
-      if(!active)throw new Error('Camera workflow is not active.');
-      if(!files?.length){active.status='awaiting_photo';active.error=active.required?'Photo capture was canceled. Retry is required.':'No photo selected.';publish();return [];}
-      active.status='saving';active.error='';publish();
+    request(){if(!active)return null;active.status=active.sides.front?'rear_required':'capturing_front';active.error='';publish();onRequested(snapshot());return snapshot();},
+    async addSide(role,file){
+      if(!active)throw new Error('Camera workflow is not active.');if(!['front','rear'].includes(role))throw new TypeError('Camera role must be front or rear.');if(!(file instanceof Blob))throw new TypeError('A captured photo Blob is required.');
+      active.status=`saving_${role}`;active.error='';publish();
       try{
-        for(const file of [...files]){
-          const photoJournalEventId=active.evidenceContext.photoJournalEventId||active.journalEvent.eventId;
-          const cameraMetadata=active.evidenceContext.cameraMetadata?.(file)||{requestedCamera:active.cameraPreference,actualCamera:'unknown',cameraSelectionHonored:'unknown'};
-          const captureTimestamp=clock.iso(),captureMetadata={captureMethod:'file-input',...cameraMetadata,captureTimestamp};
-          const pair=photoEvidence?await photoEvidence.capture({projectId:active.projectId,checkpointId:active.checkpoint.id,journalEventId:photoJournalEventId,file,context:{...active.evidenceContext,cameraMetadata:undefined,capturedAt:captureTimestamp,...captureMetadata}}):null;
-          const reference=pair||await mediaRepository.addPhoto({projectId:active.projectId,checkpointId:active.checkpoint.id,journalEventId:active.journalEvent.eventId,file});
-          const photos=pair?[pair.original,pair.evidence]:[reference];
-          try{await journal.appendEvent({
-            eventId:photoJournalEventId,projectId:active.projectId,eventType:'photo_added',source:'checkpoint_camera',title:`Photo · ${active.checkpoint.name}`,
-            summary:active.checkpoint.type==='hotel'?'Hotel arrival photo captured.':'Photo captured during checkpoint arrival.',
-            references:{checkpointId:active.checkpoint.id,parentEventId:active.journalEvent.eventId,mediaGroupId:pair?.mediaGroupId||reference.mediaId,
-              originalMediaId:pair?.original?.mediaId||reference.mediaId,evidenceMediaId:pair?.evidence?.mediaId||null},
-            attachments:{photos,original:pair?.original||reference,evidence:pair?.evidence||null},metadata:{checkpointId:active.checkpoint.id,objectiveType:active.checkpoint.type||'checkpoint',dayNumber:Number(active.checkpoint.day)||null,projectId:active.projectId,required:active.required,status:'recorded',exportFilename:pair?.evidence?.name||reference.name,originalExportFilename:pair?.original?.name||reference.name,evidenceExportFilename:pair?.evidence?.name||null,...captureMetadata}
-          });}catch(error){if(pair)await mediaRepository.deleteEvidencePair?.(pair);throw error;}
-          active.photos.push(reference);
-        }
-        active.status='ready';active.error='';publish();return [...active.photos];
-      }catch(error){
-        const technical={exceptionName:error?.diagnostics?.exceptionName||error?.name||'Error',exceptionMessage:error?.diagnostics?.exceptionMessage||error?.message||String(error),stackTrace:error?.diagnostics?.stackTrace||error?.stack||'Unavailable',objectConstructor:error?.diagnostics?.objectConstructor||files?.[0]?.constructor?.name||'Unavailable',objectType:error?.diagnostics?.objectType||files?.[0]?.constructor?.name||'Unavailable',objectSize:(error?.diagnostics?.objectSize??Number(files?.[0]?.size))||0,mimeType:error?.diagnostics?.mimeType||files?.[0]?.type||'Unavailable',transactionState:error?.diagnostics?.transactionState||'Unavailable',objectStore:error?.diagnostics?.objectStore||'missionMedia',browser:error?.diagnostics?.browser||globalThis.navigator?.userAgent||'Unavailable',appVersion:error?.diagnostics?.appVersion||globalThis.navigator?.appVersion||'Unavailable'};
-        onDiagnostic(technical);active.status='failed';active.error='Photo could not be saved.\n\nYour checkpoint has NOT been completed.\n\nPlease retry the photo.\n\nIf the problem continues you may mark the objective as failed.';
-        {
-          active.originalMedia=error.originalMedia;
-          try{await journal.appendEvent({projectId:active.projectId,eventType:'media_storage_failure',source:'checkpoint_camera',
-            title:`Photo storage failed · ${active.checkpoint.name}`,summary:error.originalMedia?'The full-resolution original is stored. Evidence generation must be retried.':'The photograph was not safely stored. Capture must be retried.',
-            references:{checkpointId:active.checkpoint.id,parentEventId:active.journalEvent.eventId,originalMediaId:error.originalMedia?.mediaId||null},
-            metadata:{checkpointId:active.checkpoint.id,dayNumber:Number(active.checkpoint.day)||null,required:active.required,status:error.originalMedia?'evidence_failed':'write_failed',retryable:true}});}catch(_){ }
-        }
-        publish();throw error;
-      }
+        const capturedAt=clock.iso(),pair=await photoEvidence.capture({projectId:active.projectId,checkpointId:active.checkpoint.id,journalEventId:active.pairJournalEventId,file,context:{...active.evidenceContext,capturedAt,captureTimestamp:capturedAt,captureMethod:'getUserMedia-sequential',requestedCamera:role,actualCamera:role,cameraSelectionHonored:true,cameraRole:role,pairId:active.pairId,pairJournalEventId:active.pairJournalEventId}});
+        active.sides[role]=pair;active.status=role==='front'&&!active.sides.rear?'rear_required':'pair_captured';publish();if(active.sides.front&&active.sides.rear)return finalizePair();return snapshot();
+      }catch(error){active.status='failed';active.error=`${role==='front'?'Front':'Rear'} photo could not be saved. The objective remains PHOTO_REQUIRED.`;await recordFailure(error,role,error?.originalMedia?'evidence_failed':'write_failed');publish();throw error;}
     },
-    cancel(){if(!active)return null;active.status='awaiting_photo';active.error=active.required?'Photo capture was canceled. Retry is required.':'Photo skipped.';publish();return snapshot();},
-    retry(){if(!active)return null;active.status='awaiting_photo';active.error='';publish();onRequested(snapshot());return snapshot();},
-    restorePhoto(reference){
-      if(!active||!reference)return null;
-      if(!active.photos.some(photo=>photo.mediaId===reference.mediaId))active.photos.push(reference);
-      active.status='ready';active.error='';publish();return snapshot();
-    },
-    finish(){
-      if(!active)return null;
-      if(active.required&&!active.photos.length){active.status='awaiting_photo';active.error='A required photo has not been recorded.';publish();return null;}
-      const result=snapshot();active=null;publish();return result;
-    },
-    abandon(){const result=snapshot();active=null;publish();return result;},
-    getState:snapshot
+    cancel(role){if(!active)return null;const missing=role||(!active.sides.front?'front':'rear');active.status=active.sides.front?'rear_required':'awaiting_pair';active.error=`${missing==='rear'?'Rear':'Front'} capture was canceled. ${active.sides.front?'Front captured safely; rear remains required.':'Capture Pair remains required.'}`;publish();return snapshot();},
+    retry(){if(!active)return null;active.status=active.sides.front?'rear_required':'awaiting_pair';active.error='';publish();return snapshot();},
+    restoreSide(role,pair){if(!active||!pair||!['front','rear'].includes(role))return null;active.sides[role]=pair;active.status=active.sides.front&&active.sides.rear?'pair_captured':active.sides.front?'rear_required':'awaiting_pair';publish();return snapshot();},
+    finalizeRestoredPair:finalizePair,
+    finish(){if(!active?.sides.front||!active?.sides.rear||active.status!=='ready'){if(active){active.status=active.sides.front?'rear_required':'awaiting_pair';active.error='A complete durable front and rear pair is required.';publish();}return null;}const result=snapshot();active=null;publish();return result;},
+    abandon(){const result=snapshot();active=null;publish();return result;},getState:snapshot
   });
 }

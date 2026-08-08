@@ -43,7 +43,7 @@ test('upgrades the legacy database additively and preserves the authoritative pr
     return {project,stores,version,registry:module.SCHEMA_REGISTRY.map(store=>store.name)};
   },databaseName);
 
-  expect(result.version).toBe(10);
+  expect(result.version).toBe(11);
   expect(result.project).toEqual({id:'legacy',name:'Preserved'});
   expect(result.stores).toEqual(expect.arrayContaining(result.registry));
   await deleteDatabase(page,databaseName);
@@ -76,7 +76,7 @@ test('v10 upgrade retains legacy v9 mediaRecords without relabeling or copying t
     const stores=[...database.objectStoreNames],version=database.version;database.close();
     return {version,stores,retained:{...retained,blobSize:retained?.blob?.size},copied};
   },databaseName);
-  expect(result.version).toBe(10);expect(result.stores).toContain('mediaRecords');expect(result.stores).toContain('missionMedia');
+  expect(result.version).toBe(11);expect(result.stores).toContain('mediaRecords');expect(result.stores).toContain('missionMedia');
   expect(result.retained).toMatchObject({mediaId:'legacy-front',orientation:'front',pairId:'legacy-pair',blobSize:12});
   expect(result.copied).toBeNull();
   await deleteDatabase(page,databaseName);
