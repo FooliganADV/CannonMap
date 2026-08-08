@@ -8,6 +8,7 @@ import {renderRally as presentRally} from './src/ui/rally/presenter.js';
 import {wireRallyController} from './src/ui/rally/controller.js';
 import {wireProjectController} from './src/ui/project/controller.js';
 import {createFeatureFlags} from './src/core/feature-flags.js';
+import {RALLY_FEED_DEFAULTS,RALLY_FEED_DEFAULT_REVISION,migrateRallyFeedDefaults,preserveExplicitRallyFeedSettings} from './src/core/rally-feed-defaults.js';
 import {createObservationCapture,OBSERVATION_CAPTURE_FEATURE_FLAG} from './src/application/observation-capture.js';
 import {createSecureObservationUploader,SECURE_INGESTION_FEATURE_FLAG} from './src/application/secure-observation-upload.js';
 import {createRallyAnalyticsService,RALLY_ANALYTICS_FEATURE_FLAG} from './src/application/rally-analytics-service.js';
@@ -38,7 +39,7 @@ import {createFirebaseAuthentication} from './src/infrastructure/firebase/authen
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
 const APP_VERSION = '0.7.1';
-const BUILD_ID = '2026.08.08.reconciliation-1';
+const BUILD_ID = '2026.08.08.trail-intel-event-27-1';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
@@ -593,7 +594,9 @@ async function loadProject() {
   } catch(_){}
   try {
     const raw = localStorage.getItem(SETTINGS_KEY) || localStorage.getItem('cannonmap.settings.v5') || localStorage.getItem('cannonmap.settings.v4') || localStorage.getItem('cannonmap.settings.v3') || '{}';
-    Object.assign(state.settings, JSON.parse(raw));
+    const migration=migrateRallyFeedDefaults(JSON.parse(raw));
+    Object.assign(state.settings,migration.settings);
+    if(migration.changed)localStorage.setItem(SETTINGS_KEY,JSON.stringify(migration.settings));
   } catch(_){}
 }
 
@@ -1661,7 +1664,7 @@ function renderIntelSummary() {
   const riders=state.project.competitors||[];const fresh=riders.filter(comp=>competitorFreshness(comp).fresh).length;const points=riders.reduce((sum,comp)=>sum+(comp.points?.length||0),0);
   if($('intelRiderCount'))$('intelRiderCount').textContent=riders.length;if($('intelFreshCount'))$('intelFreshCount').textContent=fresh;if($('intelPointCount'))$('intelPointCount').textContent=points;if($('intelLastSync'))$('intelLastSync').textContent=formatClock(state.rallySync.lastSync);
   const running=Boolean(state.rallyPollTimer);const badge=$('feedBadge');if(badge){badge.textContent=state.rallySync.running?'SYNCING':running?'LIVE':state.rallySync.lastError?'CHECK':'READY';badge.className=`badge ${state.rallySync.lastError?'warning':running?'live':'neutral'}`;}
-  if($('rallyFeedNotice')){$('rallyFeedNotice').textContent=state.rallySync.lastError?state.rallySync.lastError:state.settings.rallyEndpointUrl?`${running?'Polling':'Connector ready'} · ${riders.length} riders · ${points} breadcrumbs`:'The public leaderboard URL is saved. Live trail polling needs the JSON/location endpoint captured from a live event. Polling runs only while CannonMap is open and active.';}
+  if($('rallyFeedNotice')){$('rallyFeedNotice').textContent=state.rallySync.lastError?state.rallySync.lastError:state.settings.rallyEndpointUrl?`${running?'Polling':'Connector ready'} · ${riders.length} riders · ${points} breadcrumbs`:'The built-in official feed uses the Event ID. The custom JSON/location endpoint is optional. Live updates run only while CannonMap is open and active.';}
   if($('mobileRiderCount'))$('mobileRiderCount').textContent=riders.length;if($('mobileFreshCount'))$('mobileFreshCount').textContent=fresh;if($('mobileTrafficCount'))$('mobileTrafficCount').textContent=state.trafficIncidents.length;
   if($('mobileIntelStatus'))$('mobileIntelStatus').textContent=running?`Live · last ${formatClock(state.rallySync.lastSync)}`:state.rallySync.lastSync?`Last sync ${formatClock(state.rallySync.lastSync)}`:'No live feed';
   if($('mobileWeatherSummary')){if(state.weatherData){const c=state.weatherData.current||{};$('mobileWeatherSummary').textContent=`${Math.round(c.temperature_2m??0)}°F · ${WEATHER_CODES[c.weather_code]||'Weather'} · Gusts ${Math.round(weatherMaxGustMph(state.weatherData))} mph`;}else $('mobileWeatherSummary').textContent='Weather not loaded';}
@@ -1748,14 +1751,14 @@ async function retryFailedEvidence(){
 }
 async function switchProject(projectId){
   const project=await projectLifecycle.openProject(projectId);activeLifecycleProjectId=project.projectId;state.project=sanitizeProjectData(project,'project switch');
-  try{state.settings=Object.assign({},defaultProjectSettings||state.settings,JSON.parse(localStorage.getItem(`${SETTINGS_KEY}.${project.projectId}`)||'{}'));}catch(_){state.settings=Object.assign({},defaultProjectSettings||state.settings);}
+  try{const key=`${SETTINGS_KEY}.${project.projectId}`,migration=migrateRallyFeedDefaults(JSON.parse(localStorage.getItem(key)||'{}'));state.settings=Object.assign({},defaultProjectSettings||state.settings,migration.settings);if(migration.changed)localStorage.setItem(key,JSON.stringify(migration.settings));}catch(_){state.settings=Object.assign({},defaultProjectSettings||state.settings);}
   state.settings.preferredCamera=normalizeCameraPreference(state.settings.preferredCamera);applyCameraPreference();
   weatherMaintenance=createProjectWeatherMaintenance();weatherMaintenance.restore();clearSelection();rallyExecution();renderAll();fitMap();await appendRallyJournalEvent('project_opened',null,{eventIdentity:`project-opened:${project.projectId}:${Date.now()}`,title:`Project Opened · ${project.name}`});await renderStorageAndProjects();setStatus(`Opened ${project.name}.`);
 }
 async function createIndependentProject(){
   const name=prompt('New project name');if(!String(name||'').trim())return;
   await saveProject(false);const now=new Date().toISOString(),projectId=uid(),project=await projectLifecycle.createProject({projectId,id:projectId,version:APP_VERSION,name:String(name).trim(),createdAt:now,updatedAt:now,features:[],competitors:[]},{activate:true});
-  activeLifecycleProjectId=project.projectId;state.project=sanitizeProjectData(project,'new project');state.settings=Object.assign({},defaultProjectSettings||state.settings,{dayFilter:'all'});weatherMaintenance=createProjectWeatherMaintenance();clearSelection();rallyExecution();renderAll();fitMap();await renderStorageAndProjects();setStatus(`Created ${project.name}.`);
+  activeLifecycleProjectId=project.projectId;state.project=sanitizeProjectData(project,'new project');state.settings=Object.assign({},defaultProjectSettings||state.settings,RALLY_FEED_DEFAULTS,{rallyFeedDefaultRevision:RALLY_FEED_DEFAULT_REVISION,dayFilter:'all'});weatherMaintenance=createProjectWeatherMaintenance();clearSelection();rallyExecution();renderAll();fitMap();await renderStorageAndProjects();setStatus(`Created ${project.name}.`);
 }
 async function renameActiveProject(){const name=prompt('Project name',state.project.name);if(!String(name||'').trim())return;state.project=await projectLifecycle.renameProject(state.project.projectId,name);renderAll();setStatus(`Renamed project to ${state.project.name}.`);}
 async function archiveActiveProject(){
@@ -1775,7 +1778,7 @@ function exportFinalizedProject(){if(!pendingFinalizedExport)return setStatus('F
 async function importFinalizedProject(file){
   if(!file)return;try{const result=await finalizedProjects.importMaster(file);pendingFinalizedMasterId=result.masterId;$('finalizedProjectReport').innerHTML=finalizationReportHtml(result.currentValidation,result.manifest);$('createExecutionCopyButton').hidden=false;$('finalizedProjectDialog').showModal();setStatus(`${result.manifest.projectName} verified as an immutable finalized master.`);}catch(error){pendingFinalizedMasterId=null;setStatus(`Finalized Project import rejected: ${error.message}`,true);}
 }
-async function createActiveExecutionCopy(){if(!pendingFinalizedMasterId)return;const project=await finalizedProjects.createExecutionCopy(pendingFinalizedMasterId,{activate:true});activeLifecycleProjectId=project.projectId;state.project=sanitizeProjectData(project,'finalized execution copy');state.settings=Object.assign({},defaultProjectSettings||state.settings,project.settings||{});weatherMaintenance=createProjectWeatherMaintenance();rallyExecution();renderAll();fitMap();$('finalizedProjectDialog').close();await renderStorageAndProjects();setStatus(`Created active execution copy of ${project.name}. The finalized master remains unchanged.`);}
+async function createActiveExecutionCopy(){if(!pendingFinalizedMasterId)return;const project=await finalizedProjects.createExecutionCopy(pendingFinalizedMasterId,{activate:true});activeLifecycleProjectId=project.projectId;state.project=sanitizeProjectData(project,'finalized execution copy');state.settings=Object.assign({},defaultProjectSettings||state.settings,preserveExplicitRallyFeedSettings(project.settings||{}));weatherMaintenance=createProjectWeatherMaintenance();rallyExecution();renderAll();fitMap();$('finalizedProjectDialog').close();await renderStorageAndProjects();setStatus(`Created active execution copy of ${project.name}. The finalized master remains unchanged.`);}
 function createProjectWeatherMaintenance(){
   const projectId=state.project.projectId||'legacy',storage={getItem:key=>localStorage.getItem(`${key}.${projectId}`),setItem:(key,value)=>localStorage.setItem(`${key}.${projectId}`,value)};
   return createWeatherMaintenance({fetchWeather:fetchWeatherContext,storage,distanceMeters:haversine,onContext:applyWeatherContext});
@@ -1783,7 +1786,7 @@ function createProjectWeatherMaintenance(){
 async function restoreProjectPackage(file){
   if(!file)return;try{
     if(!/\.cmapproject$/i.test(file.name))return openProjectFile(file);
-    const payload=await journeyRestore.restore(file);localStorage.setItem(`${SETTINGS_KEY}.${payload.project.projectId}`,JSON.stringify(payload.settings||{}));await switchProject(payload.project.projectId);setStatus(`Restored ${payload.project.name} with ${payload.manifest.mediaCount} full-resolution media records.`);
+    const payload=await journeyRestore.restore(file);localStorage.setItem(`${SETTINGS_KEY}.${payload.project.projectId}`,JSON.stringify(preserveExplicitRallyFeedSettings(payload.settings||{})));await switchProject(payload.project.projectId);setStatus(`Restored ${payload.project.name} with ${payload.manifest.mediaCount} full-resolution media records.`);
   }catch(error){setStatus(`Project restore failed without partial changes: ${error.message}`,true);}
 }
 function activateNextPlannedCheckpoint(){const next=checkpoints.activateNextPlanned(dayCheckpoints());if(next)state.selectedId=next.id;return next;}
@@ -2029,7 +2032,7 @@ async function initializeApplication() {
   await initializeMissionControlFoundationsWithRetry();
   state.project.features.forEach(f=>{f.assignmentMethod ||= '';f.favorite ||= false;});
   state.settings.typeVisibility=Object.assign({track:true,route:true,backbone:true,waypoint:true,checkpoint:true,fuel:true,hotel:true},state.settings.typeVisibility||{});
-  state.settings=Object.assign({leaderboardUrl:'https://gpscheckpoints.com/admin/leaderboard.html?id_event=15',rallyEndpointUrl:'',rallyEventId:'15',rallyPollSeconds:30,showCompetitorTrails:true,showCompetitorMarkers:true,showStationaryEvents:true,showCompetitorClusters:true,competitorTrailMinutes:480,competitorTrailOpacity:100,competitorFreshMinutes:15,trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:'',radarOpacity:65,radarCoverage:'active-day',radarEnabled:false,routeWeatherSpeed:45,usableFuelCapacity:0,expectedPavedRange:0,expectedMixedRange:0,reserveDistance:25,fuelProfile:'mixed',autoCompleteCheckpoints:true,checkpointArrivalRadius:500,checkpointMaxAccuracy:200,hideCompletedCheckpoints:true,preferredCamera:'front'},state.settings);
+  state.settings=Object.assign({...RALLY_FEED_DEFAULTS,rallyPollSeconds:30,showCompetitorTrails:true,showCompetitorMarkers:true,showStationaryEvents:true,showCompetitorClusters:true,competitorTrailMinutes:480,competitorTrailOpacity:100,competitorFreshMinutes:15,trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:'',radarOpacity:65,radarCoverage:'active-day',radarEnabled:false,routeWeatherSpeed:45,usableFuelCapacity:0,expectedPavedRange:0,expectedMixedRange:0,reserveDistance:25,fuelProfile:'mixed',autoCompleteCheckpoints:true,checkpointArrivalRadius:500,checkpointMaxAccuracy:200,hideCompletedCheckpoints:true,preferredCamera:'front'},state.settings);
   state.settings.preferredCamera=normalizeCameraPreference(state.settings.preferredCamera);applyCameraPreference();
   defaultProjectSettings=deepClean(state.settings);
   state.project.competitors ||= [];

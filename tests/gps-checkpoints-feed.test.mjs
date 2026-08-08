@@ -39,6 +39,12 @@ test('sanitizers exclude tokens, contact data, and admin credentials',()=>{
   assert.deepEqual(sanitizeEvent({id:60,name:'Event',token:'secret',authorization:'Bearer admin'}),{id:60,name:'Event'});
 });
 
+test('adapter remains event-agnostic and rejects nonnumeric event IDs',()=>{
+  const firebase=fakeFirebase(),fetch=async()=>({ok:true,json:async()=>[]});
+  for(const eventId of ['27','15','42'])assert.doesNotThrow(()=>createGPSCheckpointsFeed({eventId,firebase,fetch}));
+  assert.throws(()=>createGPSCheckpointsFeed({eventId:'event-27',firebase,fetch}),/eventId must be numeric/);
+});
+
 test('uses REST metadata plus Firebase subscriptions and preserves removed locations',async()=>{
   const firebase=fakeFirebase(),requests=[];
   const responses=[

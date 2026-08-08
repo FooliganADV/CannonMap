@@ -2,6 +2,7 @@ import {createClock} from './clock.js';
 import {createEventBus} from './event-bus.js';
 import {createIdFactory} from './ids.js';
 import {createStateStore} from './state-store.js';
+import {RALLY_FEED_DEFAULTS,RALLY_FEED_DEFAULT_REVISION} from './rally-feed-defaults.js';
 
 export function createLegacyState(appVersion,clock){
   return {
@@ -17,7 +18,7 @@ export function createLegacyState(appVersion,clock){
     settings:{
       dayFilter:'all',inreachUrl:'',baseLayer:'Streets',lineOpacity:90,
       typeVisibility:{track:true,route:true,backbone:true,waypoint:true,checkpoint:true,fuel:true,hotel:true},
-      leaderboardUrl:'https://gpscheckpoints.com/admin/leaderboard.html?id_event=15',rallyEndpointUrl:'',rallyEventId:'15',rallyPollSeconds:30,
+      ...RALLY_FEED_DEFAULTS,rallyFeedDefaultRevision:RALLY_FEED_DEFAULT_REVISION,rallyPollSeconds:30,
       showCompetitorTrails:true,showCompetitorMarkers:true,competitorFreshMinutes:15,preferredCamera:'front',
       trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:'',radarOpacity:65,radarCoverage:'active-day',routeWeatherSpeed:45,
       usableFuelCapacity:0,expectedPavedRange:0,expectedMixedRange:0,reserveDistance:25,fuelProfile:'mixed'

@@ -1,17 +1,18 @@
-const CACHE = 'cannonmap-v0.7.1-20260808-mission-control-reconciliation-1';
+const CACHE = 'cannonmap-v0.7.1-20260808-trail-intel-event-27-1';
 const RADAR_CACHE='cannonmap-radar-v1',RADAR_CACHE_LIMIT=96;
 const APP_SHELL = [
   './',
   './index.html',
-  './app.css?v=20260808-reconciliation-1',
+  './app.css?v=20260808-trail-intel-event-27-1',
   './gps-checkpoints-feed.js?v=20260725-02',
   './stationary-events.js?v=20260725-01',
-  './app.js?v=20260808-reconciliation-1',
+  './app.js?v=20260808-trail-intel-event-27-1',
   './src/core/clock.js',
   './src/core/compatibility.js',
   './src/core/errors.js',
   './src/core/event-bus.js',
   './src/core/feature-flags.js',
+  './src/core/rally-feed-defaults.js',
   './src/core/ids.js',
   './src/core/state-store.js',
   './src/domain/geo/geometry.js',

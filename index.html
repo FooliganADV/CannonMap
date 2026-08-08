@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260808-reconciliation-1" />
+  <link rel="stylesheet" href="app.css?v=20260808-trail-intel-event-27-1" />
 </head>
 <body>
   <header class="topbar">
@@ -182,13 +182,13 @@
           <button id="toggleRallyPollingButton" class="button secondary">Start live polling</button>
           <button id="exportCompetitorButton" class="button secondary">Export trails JSON</button>
         </div>
-        <div id="rallyFeedNotice" class="notice muted">The public leaderboard URL is saved. Live trail polling needs the JSON/location endpoint captured from a live event. Browser polling runs only while CannonMap is open and active.</div>
+        <div id="rallyFeedNotice" class="notice muted">The built-in official feed uses the Event ID. The custom JSON/location endpoint is optional. Live updates run only while CannonMap is open and active.</div>
         <details>
           <summary>Official rally feed setup</summary>
           <label class="field"><span>Public leaderboard page</span><input id="leaderboardUrl" placeholder="https://gpscheckpoints.com/admin/leaderboard.html?id_event=…" /></label>
-          <label class="field"><span>Live JSON/location endpoint</span><input id="rallyEndpointUrl" placeholder="Paste the endpoint found in the live HAR capture" /></label>
+          <label class="field"><span>Custom live JSON/location endpoint (optional)</span><input id="rallyEndpointUrl" placeholder="Optional custom feed override" /></label>
           <div class="two-col">
-            <label class="field"><span>Event ID</span><input id="rallyEventId" inputmode="numeric" placeholder="15" /></label>
+            <label class="field"><span>Event ID</span><input id="rallyEventId" inputmode="numeric" placeholder="27" /></label>
             <label class="field"><span>Poll interval</span><select id="rallyPollSeconds"><option value="10">10 sec</option><option value="15">15 sec</option><option value="30">30 sec</option><option value="60">60 sec</option></select></label>
           </div>
           <label class="field"><span>Garmin inReach KML feed (optional)</span><input id="inreachUrl" placeholder="Saved for later connector work" /></label>
@@ -455,6 +455,6 @@
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260808-reconciliation-1"></script>
+  <script type="module" src="app.js?v=20260808-trail-intel-event-27-1"></script>
 </body>
 </html>
