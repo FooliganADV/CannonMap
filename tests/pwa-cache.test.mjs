@@ -73,7 +73,19 @@ test('service-worker shell contains the complete local startup module graph',asy
 test('Mission Control cache identifier advances without deleting IndexedDB data',async()=>{
   const {cache,source}=await cacheManifest();
   assert.notEqual(cache,'cannonmap-v0.7.1-20260726-06');
-  assert.equal(cache,'cannonmap-v0.7.1-20260731-mission-control-2-phase1-01');
+  assert.equal(cache,'cannonmap-v0.7.1-20260807-mission-control-photo-recovery-02');
   assert.doesNotMatch(source,/indexedDB\.deleteDatabase|deleteDatabase\s*\(/);
   assert.doesNotMatch(source,/localStorage\.clear|caches\.delete\([^)]*CannonMapDB/);
+});
+
+test('offline shell contains the single paired checkpoint-photo architecture',async()=>{
+  const {shell,source}=await cacheManifest();
+  for(const module of [
+    'src/domain/media/model.js',
+    'src/application/camera-capture.js',
+    'src/application/checkpoint-photo-service.js',
+    'src/application/rally-photo-wiring.js',
+    'src/infrastructure/indexeddb/media-repository.js'
+  ])assert.ok(shell.has(module),`${module} must be cached for offline paired-photo capture`);
+  assert.doesNotMatch(source,/checkpoint-camera-workflow|mission-media-repository|missionMedia/);
 });

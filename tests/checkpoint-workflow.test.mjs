@@ -49,6 +49,17 @@ test('hotel bailout defers unfinished checkpoints without deleting or completing
   assert.equal(rows.length,4);
 });
 
+test('mandatory hotel waits for the intelligent deferred queue and cannot be deferred',()=>{
+  const deferred=checkpoint('deferred',1,'deferred'),hotel=workflow.normalizeCheckpoint({id:'hotel',name:'Hotel',type:'hotel',day:1,status:'planned'});
+  const rows=[deferred,hotel];
+  assert.equal(workflow.activateNextPlanned(rows),null);
+  assert.equal(workflow.resumeDeferred(rows,'2026-01-01T00:00:00.000Z').id,'deferred');
+  deferred.status='deferred';
+  assert.equal(workflow.finishDayWithHotel(rows,'2026-01-01T00:01:00.000Z').id,'hotel');
+  assert.equal(workflow.deferCheckpoint(rows,hotel,'invalid','2026-01-01T00:02:00.000Z'),null);
+  assert.equal(hotel.status,'next');
+});
+
 test('checkpoint reordering and make-next preserve imported sequence metadata',()=>{
   const rows=[checkpoint('one',1),checkpoint('two',2,'deferred',{deferredAt:'2025-12-31T23:59:00.000Z'})];
   assert.equal(workflow.moveCheckpoint(rows,'two',-1).id,'two');

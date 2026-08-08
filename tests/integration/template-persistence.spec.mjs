@@ -33,7 +33,7 @@ test('v8 migration is additive, empty, indexed, and idempotent',async({page},tes
     return {version,project,templates,indexes,secondCount};
   },uniqueName(testInfo));
   expect(result).toEqual({
-    version:8,project:{projectId:'p1',name:'Preserved'},templates:[],secondCount:0,
+    version:9,project:{projectId:'p1',name:'Preserved'},templates:[],secondCount:0,
     indexes:['isBuiltIn','name','templateType','updatedAt']
   });
 });

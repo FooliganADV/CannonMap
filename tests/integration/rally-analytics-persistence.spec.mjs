@@ -46,7 +46,7 @@ test('raw telemetry and derived statistics persist separately and active session
     return {started,recovered,snapshot,counts,stores,version};
   },databaseName);
 
-  expect(result.version).toBe(8);
+  expect(result.version).toBe(9);
   expect(result.stores).toEqual(expect.arrayContaining([
     'telemetrySamples','telemetryEvents','analyticsSessions','analyticsDailyStats'
   ]));

@@ -65,6 +65,12 @@ export function createProjectRepositoryScope({
       },
       async listSamples(sessionId){
         guard();return (await analyticsRepository.listSamples(sessionId)).filter(value=>value.projectId===id);
+      },
+      async listEvents(sessionId){
+        guard();return (await analyticsRepository.listEvents(sessionId)).filter(value=>value.projectId===id);
+      },
+      async listDailyStats(sessionId){
+        guard();return (await analyticsRepository.listDailyStats(sessionId)).filter(value=>value.projectId===id);
       }
     });
   };

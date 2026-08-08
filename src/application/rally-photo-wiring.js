@@ -4,7 +4,6 @@
  */
 import {createCheckpointPhotoService,CHECKPOINT_PHOTO_FEATURE_FLAG} from './checkpoint-photo-service.js';
 import {createRallyJournalService} from './rally-journal-service.js';
-import {createJournalRepository,createMediaRepository,openIndexedDbV2,V2_FEATURE_FLAG} from '../infrastructure/indexeddb/index.js';
 import {captureSequentialPair,isCameraCaptureSupported} from './camera-capture.js';
 
 export {CHECKPOINT_PHOTO_FEATURE_FLAG};
@@ -16,6 +15,10 @@ export {CHECKPOINT_PHOTO_FEATURE_FLAG};
 export function createRallyPhotoWiring({
   featureFlags,
   openIndexedDb,
+  indexedDbFactory=globalThis.indexedDB,
+  databaseFeatureFlag,
+  createJournalRepository,
+  createMediaRepository,
   observationDatabase,
   analyticsDatabase,
   createId,
@@ -57,11 +60,14 @@ export function createRallyPhotoWiring({
 
   async function initializeCheckpointPhotos() {
     if (!featureFlags.isEnabled(CHECKPOINT_PHOTO_FEATURE_FLAG)) return null;
-    const architectureDatabase = observationDatabase || analyticsDatabase || await (openIndexedDb || openIndexedDbV2)({
-      indexedDB,
-      featureFlags: { isEnabled: key => key === V2_FEATURE_FLAG || featureFlags.isEnabled(key) }
+    const architectureDatabase = observationDatabase || analyticsDatabase || await openIndexedDb({
+      indexedDB:indexedDbFactory,
+      featureFlags: { isEnabled: key => key === databaseFeatureFlag || featureFlags.isEnabled(key) }
     });
     if (!architectureDatabase) throw new Error('IndexedDB is required for checkpoint photos.');
+    if(typeof createMediaRepository!=='function'||typeof createJournalRepository!=='function'){
+      throw new Error('Checkpoint photo repositories are required.');
+    }
     mediaRepository = createMediaRepository({ database: architectureDatabase });
     journalService = createRallyJournalService({
       repository: createJournalRepository({ database: architectureDatabase }),
