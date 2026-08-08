@@ -34,6 +34,9 @@ function photoZipFiles(rows){
 }
 
 const exportError=(code,message,details={})=>Object.assign(new Error(message),{code,...details});
+const sha256=async blob=>{const bytes=blob instanceof Uint8Array?blob:new Uint8Array(await blob.arrayBuffer()),hash=await crypto.subtle.digest('SHA-256',bytes);return [...new Uint8Array(hash)].map(byte=>byte.toString(16).padStart(2,'0')).join('');};
+const jsonFile=(name,value)=>({name,blob:new Blob([JSON.stringify(value,null,2)],{type:'application/json;charset=utf-8'})});
+const durable=value=>JSON.parse(JSON.stringify(value,(key,current)=>key==='_layer'||typeof current==='function'||typeof current==='symbol'?undefined:current));
 async function verifiedPhotoArchive(files,{storedMediaCount,dayNumber=null}={}){
   if(!files.length)throw exportError(storedMediaCount?'PHOTO_EXPORT_DAY_EMPTY':'PHOTO_EXPORT_NO_MEDIA',storedMediaCount?`Photo export failed. ${storedMediaCount} stored media files were found, but none matched Day ${dayNumber}.`:'Photo export stopped: no stored media files were found.',{storedMediaCount,dayNumber});
   const empty=files.filter(file=>!file.blob||file.size<1);if(empty.length)throw exportError('PHOTO_EXPORT_EMPTY_ENTRY',`Photo export failed. ${empty.length} media files contain no readable bytes.`,{mediaIds:empty.map(file=>file.mediaId)});
@@ -62,11 +65,22 @@ export function createPhotoExportService({repository}={}){
     checkpointPhotoFilename,
     async single(mediaId){const record=await repository.getMedia(mediaId);if(!record)throw new Error('Photo is unavailable.');return {blob:record.blob,filename:record.name};},
     async day(projectId,dayNumber,{journal=[]}={}){const all=archiveRows(await records(projectId),journal),rows=all.filter(item=>Number(item.metadata?.dayNumber)===Number(dayNumber)),files=photoZipFiles(rows),blob=await verifiedPhotoArchive(files,{storedMediaCount:all.length,dayNumber});return {blob,filename:`Day${String(dayNumber).padStart(2,'0')}_Photos.zip`,manifest:{dayNumber:Number(dayNumber),entryCount:files.length,totalBytes:files.reduce((sum,file)=>sum+file.size,0),entries:files.map(({name,mediaId,size})=>({name,mediaId,size}))}};},
-    async dayBackup(projectId,dayNumber,{journal=[],project=null}={}){
-      const rows=archiveRows(await records(projectId),journal).filter(item=>Number(item.metadata?.dayNumber)===Number(dayNumber)),json=(name,value)=>({name,blob:new Blob([JSON.stringify(value,null,2)],{type:'application/json;charset=utf-8'})});
-      const mediaIndex=rows.map(({blob,...record})=>record),manifest={format:'cannonmap-day-backup',version:1,projectId:String(projectId),projectName:project?.name||null,dayNumber:Number(dayNumber),createdAt:new Date().toISOString(),mediaCount:rows.length,originalCount:rows.filter(item=>item.role==='original').length,evidenceCount:rows.filter(item=>item.role==='evidence').length};
-      const files=[...rows.map(item=>({name:`media/${item.name}`,blob:item.blob})),json('Daily_Journal.json',journal),json('day-manifest.json',manifest),json('media-index.json',mediaIndex),json('project-metadata.json',{projectId,projectName:project?.name||null,features:(project?.features||[]).filter(item=>Number(item.day)===Number(dayNumber)).map(({geometry,...feature})=>feature)})];
-      return {blob:await createStoredZip(files),filename:`Day${String(dayNumber).padStart(2,'0')}_Backup.cmapday`,manifest};
+    async dayBackup(projectId,dayNumber,{journal=[],project=null,settings={},applicationVersion=null,buildId=null}={}){
+      const day=Number(dayNumber),all=archiveRows(await records(projectId),journal),rows=all.filter(item=>Number(item.metadata?.dayNumber)===day);
+      if(!project?.projectId||String(project.projectId)!==String(projectId))throw exportError('DAY_BACKUP_PROJECT_INVALID','Day backup failed because the active Project identity could not be verified.');
+      if(!rows.length&&all.length)throw exportError('DAY_BACKUP_MEDIA_MISMATCH',`Day backup failed verification. ${all.length} stored media files exist, but none matched Day ${day}.`);
+      if(rows.some(row=>!row.blob||Number(row.blob.size)<1))throw exportError('DAY_BACKUP_MEDIA_EMPTY','Day backup failed verification because stored media contain no readable bytes.');
+      const used=new Map(),mediaFiles=[],mediaIndex=[];
+      for(const row of rows){const category=photoArchiveCategory(row),base=`media/${category}/${row.name}`,count=used.get(base)||0;used.set(base,count+1);const archivePath=count?base.replace(/(?=\.[^.]+$)/,`_${String(count+1).padStart(2,'0')}`):base,checksum=await sha256(row.blob),{blob,...record}=row;mediaFiles.push({name:archivePath,blob});mediaIndex.push({...record,archivePath,checksum:{algorithm:'SHA-256',value:checksum}});}
+      const dayFeatures=durable((project.features||[]).filter(item=>Number(item.day)===day)),durableProject=durable({...project,features:dayFeatures}),createdAt=new Date().toISOString(),projectMetadata={projectId:String(projectId),projectName:project.name||null,executionId:project.executionId||project.rallyExecution?.executionId||null,finalizedMasterId:project.finalizedMasterId||project.sourceMasterId||null,dayNumber:day,project:durableProject,settings:durable(settings),createdAt};
+      const manifest={format:'cannonmap-day-backup',version:2,projectId:String(projectId),projectName:project.name||null,executionId:projectMetadata.executionId,finalizedMasterId:projectMetadata.finalizedMasterId,dayNumber:day,createdAt,applicationVersion,buildId,mediaCount:rows.length,originalCount:rows.filter(item=>item.role==='original').length,evidenceCount:rows.filter(item=>item.role==='evidence').length,journalEventCount:journal.length,checkpointStates:dayFeatures.map(feature=>({id:feature.id,type:feature.type,status:feature.status,order:feature.checkpointOrder??feature.importOrder??null,points:feature.points??null,pairId:feature.photoPairId||feature.pendingPhotoPair?.pairId||null})),dayState:project.rallyExecution?.days?.[day]||settings.rallyDays?.[day]||null};
+      const files=[...mediaFiles,jsonFile('manifest/day-manifest.json',manifest),jsonFile('manifest/project-metadata.json',projectMetadata),jsonFile('manifest/media-index.json',mediaIndex),jsonFile('journal/Daily_Journal.json',journal)];
+      const blob=await createStoredZip(files),reopened=await readStoredZipBinary(blob),required=['manifest/day-manifest.json','manifest/project-metadata.json','manifest/media-index.json','journal/Daily_Journal.json'];
+      for(const name of required)if(!reopened.has(name))throw exportError('DAY_BACKUP_REQUIRED_FILE_MISSING',`Day backup failed verification: ${name} is missing.`);
+      for(const name of required)try{JSON.parse(new TextDecoder().decode(reopened.get(name)));}catch{throw exportError('DAY_BACKUP_JSON_INVALID',`Day backup failed verification: ${name} is invalid.`);}
+      if(reopened.size!==files.length)throw exportError('DAY_BACKUP_ENTRY_MISMATCH',`Day backup failed verification. Expected ${files.length} entries but reopened ${reopened.size}.`);
+      for(const item of mediaIndex){const bytes=reopened.get(item.archivePath);if(!bytes?.byteLength||await sha256(bytes)!==item.checksum.value)throw exportError('DAY_BACKUP_CHECKSUM_INVALID',`Day backup failed verification for ${item.archivePath}.`);}
+      return {blob,filename:`Day${String(day).padStart(2,'0')}_Backup.cmapday.zip`,manifest,verified:true,entryCount:files.length};
     },
     async projectBackup(projectId,{journal=[],project=null,settings={}}={}){
       const rows=await records(projectId),json=(name,value)=>({name,blob:new Blob([JSON.stringify(value,null,2)],{type:'application/json;charset=utf-8'})}),manifest={format:'cannonmap-project-media-backup',version:1,projectId:String(projectId),projectName:project?.name||null,createdAt:new Date().toISOString(),mediaCount:rows.length,originalCount:rows.filter(item=>item.role==='original').length,evidenceCount:rows.filter(item=>item.role==='evidence').length};
@@ -76,4 +90,4 @@ export function createPhotoExportService({repository}={}){
     async rally(projectId,{journal=[]}={}){const rows=archiveRows(await records(projectId),journal),files=photoZipFiles(rows),blob=await verifiedPhotoArchive(files,{storedMediaCount:rows.length});return {blob,filename:'Entire_Rally_Photos.zip',manifest:{entryCount:files.length,totalBytes:files.reduce((sum,file)=>sum+file.size,0),entries:files.map(({name,mediaId,size})=>({name,mediaId,size}))}};}
   });
 }
-import {inspectStoredZip} from './portable-zip.js';
+import {inspectStoredZip,readStoredZipBinary} from './portable-zip.js';

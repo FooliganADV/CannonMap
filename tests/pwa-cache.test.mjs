@@ -73,7 +73,7 @@ test('service-worker shell contains the complete local startup module graph',asy
 test('Mission Control cache identifier advances without deleting IndexedDB data',async()=>{
   const {cache,source}=await cacheManifest();
   assert.notEqual(cache,'cannonmap-v0.7.1-20260726-06');
-  assert.equal(cache,'cannonmap-v0.7.3-20260808-field-export-recovery-1');
+  assert.equal(cache,'cannonmap-v0.7.4-20260808-day-backup-recovery-1');
   assert.doesNotMatch(source,/indexedDB\.deleteDatabase|deleteDatabase\s*\(/);
   assert.doesNotMatch(source,/localStorage\.clear|caches\.delete\([^)]*CannonMapDB/);
 });

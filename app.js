@@ -27,6 +27,7 @@ import {resolveRallyExportDay,journalEventsForDay} from './src/application/day-e
 import {createMissionStorageService} from './src/application/mission-storage-service.js';
 import {createJourneyMediaService} from './src/application/journey-media-service.js';
 import {createJourneyPackageRestoreService} from './src/application/journey-package-restore.js';
+import {discoverJourneyProjects,journeyProjectManifest} from './src/application/journey-archive-context.js';
 import {captureArrivalEvidence} from './src/application/arrival-evidence.js';
 import {createWeatherMaintenance} from './src/application/weather-maintenance.js';
 import {createFinalizedProjectService} from './src/application/finalized-project-service.js';
@@ -40,8 +41,8 @@ import {
 import {createFirebaseAuthentication} from './src/infrastructure/firebase/authentication.js';
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
-const APP_VERSION = '0.7.3';
-const BUILD_ID = '2026.08.08.field-export-recovery-1';
+const APP_VERSION = '0.7.4';
+const BUILD_ID = '2026.08.08.day-backup-recovery-1';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
@@ -1137,9 +1138,9 @@ async function exportPhotoArchive(scope){
   }catch(error){rallyDebug.record('photo_export_failed',{scope,day,errorCode:error?.code||'PHOTO_EXPORT_FAILED',error:error?.message||String(error)});setStatus(error?.message||'Photo export failed.',true);}
 }
 async function exportEntireJourney(){
-  const projects=await projectLifecycle.listProjects(),manifest={format:'cannonmap-journey-archive-set',version:1,createdAt:new Date().toISOString(),projects:[]};
+  const createdAt=new Date().toISOString(),projects=discoverJourneyProjects(await projectLifecycle.listProjects(),state.project),manifest={format:'cannonmap-journey-archive-set',version:2,createdAt,projects:[]};
   for(const project of projects){
-    const count=(await missionMedia.listProjectPhotos(project.projectId)).filter(item=>item.role==='original').length,filename=`${safeFilename(project.name)}_Backup.cmapproject`;manifest.projects.push({projectId:project.projectId,projectName:project.name,lifecycleStatus:project.lifecycleStatus,filename,originalPhotoCount:count});
+    const media=await missionMedia.listProjectPhotos(project.projectId);manifest.projects.push(journeyProjectManifest(project,media,createdAt));
   }
   downloadBlob(JSON.stringify(manifest,null,2),'CannonMap_Entire_Journey_Manifest.json','application/json');
   for(const project of projects){try{const journal=(await rallyJournal.getProjectJournal(project.projectId)).events,file=await photoExports.projectBackup(project.projectId,{journal,project,settings:project.projectId===state.project.projectId?state.settings:{}});downloadStoredBlob(file.blob,file.filename);}catch(error){setStatus(`Journey export stopped safely at ${project.name}: ${error.message}`,true);return;}}
@@ -1160,9 +1161,18 @@ async function exportDayJournal(){
   downloadBlob(JSON.stringify(events,null,2),`Day${String(day).padStart(2,'0')}_Journal.json`,'application/json;charset=utf-8');await markDayBackupProgress(day,'journal');setStatus(`Exported ${events.length} Journal events for Day ${day}.`);
 }
 async function exportDayBackupPackage(){
-  const day=resolveRallyExportDay({settings:state.settings,project:state.project}),events=journalEventsForDay(await missionControlJournalEvents(),day);if(!day)return setStatus('Day backup stopped: CannonMap could not identify the rally day.',true);const file=await photoExports.dayBackup(state.project.projectId,day,{journal:events,project:state.project});downloadStoredBlob(file.blob,file.filename);
-  const timestamp=new Date().toISOString();state.settings.mediaBackups||={};state.settings.mediaBackups[day]={completedAt:timestamp,filename:file.filename};
-  await appendRallyJournalEvent('day_backup_exported',null,{eventIdentity:`day-backup:${day}:${timestamp}`,dayNumber:day,title:`Day ${day} Backup Exported`,summary:file.filename,mediaCount:file.manifest.mediaCount},timestamp);await markDayBackupProgress(day,'package');
+  const projectId=state.project?.projectId;let day=null;
+  const log=(event,details={})=>rallyDebug.record(event,{projectId,day,...details});log('backup_started');
+  try{
+    if(!projectId)throw new Error('No active Project is available for backup.');log('backup_project_resolved',{projectName:state.project.name,executionId:state.project.executionId||state.project.rallyExecution?.executionId||null});
+    day=resolveRallyExportDay({settings:state.settings,project:state.project});if(!day)throw new Error('CannonMap could not identify the rally day.');log('backup_day_resolved');
+    const events=journalEventsForDay(await missionControlJournalEvents(),day);log('backup_journal_loaded',{journalEventCount:events.length});
+    const storedMedia=await missionMedia.listProjectPhotos(projectId),dayMedia=storedMedia.filter(item=>Number(item.metadata?.dayNumber)===Number(day));log('backup_media_loaded',{storedMediaCount:storedMedia.length,dayMediaCount:dayMedia.length});
+    const file=await photoExports.dayBackup(projectId,day,{journal:events,project:state.project,settings:state.settings,applicationVersion:APP_VERSION,buildId:BUILD_ID});log('backup_manifest_created',{mediaCount:file.manifest.mediaCount,journalEventCount:file.manifest.journalEventCount});log('backup_zip_created',{entryCount:file.entryCount,archiveBytes:file.blob.size});
+    if(!file.verified)throw new Error('The generated day package was not verified.');log('backup_verified',{mediaCount:file.manifest.mediaCount});downloadStoredBlob(file.blob,file.filename);log('backup_download_requested',{filename:file.filename});
+    const timestamp=new Date().toISOString();state.settings.mediaBackups||={};state.settings.mediaBackups[day]={completedAt:timestamp,filename:file.filename,mediaCount:file.manifest.mediaCount};
+    await appendRallyJournalEvent('day_backup_exported',null,{eventIdentity:`day-backup:${day}:${timestamp}`,dayNumber:day,title:`Day ${day} Backup Exported`,summary:file.filename,mediaCount:file.manifest.mediaCount},timestamp);await markDayBackupProgress(day,'package');log('backup_completed',{filename:file.filename});setStatus(`Verified Day ${day} backup with ${file.manifest.mediaCount} media files and ${file.manifest.journalEventCount} Journal events.`);
+  }catch(error){log('backup_failed',{errorCode:error?.code||'DAY_BACKUP_FAILED',error:error?.message||String(error)});setStatus(`Day backup failed verification. Your ride data is still stored on this device. ${error?.message||''}`.trim(),true);}
 }
 function requestJourneyPhoto(camera){
   const speed=Number(state.lastGpsPosition?.speedMph);if(Number.isFinite(speed)&&speed>1)return setStatus('Journey photos are available only while stationary.',true);
@@ -1865,6 +1875,19 @@ async function beginPhotoWorkflow(checkpoint,automatic){
   const pairState=checkpoint.pendingPhotoPair||{};const workflow=checkpointCamera?.start({projectId:state.project.projectId,checkpoint,journalEvent:arrival,required:Boolean(checkpoint.photoRequired),evidenceContext:photoEvidenceContext(checkpoint,arrival),pairId:pairState.pairId,pairJournalEventId:pairState.pairJournalEventId});
   checkpoint.pendingPhotoPair={pairId:workflow.pairId,pairJournalEventId:workflow.pairJournalEventId,status:'pending'};await saveProject(false);
 }
+async function restoreDayBackupPackage(file){
+  if(!file)return;try{
+    const inspected=await journeyRestore.inspectDay(file),summary=`${inspected.manifest.projectName||'CannonMap'} · Day ${inspected.manifest.dayNumber}\n${inspected.manifest.journalEventCount} Journal events\n${inspected.manifest.mediaCount} media files`;
+    if(!confirm(`Verified day backup:\n\n${summary}\n\nRestore this package?`))return setStatus('Day backup restore canceled.');
+    const projects=await projectLifecycle.listProjects(),exists=projects.some(project=>String(project.projectId)===String(inspected.manifest.projectId));let mode='cancel';
+    if(exists){const choice=String(prompt('This Project already exists. Type REPLACE to replace only this day, COPY to restore a separate recovery copy, or CANCEL.','CANCEL')||'CANCEL').trim().toUpperCase();if(choice==='REPLACE')mode='replace';else if(choice==='COPY')mode='recovery-copy';else return setStatus('Day backup restore canceled.');}
+    const payload=await journeyRestore.restoreDay(file,{mode}),projectId=payload.manifest.projectId;localStorage.setItem(`${SETTINGS_KEY}.${projectId}`,JSON.stringify(preserveExplicitRallyFeedSettings(payload.projectMetadata.settings||{})));
+    const restored=(await projectLifecycle.listProjects()).find(project=>String(project.projectId)===String(projectId));if(!restored)throw new Error('Restored Project could not be reopened.');
+    if(activeLifecycleProjectId===projectId){state.project=sanitizeProjectData(restored,'day backup replacement');await projectLifecycle.saveActiveProject(state.project);state.settings=Object.assign({},defaultProjectSettings||state.settings,preserveExplicitRallyFeedSettings(payload.projectMetadata.settings||{}));renderAll();}
+    else await switchProject(projectId);
+    setStatus(`Restored ${payload.manifest.projectName} Day ${payload.manifest.dayNumber}: ${payload.manifest.mediaCount} media files and ${payload.manifest.journalEventCount} Journal events.`);
+  }catch(error){setStatus(`Day backup restore failed without partial changes: ${error.message}`,true);}
+}
 async function finalizePendingPhotoCheckpoint(){
   const checkpoint=state.project.features.find(feature=>feature.id===pendingPhotoCheckpointId);if(!checkpoint)return;
   const result=checkpointCamera?.finish();if(!result)return;checkpoint.photoPair={pairId:result.pairId,journalEventId:result.journalPairEvent?.eventId,status:'complete',frontOriginalMediaId:result.sides.front.original.mediaId,frontEvidenceMediaId:result.sides.front.evidence.mediaId,rearOriginalMediaId:result.sides.rear.original.mediaId,rearEvidenceMediaId:result.sides.rear.evidence.mediaId};delete checkpoint.pendingPhotoPair;pendingPhotoCheckpointId=null;await completeCurrentCheckpoint(true,{photoRecorded:true,checkpoint});
@@ -2014,6 +2037,7 @@ function wireUi() {
   $('rallyProjectDelete')?.addEventListener('click',deleteActiveProject);
   $('rallyProjectExport')?.addEventListener('click',async()=>{const selected=$('rallyProjectSelect')?.value,project=(await projectLifecycle.listProjects()).find(item=>item.projectId===selected);if(!project)return;const journal=(await rallyJournal.getProjectJournal(project.projectId)).events,file=await photoExports.projectBackup(project.projectId,{journal,project,settings:project.projectId===state.project.projectId?state.settings:{}});downloadStoredBlob(file.blob,file.filename);if(project.projectId===state.project.projectId){state.settings.lastMediaExportAt=new Date().toISOString();await saveProject(false);}});
   $('rallyProjectRestore')?.addEventListener('change',event=>{const file=event.target.files?.[0];event.target.value='';restoreProjectPackage(file);});
+  $('rallyDayRestore')?.addEventListener('change',event=>{const file=event.target.files?.[0];event.target.value='';restoreDayBackupPackage(file);});
   $('finalizeProjectButton')?.addEventListener('click',finalizeProjectPlan);
   $('exportFinalizedProjectButton')?.addEventListener('click',exportFinalizedProject);
   $('finalizedProjectInput')?.addEventListener('change',event=>{const file=event.target.files?.[0];event.target.value='';importFinalizedProject(file);});

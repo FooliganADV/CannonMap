@@ -17,6 +17,17 @@ export async function readStoredZip(input){
 
 export const jsonZipFile=(name,value)=>({name,blob:new Blob([typeof value==='string'?value:JSON.stringify(value)],{type:'application/json;charset=utf-8'})});
 
+/** Reopens CannonMap's stored ZIP while preserving binary entry bytes. */
+export async function readStoredZipBinary(input){
+  const bytes=new Uint8Array(input instanceof ArrayBuffer?input:await input.arrayBuffer()),files=new Map();let offset=0;
+  while(offset+30<=bytes.length&&u32(bytes,offset)===0x04034b50){
+    const method=u16(bytes,offset+8),size=u32(bytes,offset+18),nameLength=u16(bytes,offset+26),extraLength=u16(bytes,offset+28),nameStart=offset+30,dataStart=nameStart+nameLength+extraLength,dataEnd=dataStart+size;
+    if(method!==0)throw new Error('Backup contains an unsupported compression method.');if(dataEnd>bytes.length)throw new Error('Backup archive is truncated.');
+    const name=decoder.decode(bytes.slice(nameStart,nameStart+nameLength));if(files.has(name))throw new Error(`Duplicate ZIP entry: ${name}`);files.set(name,bytes.slice(dataStart,dataEnd));offset=dataEnd;
+  }
+  await inspectStoredZip(input);if(!files.size)throw new Error('Backup archive contains no readable files.');return files;
+}
+
 /** Inspect CannonMap's stored ZIP without decoding binary photo payloads. */
 export async function inspectStoredZip(input){
   const bytes=new Uint8Array(input instanceof ArrayBuffer?input:await input.arrayBuffer()),entries=[];let offset=0;

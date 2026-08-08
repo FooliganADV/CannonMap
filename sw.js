@@ -1,12 +1,12 @@
-const CACHE = 'cannonmap-v0.7.3-20260808-field-export-recovery-1';
+const CACHE = 'cannonmap-v0.7.4-20260808-day-backup-recovery-1';
 const RADAR_CACHE='cannonmap-radar-v1',RADAR_CACHE_LIMIT=96;
 const APP_SHELL = [
   './',
   './index.html',
-  './app.css?v=20260808-field-export-recovery-1',
+  './app.css?v=20260808-day-backup-recovery-1',
   './gps-checkpoints-feed.js?v=20260725-02',
   './stationary-events.js?v=20260725-01',
-  './app.js?v=20260808-field-export-recovery-1',
+  './app.js?v=20260808-day-backup-recovery-1',
   './src/core/clock.js',
   './src/core/compatibility.js',
   './src/core/errors.js',
@@ -54,6 +54,7 @@ const APP_SHELL = [
   './src/application/mission-storage-service.js',
   './src/application/journey-media-service.js',
   './src/application/journey-package-restore.js',
+  './src/application/journey-archive-context.js',
   './src/application/arrival-evidence.js',
   './src/application/weather-maintenance.js',
   './src/application/finalized-project-service.js',
