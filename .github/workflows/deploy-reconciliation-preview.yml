@@ -48,11 +48,6 @@ jobs:
             exit 1
           fi
 
-      - name: Set up pnpm for Wrangler
-        uses: pnpm/action-setup@v6.0.9
-        with:
-          version: 10.15.1
-
       - name: Deploy repository root to cannonmap preview
         id: deploy
         uses: cloudflare/wrangler-action@v3
@@ -60,6 +55,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          packageManager: npm
           command: >-
             pages deploy .
             --project-name=cannonmap
