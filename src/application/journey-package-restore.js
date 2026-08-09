@@ -16,6 +16,10 @@ export function createJourneyPackageRestoreService({repository}={}){
   if(!repository)throw new TypeError('repository is required.');
   return Object.freeze({
     async inspectDay(file){return readStoredDayPackage(file);},
+    async verifyExistingDay(file){
+      const payload=await readStoredDayPackage(file),dayNumber=Number(payload.manifest.dayNumber),restored=await repository.readDay(payload.manifest.projectId,dayNumber),verification=await verifyRestoredDayPayload(payload,restored);
+      return Object.freeze({...payload,verification,existingVerified:true});
+    },
     async restoreDay(file,{mode='cancel',recoveryProjectId=null,onProgress=()=>{}}={}){
       let payload=await readStoredDayPackage(file);
       if(mode==='recovery-copy'){

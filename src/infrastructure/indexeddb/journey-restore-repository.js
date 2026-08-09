@@ -16,7 +16,7 @@ export function createJourneyRestoreRepository({database}={}){
           const priorJournal=await requestResult(journals.index('projectId').getAll(projectId));for(const event of priorJournal)if(Number(event.metadata?.dayNumber||event.references?.dayNumber)===dayNumber)journals.delete(event.eventId);
           const priorMedia=await requestResult(assets.index('projectId').getAll(projectId));for(const record of priorMedia)if(Number(record.metadata?.dayNumber)===dayNumber)assets.delete(record.mediaId);
           const restoredDayFeatures=projectMetadata.dayFeatures||(incoming.features||[]).filter(feature=>Number(feature.day)===dayNumber),features=[...(existing.features||[]).filter(feature=>Number(feature.day)!==dayNumber),...restoredDayFeatures],days={...(existing.rallyExecution?.days||{}),[dayNumber]:incoming.rallyExecution?.days?.[dayNumber]||manifest.dayState};projects.put({...existing,projectId,id:projectId,features,rallyExecution:{...(existing.rallyExecution||{}),days}});
-        }else projects.add({...incoming,projectId,id:projectId});
+        }else projects.add({...incoming,projectId,id:projectId,lifecycleStatus:incoming.lifecycleStatus||'active',updatedAt:incoming.updatedAt||new Date().toISOString()});
         for(const event of journal)journals.add(structuredClone(event));for(const record of preparedMedia)assets.add(record);await done;
         return {projectId,dayNumber,mode,mediaCount:preparedMedia.length,journalEventCount:journal.length};
       }catch(error){try{transaction.abort();}catch(_){ }try{await done;}catch(_){ }throw error;}

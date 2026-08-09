@@ -390,7 +390,7 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
   .rally-status-strip span{min-width:0;background:#111827;border:1px solid #475569;border-radius:8px;padding:7px 5px;font-size:.64rem;text-align:center;overflow:hidden;text-overflow:ellipsis}
   .rally-more-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:8px}
   .rally-more-actions button{min-height:52px;border:1px solid #475569;border-radius:10px;background:#1f2937;color:#fff;font-weight:800}
-  .rally-more-actions .rally-photos-entry{grid-column:1/-1;position:sticky;top:0;z-index:2;border-color:#38bdf8;background:#075985}
+  .rally-more-actions .rally-photos-entry{grid-column:1/-1;position:static;z-index:auto;border-color:#38bdf8;background:#075985}
   .rally-more-actions button[hidden]{display:none}
   .rally-hotel-action{border:2px solid #fb7185!important;background:#881337!important}
   .rally-arrival-settings{margin-top:9px;border-top:1px solid #475569;padding-top:8px}
