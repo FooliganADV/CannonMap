@@ -1,5 +1,6 @@
 import {requestResult,transactionDone} from './request.js';
 import {prepareMissionMediaRecord} from './mission-media-repository.js';
+import {hydrateMissionMediaRecord} from './mission-media-repository.js';
 
 /** Atomic Project + Journal + full-resolution media restore. Active lifecycle state is intentionally untouched. */
 export function createJourneyRestoreRepository({database}={}){
@@ -14,11 +15,14 @@ export function createJourneyRestoreRepository({database}={}){
         if(existing){
           const priorJournal=await requestResult(journals.index('projectId').getAll(projectId));for(const event of priorJournal)if(Number(event.metadata?.dayNumber||event.references?.dayNumber)===dayNumber)journals.delete(event.eventId);
           const priorMedia=await requestResult(assets.index('projectId').getAll(projectId));for(const record of priorMedia)if(Number(record.metadata?.dayNumber)===dayNumber)assets.delete(record.mediaId);
-          const features=[...(existing.features||[]).filter(feature=>Number(feature.day)!==dayNumber),...(incoming.features||[])],days={...(existing.rallyExecution?.days||{}),...(incoming.rallyExecution?.days||{})};projects.put({...existing,...incoming,projectId,id:projectId,features,rallyExecution:{...(existing.rallyExecution||{}),...(incoming.rallyExecution||{}),days}});
+          const restoredDayFeatures=projectMetadata.dayFeatures||(incoming.features||[]).filter(feature=>Number(feature.day)===dayNumber),features=[...(existing.features||[]).filter(feature=>Number(feature.day)!==dayNumber),...restoredDayFeatures],days={...(existing.rallyExecution?.days||{}),[dayNumber]:incoming.rallyExecution?.days?.[dayNumber]||manifest.dayState};projects.put({...existing,projectId,id:projectId,features,rallyExecution:{...(existing.rallyExecution||{}),days}});
         }else projects.add({...incoming,projectId,id:projectId});
         for(const event of journal)journals.add(structuredClone(event));for(const record of preparedMedia)assets.add(record);await done;
         return {projectId,dayNumber,mode,mediaCount:preparedMedia.length,journalEventCount:journal.length};
       }catch(error){try{transaction.abort();}catch(_){ }try{await done;}catch(_){ }throw error;}
+    },
+    async readDay(projectId,dayNumber){
+      const id=String(projectId),day=Number(dayNumber),transaction=database.transaction(['projectRecords','journalEvents','missionMedia'],'readonly'),done=transactionDone(transaction),project=await requestResult(transaction.objectStore('projectRecords').get(id)),journal=(await requestResult(transaction.objectStore('journalEvents').index('projectId').getAll(id))).filter(event=>Number(event.metadata?.dayNumber||event.references?.dayNumber)===day),media=(await requestResult(transaction.objectStore('missionMedia').index('projectId').getAll(id))).filter(record=>Number(record.metadata?.dayNumber)===day).map(hydrateMissionMediaRecord);await done;return {project:project||null,journal,media};
     },
     async restoreNew({project,journal=[],media=[]}){
       const projectId=String(project?.projectId||'');if(!projectId)throw new TypeError('Project identity is required.');

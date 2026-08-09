@@ -75,6 +75,10 @@ dialog { width: min(480px, calc(100% - 24px)); border: 1px solid var(--border); 
 dialog::backdrop { background: rgba(0,0,0,.65); }
 .dialog-form h2 { margin-top: 0; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+#restoreResultDialog,#restoreJournalDialog { max-height: calc(100dvh - 24px); overflow: auto; }
+#restoreResultSummary dl { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 6px 16px; margin: 0; }
+#restoreResultSummary dt { color: var(--muted); } #restoreResultSummary dd { margin: 0; font-weight: 800; text-align: right; }
+#restoreResultDialog .dialog-actions { display: grid; grid-template-columns: 1fr; }
 .leaflet-container { font-family: inherit; }
 .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: #111827; color: white; }
 .leaflet-bar a { background: #111827; color: white; border-color: var(--border); }
