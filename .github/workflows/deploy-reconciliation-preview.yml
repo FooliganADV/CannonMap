@@ -1,0 +1,85 @@
+name: Deploy reconciliation preview
+
+on:
+  push:
+    branches:
+      - agent/mission-control-reconciliation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: cannonmap-reconciliation-preview
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy exact commit to Cloudflare Pages preview
+    runs-on: ubuntu-latest
+    environment:
+      name: cannonmap-reconciliation-preview
+      url: ${{ steps.deploy.outputs.pages-deployment-alias-url || steps.deploy.outputs.deployment-url }}
+
+    steps:
+      - name: Check out the triggering commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify deployment inputs
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "::error::Missing required repository secret CLOUDFLARE_API_TOKEN"
+            exit 1
+          fi
+          if [[ -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
+            echo "::error::Missing required repository secret CLOUDFLARE_ACCOUNT_ID"
+            exit 1
+          fi
+          if [[ "${GITHUB_REF_NAME}" != "agent/mission-control-reconciliation" ]]; then
+            echo "::error::This workflow may only deploy agent/mission-control-reconciliation"
+            exit 1
+          fi
+
+      - name: Deploy repository root to cannonmap preview
+        id: deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          command: >-
+            pages deploy .
+            --project-name=cannonmap
+            --branch=agent/mission-control-reconciliation
+            --commit-hash=${{ github.sha }}
+            --commit-dirty=false
+
+      - name: Publish deployment summary
+        if: ${{ always() }}
+        shell: bash
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-url }}
+          PREVIEW_ALIAS_URL: ${{ steps.deploy.outputs.pages-deployment-alias-url }}
+          DEPLOYMENT_STATUS: ${{ job.status }}
+        run: |
+          {
+            echo "## CannonMap reconciliation preview"
+            echo
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Commit | \`${GITHUB_SHA}\` |"
+            echo "| Project | \`cannonmap\` |"
+            echo "| Environment | \`preview\` |"
+            echo "| Branch | \`agent/mission-control-reconciliation\` |"
+            echo "| Status | \`${DEPLOYMENT_STATUS}\` |"
+            echo "| Deployment URL | ${DEPLOYMENT_URL:-Not returned} |"
+            echo "| Branch alias URL | ${PREVIEW_ALIAS_URL:-Not returned} |"
+          } >> "$GITHUB_STEP_SUMMARY"
