@@ -75,7 +75,10 @@ dialog { width: min(480px, calc(100% - 24px)); border: 1px solid var(--border); 
 dialog::backdrop { background: rgba(0,0,0,.65); }
 .dialog-form h2 { margin-top: 0; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
-#restoreResultDialog,#restoreJournalDialog { max-height: calc(100dvh - 24px); overflow: auto; }
+#restoreJournalDialog { max-height: calc(100dvh - 24px); overflow: auto; }
+.restore-result-overlay { position: fixed; inset: 0; z-index: 5000; display: grid; place-items: center; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); overflow: auto; background: rgba(0,0,0,.72); }
+.restore-result-overlay[hidden] { display: none; }
+.restore-result-overlay > .dialog-form { width: min(480px, 100%); max-height: calc(100dvh - 24px); overflow: auto; padding: 20px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); color: white; box-shadow: var(--shadow); }
 #restoreResultSummary dl { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 6px 16px; margin: 0; }
 #restoreResultSummary dt { color: var(--muted); } #restoreResultSummary dd { margin: 0; font-weight: 800; text-align: right; }
 #restoreResultDialog .dialog-actions { display: grid; grid-template-columns: 1fr; }

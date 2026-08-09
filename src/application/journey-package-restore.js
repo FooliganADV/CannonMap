@@ -16,14 +16,18 @@ export function createJourneyPackageRestoreService({repository}={}){
   if(!repository)throw new TypeError('repository is required.');
   return Object.freeze({
     async inspectDay(file){return readStoredDayPackage(file);},
-    async restoreDay(file,{mode='cancel',recoveryProjectId=null}={}){
+    async restoreDay(file,{mode='cancel',recoveryProjectId=null,onProgress=()=>{}}={}){
       let payload=await readStoredDayPackage(file);
       if(mode==='recovery-copy'){
         const originalProjectId=payload.manifest.projectId,projectId=String(recoveryProjectId||`${originalProjectId}-recovery-${Date.now()}`),projectName=`${payload.projectMetadata.projectName||'CannonMap'} Recovery Copy`,rewrite=value=>({...value,projectId});
         payload={...payload,recoveryCopy:true,originalProjectId,manifest:{...payload.manifest,projectId,projectName,recoveryCopy:true,originalProjectId},projectMetadata:{...payload.projectMetadata,projectId,projectName,recoveryCopy:true,originalProjectId,project:{...payload.projectMetadata.project,projectId,id:projectId,name:projectName,lifecycleStatus:'active'}},journal:payload.journal.map(rewrite),media:payload.media.map(rewrite)};
+        onProgress('restore_copy_identity_created',{recoveryProjectId:projectId,recoveryProjectName:projectName});
         mode='cancel';
       }
-      await repository.restoreDay(payload,{mode});const restored=await repository.readDay(payload.manifest.projectId,payload.manifest.dayNumber),verification=await verifyRestoredDayPayload(payload,restored);return Object.freeze({...payload,verification});
+      await repository.restoreDay(payload,{mode});
+      const dayNumber=Number(payload.manifest.dayNumber),objectiveCount=(payload.projectMetadata.dayFeatures||[]).length,pairCount=new Set(payload.media.map(item=>item.pairId).filter(Boolean)).size;
+      onProgress('restore_project_written',{projectId:payload.manifest.projectId});onProgress('restore_day_written',{dayNumber,objectiveCount});onProgress('restore_journal_written',{eventCount:payload.journal.length});onProgress('restore_media_written',{mediaCount:payload.media.length,pairCount});onProgress('restore_postwrite_verification_started',{projectId:payload.manifest.projectId,dayNumber});
+      const restored=await repository.readDay(payload.manifest.projectId,dayNumber),verification=await verifyRestoredDayPayload(payload,restored);onProgress('restore_postwrite_verification_passed',{projectId:verification.projectId,dayNumber,mediaCount:verification.mediaCount,journalCount:verification.journalEventCount,pairCount:verification.pairCount});return Object.freeze({...payload,verification});
     },
     async restore(file){const payload=await readStoredProjectPackage(file);await repository.restoreNew(payload);return payload;}
   });

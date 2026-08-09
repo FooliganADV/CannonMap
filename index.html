@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260808-restore-review-1" />
+  <link rel="stylesheet" href="app.css?v=20260808-restore-copy-activation-1" />
 </head>
 <body>
   <header class="topbar">
@@ -428,12 +428,12 @@
       <div class="dialog-actions"><button value="close" class="button secondary">Close</button><button id="createExecutionCopyButton" value="create" class="button primary">Create Active Execution Copy</button></div>
     </form>
   </dialog>
-  <dialog id="restoreResultDialog">
+  <section id="restoreResultDialog" class="restore-result-overlay" role="dialog" aria-modal="true" aria-labelledby="restoreResultTitle" hidden>
     <div class="dialog-form">
       <h2 id="restoreResultTitle">DAY RESTORED</h2><strong id="restoreResultCopy" hidden>RECOVERY COPY</strong><div id="restoreResultSummary" class="import-report"></div>
       <div class="dialog-actions"><button id="restoreViewDay" class="button primary" type="button">VIEW RESTORED DAY</button><button id="restoreViewPhotos" class="button primary" type="button">VIEW PHOTOS</button><button id="restoreViewJournal" class="button secondary" type="button">VIEW JOURNAL</button><button id="restoreSwitchProject" class="button secondary" type="button">SWITCH PROJECT</button><button id="restoreResultClose" class="button secondary" type="button">CLOSE</button></div>
     </div>
-  </dialog>
+  </section>
   <dialog id="restoreJournalDialog"><div class="dialog-form"><h2 id="restoreJournalTitle">Restored Journal</h2><pre id="restoreJournalContent"></pre><div class="dialog-actions"><button id="restoreJournalClose" class="button secondary" type="button">CLOSE</button></div></div></dialog>
 
   <dialog id="importDialog">
@@ -463,6 +463,6 @@
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260808-restore-review-1"></script>
+  <script type="module" src="app.js?v=20260808-restore-copy-activation-1"></script>
 </body>
 </html>
