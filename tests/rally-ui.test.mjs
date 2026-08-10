@@ -20,10 +20,11 @@ test('Rally presenter preserves score, checkpoint, fuel, and control state',()=>
     next:{id:'cp',name:'Extreme Checkpoint',notes:'Approach from the north.',extreme:true,points:21,status:'next'},distance:4.25,
     hotelLabel:'Hotel 12 mi',feedAge:'Feed Never',warnings:[{id:'construction',message:'Construction at the south entrance.'}],
     deferredCount:1,showDeferredPrompt:false,hasHotel:true,hotelBailoutActive:false,autoComplete:true,arrivalRadius:500,maxAccuracy:200,
-    navigationGuidance:"Turn LEFT in 200'",routeIntelligence:'Backbone Route Active',
+    navigationGuidance:"Turn LEFT in 200'",routeIntelligence:'Backbone Route Active',objectiveIntel:'4 riders near objective · 3 recent trails within 1 mi',
     checkpoints:[{id:'cp',name:'Extreme Checkpoint',extreme:true,status:'next'}]
   }});
   assert.equal(getElement('rallyScore').textContent,31);
+  assert.equal(getElement('rallyDay').textContent,'Day 1');
   assert.equal(getElement('rallyNavigationGuidance').textContent,"Turn LEFT in 200'");
   assert.equal(getElement('rallyNextDistance').textContent,'4.3 mi');
   assert.equal(getElement('rallyRiderNotes').textContent,'Approach from the north.');
@@ -33,6 +34,8 @@ test('Rally presenter preserves score, checkpoint, fuel, and control state',()=>
   assert.equal(getElement('rallyCompleteButton').disabled,false);
   assert.equal(getElement('rallyRiderNotesSection').hidden,false);
   assert.equal(getElement('rallyWarningsSection').hidden,false);
+  assert.match(getElement('rallyObjectiveStatus').textContent,/21 points · EXTREME/);
+  assert.equal(getElement('rallyObjectiveIntelSection').hidden,false);
 });
 
 test('Rally presenter hides empty objective sections and hotel defer control',()=>{
@@ -65,13 +68,15 @@ test('Rally controller owns control event wiring through injected actions',()=>{
     if(!elements.has(id))elements.set(id,fakeElement());
     return elements.get(id);
   };
-  let completed=0,deferred=0,onlineHandlers=0;
-  const actions=new Proxy({complete:()=>completed++,defer:()=>deferred++,render:()=>{}},{get:(target,key)=>target[key]||(()=>{})});
+  let completed=0,deferred=0,mission=0,journal=0,intel=0,onlineHandlers=0;
+  const actions=new Proxy({complete:()=>completed++,defer:()=>deferred++,showMission:()=>mission++,setJournalOpen:()=>journal++,setIntelOpen:()=>intel++,render:()=>{}},{get:(target,key)=>target[key]||(()=>{})});
   wireRallyController({getElement,actions,windowTarget:{addEventListener(){onlineHandlers++;}}});
   getElement('rallyCompleteButton').listeners.click();
   getElement('rallyDeferIcon').listeners.click();
   assert.equal(completed,1);
   assert.equal(deferred,1);
+  getElement('rallyMissionButton').listeners.click();getElement('rallyTrailIntelButton').listeners.click();getElement('rallyJournalButton').listeners.click();
+  assert.deepEqual({mission,journal,intel},{mission:1,journal:1,intel:1});
   assert.equal(typeof getElement('checkpointOrderList').listeners.click,'function');
   assert.equal(onlineHandlers,2);
 });

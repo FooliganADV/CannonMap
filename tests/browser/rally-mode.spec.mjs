@@ -78,7 +78,7 @@ test('hotel completion persists Day Complete and requires explicit next-day star
   await completeWithEvidence(page,'checkpoint-one.jpg');
   await completeWithEvidence(page,'checkpoint-two.jpg');
   await completeWithEvidence(page,'hotel.jpg');
-  await expect(page.locator('#rallyDay')).toHaveCount(0);
+  await expect(page.locator('#rallyDay')).toHaveText('Day 1');
   await expect(page.locator('#rallyDayComplete')).toBeVisible();
   await expect(page.locator('#rallyStartNextDay')).toHaveText('Start Day 2');
   await page.waitForFunction(async()=>{
@@ -110,6 +110,28 @@ test('automatic checkpoint arrival waits for CAPTURE PAIR and attaches four medi
   });
 });
 
+test('mission navigation, Journal, Trail Intel, More grouping, Planner transition, and identity remain phone-safe',async({page},testInfo)=>{
+  test.skip(testInfo.project.name==='desktop');
+  await loadProject(page);
+  await expect(page.locator('.rally-actions')).toContainText('MISSION');
+  await expect(page.locator('.rally-actions')).toContainText('TRAIL INTEL');
+  await expect(page.locator('.rally-actions')).toContainText('JOURNAL');
+  await expect(page.locator('.rally-actions')).not.toContainText('Project');
+  await page.locator('#rallyTrailIntelButton').click();await expect(page.locator('#intelSheet')).toBeVisible();await expect(page.locator('#mobileObjectiveIntel')).toBeVisible();
+  await page.locator('#rallyJournalButton').click();await expect(page.locator('#rallyJournalSheet')).toBeVisible();await expect(page.locator('#rallyJournalTimeline')).toBeVisible();
+  await page.locator('#rallyMoreButton').click();await expect(page.locator('#rallyMoreSheet')).toBeVisible();
+  for(const heading of ['Documentation','Storage & Recovery','Settings','Project / Planner','Diagnostics'])await expect(page.locator('#rallyMoreSheet')).toContainText(heading);
+  const photos=page.locator('#rallyPhotoViewerButton'),storage=page.locator('.rally-storage-diagnostics').first();
+  for(const viewport of [{width:390,height:844},{width:844,height:390}]){
+    await page.setViewportSize(viewport);const a=await photos.boundingBox(),b=await storage.boundingBox();expect(a).not.toBeNull();expect(b).not.toBeNull();
+    const overlap=a.x<b.x+b.width&&a.x+a.width>b.x&&a.y<b.y+b.height&&a.y+a.height>b.y;expect(overlap).toBeFalsy();
+  }
+  await page.setViewportSize({width:390,height:844});await storage.locator('summary').click();
+  page.once('dialog',dialog=>dialog.accept('Field Identity'));
+  await page.locator('#rallyProjectRename').click();await expect(page.locator('#rallyActiveProjectName')).toHaveText('Field Identity');
+  await page.locator('#rallyPlannerButton').click();await expect(page.locator('#sidebar')).toHaveClass(/open/);await expect(page.locator('.tabs')).toContainText('Project');
+});
+
 test('mobile Rally Mode controls do not overlap and meet 48px targets',async({page},testInfo)=>{
   test.skip(testInfo.project.name==='desktop');
   await page.goto('/?e2e=layout');
@@ -123,7 +145,7 @@ test('mobile Rally Mode controls do not overlap and meet 48px targets',async({pa
   const card=page.locator('#rallyPrimaryCard, .rally-primary-card').first();
   await expect(card.locator('#rallyRiderNotesSection')).toBeHidden();
   await expect(card.locator('#rallyRouteIntelligenceSection')).toBeHidden();
-  await expect(card.locator('#rallyWarningsSection')).toBeHidden();
+  await expect(card.locator('#rallyWarningsSection')).toContainText('GPS REQUIRED');
   const cardBox=await card.evaluate(element=>{const r=element.getBoundingClientRect();return {top:r.top,bottom:r.bottom};});
   expect(cardBox.top).toBeGreaterThanOrEqual(0);expect(cardBox.bottom).toBeLessThan(viewport.height-72);
   await page.evaluate(()=>document.getElementById('intelSheet').classList.add('open'));

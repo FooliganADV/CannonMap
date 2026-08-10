@@ -20,6 +20,12 @@ export function wireRallyController({getElement,actions,windowTarget=window}){
     }
   });
   on('rallyMoreButton','click',actions.toggleMore);
+  on('rallyMissionButton','click',actions.showMission);
+  on('rallyTrailIntelButton','click',()=>actions.setIntelOpen(true));
+  on('rallyJournalButton','click',()=>actions.setJournalOpen(true));
+  on('rallyJournalClose','click',()=>actions.setJournalOpen(false));
+  on('rallyMoreJournalButton','click',()=>actions.setJournalOpen(true));
+  on('rallyJournalObservation','click',actions.addObservation);
   on('rallyPlannerButton','click',actions.openPlanner);
   on('goHotelButton','click',actions.toggleHotelBailout);
   on('rallyCompleteButton','click',actions.complete);

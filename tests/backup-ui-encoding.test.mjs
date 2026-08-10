@@ -8,14 +8,14 @@ test('completion and backup assets are valid UTF-8 without mojibake',async()=>{
   const contents=await Promise.all(textFiles.map(file=>readFile(new URL(`../${file}`,import.meta.url),'utf8')));
   const html=contents[0];
   assert.match(html,/<meta charset="utf-8"/i);
-  assert.match(html,/Back Up Today’s Photos/);
+  assert.match(html,/Back Up Day/);
   assert.match(html,/Calculating storage…/);
   for(let index=0;index<contents.length;index++)assert.doesNotMatch(contents[index],/â|Ã|Â|�/,`${textFiles[index]} contains mojibake`);
 });
 
 test('service worker caches the current UTF-8 backup-interface assets',async()=>{
   const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-  assert.match(sw,/20260809-day-archive-recovery-1/);
-  assert.match(sw,/app\.css\?v=20260809-day-archive-recovery-1/);
-  assert.match(sw,/app\.js\?v=20260809-day-archive-recovery-1/);
+  assert.match(sw,/20260809-mission-alignment-1/);
+  assert.match(sw,/app\.css\?v=20260809-mission-alignment-1/);
+  assert.match(sw,/app\.js\?v=20260809-mission-alignment-1/);
 });

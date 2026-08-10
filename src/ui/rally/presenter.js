@@ -18,6 +18,7 @@ export function renderRally({getElement,model,escapeHtml}){
   const set=(id,value)=>{const el=getElement(id);if(el)el.textContent=value;};
   const kind=checkpointKind(model.next);
   set('rallyActiveProjectName',model.projectName||'');
+  set('rallyDay',`Day ${model.day||'—'}`);
   set('rallyOnlineStatus',model.online?'Online':'Offline');
   set('rallyGpsAccuracy',model.gpsAccuracy||'GPS off');
   set('rallyElevation',model.elevation||'Elev —');
@@ -25,12 +26,14 @@ export function renderRally({getElement,model,escapeHtml}){
   set('rallyNextName',model.next?.name||model.emptyLabel||'Preparing next objective…');
   set('rallyNavigationGuidance',model.navigationGuidance||'Preparing navigation…');
   set('rallyNextDistance',model.distance===null?'':`${model.distance.toFixed(1)} mi`);
-  set('rallyObjectiveStatus',model.next?`${text(model.next.type||'checkpoint')} · ${text(model.next.status||'upcoming')}`:'');
-  const notes=text(model.next?.notes),intelligence=text(model.routeIntelligence);
+  set('rallyObjectiveStatus',model.next?`${text(model.next.type||'checkpoint')} · ${Number(model.next.points)||0} points${model.next.extreme?' · EXTREME':''} · ${text(model.next.status||'upcoming')}`:'');
+  const notes=text(model.next?.notes),intelligence=text(model.routeIntelligence),objectiveIntel=text(model.objectiveIntel);
   set('rallyRiderNotes',notes);
   set('rallyRouteIntelligence',intelligence);
   const notesSection=getElement('rallyRiderNotesSection');if(notesSection)notesSection.hidden=!notes;
   const intelligenceSection=getElement('rallyRouteIntelligenceSection');if(intelligenceSection)intelligenceSection.hidden=!intelligence;
+  set('rallyObjectiveIntel',objectiveIntel);
+  const objectiveIntelSection=getElement('rallyObjectiveIntelSection');if(objectiveIntelSection)objectiveIntelSection.hidden=!objectiveIntel;
   const warnings=(model.warnings||[]).filter(item=>item?.message),warningList=getElement('rallyWarnings');
   if(warningList)warningList.innerHTML=warnings.map(item=>`<li data-warning-id="${escapeHtml(item.id)}"><span>${escapeHtml(item.message)}</span><div><button type="button" data-warning-action="dismiss">Dismiss</button><button type="button" data-warning-action="10">10m</button><button type="button" data-warning-action="30">30m</button><button type="button" data-warning-action="checkpoint">Next CP</button></div></li>`).join('');
   const warningsSection=getElement('rallyWarningsSection');if(warningsSection)warningsSection.hidden=!warnings.length;
@@ -73,7 +76,7 @@ export function renderRally({getElement,model,escapeHtml}){
   }
   const nextButton=getElement('rallyNextButton');
   if(nextButton)nextButton.hidden=Boolean(model.dayComplete||model.next)||!model.hasPlanned||model.showDeferredPrompt;
-  if(complete)complete.hidden=Boolean(model.dayComplete);
+  if(complete)complete.hidden=Boolean(model.dayComplete||!model.next);
   if(getElement('autoCompleteCheckpoints'))getElement('autoCompleteCheckpoints').checked=model.autoComplete;
   if(getElement('checkpointArrivalRadius'))getElement('checkpointArrivalRadius').value=model.arrivalRadius;
   if(getElement('checkpointMaxAccuracy'))getElement('checkpointMaxAccuracy').value=model.maxAccuracy;

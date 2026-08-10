@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260809-day-archive-recovery-1" />
+  <link rel="stylesheet" href="app.css?v=20260809-mission-alignment-1" />
 </head>
 <body>
   <header class="topbar">
@@ -258,8 +258,8 @@
       <div id="map"></div>
       <section id="rallyMode" class="rally-mode" aria-label="Rally Mode">
         <header class="rally-head">
-          <div class="rally-head-day"><strong id="rallyActiveProjectName"></strong><small><span id="rallyOnlineStatus">Checking</span><span id="rallyGpsAccuracy">GPS off</span><span id="rallyElevation">Elev —</span></small></div>
-          <div class="rally-score-slot" aria-hidden="true"><span>Score</span><strong id="rallyScore">0</strong></div>
+          <div class="rally-head-day"><strong id="rallyActiveProjectName"></strong><small><span id="rallyDay">Day —</span><span id="rallyGpsAccuracy">GPS OFF</span><span id="rallyOnlineStatus">Checking</span><span id="rallyElevation" class="rally-recorded-metadata">Elev —</span></small></div>
+          <div class="rally-score-slot"><span>Score</span><strong id="rallyScore">0</strong></div>
         </header>
         <div id="rallyPrimaryCard" class="rally-primary-card is-none">
           <div class="rally-objective-heading">
@@ -269,9 +269,11 @@
           <span id="rallyNavigationGuidance" class="rally-objective-distance">Preparing navigation…</span>
           <small id="rallyNextDistance" class="rally-objective-secondary"></small>
           <small id="rallyObjectiveStatus" class="rally-objective-status"></small>
+          <div id="rallyObjectiveActions" class="rally-objective-actions"><button id="rallyNextButton" type="button">SELECT OBJECTIVE</button><button id="rallyCompleteButton" type="button" title="Manual completion fallback">COMPLETE</button></div>
           <div class="rally-objective-sections">
             <section id="rallyRiderNotesSection" hidden><h3>Rider Notes</h3><p id="rallyRiderNotes"></p></section>
             <section id="rallyRouteIntelligenceSection" hidden><p id="rallyRouteIntelligence"></p></section>
+            <section id="rallyObjectiveIntelSection" hidden><h3>Trail Intel</h3><p id="rallyObjectiveIntel"></p></section>
             <section id="rallyWarningsSection" hidden><ul id="rallyWarnings"></ul></section>
           </div>
         </div>
@@ -293,38 +295,53 @@
           <p id="rallyReviewNotice" class="notice muted" hidden>RESTORED DAY REVIEW · Historical state is read-only.</p>
           <div class="rally-completion-metrics"><span>Collected <b id="rallyDayCollected">0</b></span><span>Deferred <b id="rallyDayDeferred">0</b></span><span>Day score <b id="rallyDayScore">0</b></span><span>Rally total <b id="rallyTotalScore">0</b></span></div>
           <small id="rallyDayBackupStatus" class="rally-backup-status">Not backed up</small>
-          <button id="rallyBackupToday" type="button">Back Up Today</button>
+          <button id="rallyBackupToday" type="button">BACK UP DAY</button>
           <button id="rallyStartNextDay" type="button" hidden>Start Next Day</button>
         </section>
         <section id="rallyBackupSheet" class="rally-backup-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="rallyBackupSheetTitle">
           <div class="rally-backup-sheet-panel">
-            <header><div><strong id="rallyBackupSheetTitle">Back Up Today’s Photos</strong><small id="rallyBackupSheetStatus">Not backed up</small></div><button id="rallyBackupClose" type="button" aria-label="Close backup options">Close</button></header>
+            <header><div><strong id="rallyBackupSheetTitle">Back Up Day</strong><small id="rallyBackupSheetStatus">Not backed up</small></div><button id="rallyBackupClose" type="button" aria-label="Close backup options">Close</button></header>
             <div class="rally-backup-sheet-actions">
               <button id="rallyBackupDayPhotos" type="button">Export Day Photos</button>
               <button id="rallyBackupDayJournal" type="button">Export Day Journal</button>
-              <button id="rallyBackupDayPackage" type="button">Export Day Backup Package</button>
+              <button id="rallyBackupDayPackage" type="button">BACK UP DAY</button>
               <button id="rallyBackupRemindLater" type="button">Remind Me Later</button>
               <button id="rallyBackupCloseSecondary" type="button">Close</button>
             </div>
           </div>
         </section>
         <button id="rallyRecenterFab" class="rally-recenter-fab" type="button" aria-label="Start GPS tracking">START</button>
+        <section id="rallyJournalSheet" class="rally-journal-sheet" aria-hidden="true">
+          <header><div><strong>Journal</strong><small>Automatic rally record</small></div><button id="rallyJournalClose" type="button" aria-label="Close Journal">×</button></header>
+          <div id="rallyJournalTimeline" class="rally-journal-timeline"><p>Loading Journal…</p></div>
+          <button id="rallyJournalObservation" type="button">ADD RIDER OBSERVATION</button>
+        </section>
         <section id="rallyMoreSheet" class="rally-more-sheet" aria-hidden="true">
           <div class="rally-status-strip">
             <span id="rallyHotelEta">Hotel ETA —</span>
             <span id="rallyFeedAge">Feed never updated</span>
           </div>
           <div class="rally-more-actions">
-            <button id="rallyPhotoViewerButton" class="rally-photos-entry" type="button">Checkpoint Photos</button>
-            <button id="rallyJourneyGalleryButton" type="button">All Journey Photos</button>
-            <button id="rallyWeatherButton" type="button">Weather</button>
-            <button id="rallyHotelButton" type="button">Show hotel</button>
-            <button id="goHotelButton" class="rally-hotel-action" type="button">GO TO HOTEL</button>
-            <button id="rallyPlannerButton" type="button">Open Planner</button>
-            <button id="rallyDebugExportButton" type="button">Export Rally Debug Log</button>
-            <button id="rallyJournalExportButton" type="button">Export Daily Journal</button>
+            <h3>Documentation</h3>
             <button id="rallyJourneySelfieButton" type="button">Journey Selfie</button>
             <button id="rallyJourneyForwardButton" type="button">Journey Forward</button>
+            <button id="rallyPhotoViewerButton" class="rally-photos-entry" type="button">Checkpoint Photos</button>
+            <button id="rallyJourneyGalleryButton" type="button">Journey Photos</button>
+            <button id="rallyMoreJournalButton" type="button">Journal</button>
+            <button id="rallyDebriefButton" type="button">Debrief</button>
+            <h3>Storage &amp; Recovery</h3>
+            <button id="rallyBackUpDayButton" type="button">BACK UP DAY</button>
+            <button id="rallyJournalExportButton" type="button">Export Journal</button>
+            <h3>Settings</h3>
+            <button id="rallyWeatherButton" type="button">Weather &amp; Radar</button>
+            <button id="rallyTrailSettingsButton" type="button">Trail Intel Advanced</button>
+            <button id="rallyLayerCompetitors" type="button">COMPETITORS</button><button id="rallyLayerBreadcrumbs" type="button">BREADCRUMBS</button>
+            <button id="rallyLayerCheckpoints" type="button">CHECKPOINTS</button><button id="rallyLayerRoute" type="button">ROUTE / TRACK</button>
+            <button id="rallyLayerRadar" type="button">RADAR</button>
+            <h3>Project / Planner</h3>
+            <button id="rallyPlannerButton" type="button">OPEN PLANNER</button>
+            <button id="rallyHotelButton" type="button">Show hotel</button>
+            <button id="goHotelButton" class="rally-hotel-action" type="button">GO TO HOTEL</button>
             <input id="rallyJourneyPhotoInput" type="file" accept="image/*" capture="user" hidden />
           </div>
           <details class="rally-storage-diagnostics"><summary>Storage &amp; projects</summary><div id="rallyStorageSummary">Calculating storage…</div><button id="rallyRetryEvidence" type="button">Retry Failed Evidence</button><label>Active project <select id="rallyProjectSelect"></select></label><div class="rally-project-actions"><button id="rallyProjectCreate" type="button">Create Project</button><button id="rallyProjectSwitch" type="button">Switch Project</button><button id="rallyProjectRename" type="button">Rename Project</button><button id="rallyProjectArchive" type="button">Archive Project</button><button id="rallyProjectDelete" type="button">Delete Project</button><button id="rallyProjectExport" type="button">Export Project</button><label for="rallyProjectRestore">Restore Project</label><input id="rallyProjectRestore" type="file" accept=".cmapproject,.cmap,.json,application/json" hidden /></div><small id="rallyUnbackedDays"></small></details>
@@ -341,10 +358,12 @@
             <div id="checkpointOrderList" class="checkpoint-order-list"></div>
             <button id="resetCheckpointOrder" type="button">Restore imported order</button>
           </details>
+          <details class="rally-diagnostics"><summary>Diagnostics</summary><button id="rallyDebugExportButton" type="button">Export Rally Debug Log</button></details>
         </section>
         <nav class="rally-actions" aria-label="Rally actions">
-          <button id="rallyNextButton" type="button">NEXT</button>
-          <button id="rallyCompleteButton" type="button" title="Manual completion fallback">COMPLETE</button>
+          <button id="rallyMissionButton" class="active" type="button">MISSION</button>
+          <button id="rallyTrailIntelButton" type="button">TRAIL INTEL</button>
+          <button id="rallyJournalButton" type="button">JOURNAL</button>
           <button id="rallyMoreButton" type="button" aria-expanded="false">MORE</button>
         </nav>
       </section>
@@ -378,6 +397,7 @@
           <article><span>Fresh</span><strong id="mobileFreshCount">0</strong></article>
           <article><span>Traffic</span><strong id="mobileTrafficCount">0</strong></article>
         </div>
+        <div id="mobileObjectiveIntel" class="mobile-objective-intel">No active objective context.</div>
         <div id="mobileWeatherSummary" class="mobile-weather">Weather not loaded</div>
         <div class="mobile-intel-actions">
           <button id="mobileSyncButton" class="button primary">Sync trails</button>
@@ -463,6 +483,6 @@
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260809-day-archive-recovery-1"></script>
+  <script type="module" src="app.js?v=20260809-mission-alignment-1"></script>
 </body>
 </html>
