@@ -10,8 +10,8 @@ export function normalizeTrailPoints(points,{now=Date.now(),historyMs=8*24*60*60
   return [...unique.values()].sort((a,b)=>pointTime(a)-pointTime(b)||breadcrumbKey(a).localeCompare(breadcrumbKey(b))).slice(-maxPoints);
 }
 
-export function segmentTrail(points,{gapMs=20*60*1000,maxSpeedMph=130,maxJumpMeters=25000}={}){
-  const ordered=normalizeTrailPoints(points),segments=[];let current=[];
+export function segmentTrail(points,{gapMs=20*60*1000,maxSpeedMph=130,maxJumpMeters=25000,now=Date.now(),historyMs=8*24*60*60*1000,maxPoints=12000}={}){
+  const ordered=normalizeTrailPoints(points,{now,historyMs,maxPoints}),segments=[];let current=[];
   for(const point of ordered){const prior=current.at(-1);if(prior){const elapsed=(pointTime(point)-pointTime(prior))/1000,distance=distanceMeters(prior,point),speed=elapsed>0?distance/elapsed*2.236936:null;const sessionChanged=prior.sessionId&&point.sessionId&&String(prior.sessionId)!==String(point.sessionId);if(sessionChanged||elapsed*1000>gapMs||distance>maxJumpMeters||(speed!==null&&speed>maxSpeedMph)){if(current.length)segments.push(current);current=[];}}
     current.push(point);
   }if(current.length)segments.push(current);return segments;
