@@ -46,8 +46,8 @@ import {
 import {createFirebaseAuthentication} from './src/infrastructure/firebase/authentication.js';
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
-const APP_VERSION = '0.7.8';
-const BUILD_ID = '2026.08.13.camera-readiness-1';
+const APP_VERSION = '0.7.9';
+const BUILD_ID = '2026.08.13.camera-readiness-2';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const CAMERA_SETUP_HINT_KEY = 'cannonmap.camera-setup-succeeded.v1';

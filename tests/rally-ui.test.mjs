@@ -56,6 +56,44 @@ test('camera setup keeps manual escape available while browser acquisition is ch
   assert.equal(getElement('rallyCameraContinueManualButton').textContent,'USE MANUAL CAMERA');
 });
 
+test('camera warnings use a dedicated enable action while non-camera warnings retain Mission controls',()=>{
+  const elements=new Map(),getElement=id=>{if(!elements.has(id))elements.set(id,fakeElement());return elements.get(id);};
+  renderRally({getElement,escapeHtml:String,model:{
+    day:1,online:true,score:0,next:null,distance:null,checkpoints:[],hasHotel:true,
+    showCameraSetup:true,cameraReadiness:{permission:'prompt',capability:'setup-required'},
+    warnings:[
+      {id:'camera',message:'CAMERA SETUP REQUIRED — enable once before riding.'},
+      {id:'construction',message:'Construction at the south entrance.'}
+    ]
+  }});
+  const markup=getElement('rallyWarnings').innerHTML;
+  const camera=markup.match(/<li data-warning-id="camera">[\s\S]*?<\/li>/)?.[0]||'';
+  const construction=markup.match(/<li data-warning-id="construction">[\s\S]*?<\/li>/)?.[0]||'';
+  assert.match(camera,/data-camera-action="enable"/);
+  assert.match(camera,/>ENABLE CAMERA</);
+  for(const action of ['dismiss','10','30','checkpoint'])assert.doesNotMatch(camera,new RegExp(`data-warning-action="${action}"`));
+  for(const action of ['dismiss','10','30','checkpoint'])assert.match(construction,new RegExp(`data-warning-action="${action}"`));
+  assert.match(construction,/>Dismiss</);assert.match(construction,/>10m</);assert.match(construction,/>30m</);assert.match(construction,/>Next CP</);
+});
+
+test('granted and manual-only camera states do not expose stale or suppressible camera actions',()=>{
+  const render=model=>{
+    const elements=new Map(),getElement=id=>{if(!elements.has(id))elements.set(id,fakeElement());return elements.get(id);};
+    renderRally({getElement,escapeHtml:String,model:{day:1,online:true,score:0,next:null,distance:null,checkpoints:[],hasHotel:true,...model}});
+    return {markup:getElement('rallyWarnings').innerHTML,hidden:getElement('rallyWarningsSection').hidden};
+  };
+  const granted=render({showCameraSetup:false,cameraReadiness:{permission:'granted',capability:'ready'},warnings:[]});
+  assert.equal(granted.hidden,true);assert.doesNotMatch(granted.markup,/data-warning-id="camera"/);
+  for(const manual of [
+    render({showCameraSetup:true,cameraReadiness:{permission:'denied',capability:'manual-only'},warnings:[{id:'camera',message:'Manual camera mode.'}]}),
+    render({showCameraSetup:false,cameraReadiness:{permission:'unknown',capability:'manual-only'},warnings:[{id:'camera',message:'Manual camera mode.'}]})
+  ]){
+    assert.match(manual.markup,/data-warning-id="camera"/);
+    assert.doesNotMatch(manual.markup,/data-warning-action=/);
+    assert.doesNotMatch(manual.markup,/ENABLE CAMERA|Dismiss|10m|30m|Next CP/);
+  }
+});
+
 test('Day Complete renders compact metrics and persisted backup status',()=>{
   const elements=new Map(),getElement=id=>{if(!elements.has(id))elements.set(id,fakeElement());return elements.get(id);};
   renderRally({getElement,escapeHtml:String,model:{day:1,online:true,score:45,next:null,distance:null,warnings:[],checkpoints:[],hasHotel:true,showDeferredPrompt:true,deferredCount:1,dayComplete:true,nextDay:2,backupStatus:'Photos exported',daySummary:{totalCollected:3,totalDeferred:1,score:20}}});
@@ -88,4 +126,21 @@ test('Rally controller owns control event wiring through injected actions',()=>{
   assert.deepEqual({mission,journal,intel},{mission:1,journal:1,intel:1});
   assert.equal(typeof getElement('checkpointOrderList').listeners.click,'function');
   assert.equal(onlineHandlers,2);
+});
+
+test('Rally controller delegates camera enable directly and preserves generic warning suppression',()=>{
+  const elements=new Map(),getElement=id=>{if(!elements.has(id))elements.set(id,fakeElement());return elements.get(id);};
+  let enabled=0;const warningCalls=[];
+  const actions=new Proxy({enableCamera:()=>enabled++,warning:(id,action)=>warningCalls.push([id,action]),render:()=>{}},{get:(target,key)=>target[key]||(()=>{})});
+  wireRallyController({getElement,actions,windowTarget:{addEventListener(){}}});
+  const delegated=(id,action,{camera=false}={})=>({target:{closest(selector){
+    if(selector==='button[data-camera-action]')return camera?{dataset:{cameraAction:action}}:null;
+    if(selector==='button[data-warning-action]')return camera?null:{dataset:{warningAction:action}};
+    if(selector==='[data-warning-id]')return {dataset:{warningId:id}};
+    return null;
+  }}});
+  getElement('rallyWarnings').listeners.click(delegated('camera','enable',{camera:true}));
+  assert.equal(enabled,1);assert.deepEqual(warningCalls,[]);
+  getElement('rallyWarnings').listeners.click(delegated('construction','10'));
+  assert.equal(enabled,1);assert.deepEqual(warningCalls,[['construction','10']]);
 });

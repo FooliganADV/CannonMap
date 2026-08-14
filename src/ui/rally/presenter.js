@@ -13,6 +13,17 @@ function checkpointKind(next){
 
 const text=value=>String(value||'').trim();
 
+function warningActions(item,{escapeHtml,cameraCapability,cameraPermission}){
+  if(String(item?.id||'')!=='camera')return `<div><button type="button" data-warning-action="dismiss">Dismiss</button><button type="button" data-warning-action="10">10m</button><button type="button" data-warning-action="30">30m</button><button type="button" data-warning-action="checkpoint">Next CP</button></div>`;
+  const checking=cameraCapability==='checking',denied=cameraPermission==='denied';
+  const canEnable=!denied&&['uninitialized','setup-required','interrupted'].includes(cameraCapability);
+  const enable=checking
+    ?'<button type="button" data-camera-action="checking" disabled>CHECKING…</button>'
+    :canEnable?'<button type="button" data-camera-action="enable">ENABLE CAMERA</button>':'';
+  const manualLabel=denied?'CONTINUE MANUAL':'USE MANUAL CAMERA';
+  return `<div class="rally-camera-warning-actions${enable?'':' is-single'}">${enable}<button type="button" data-camera-action="manual">${escapeHtml(manualLabel)}</button></div>`;
+}
+
 export function renderRally({getElement,model,escapeHtml}){
   if(!getElement('rallyMode'))return;
   const set=(id,value)=>{const el=getElement(id);if(el)el.textContent=value;};
@@ -51,7 +62,7 @@ export function renderRally({getElement,model,escapeHtml}){
   set('rallyObjectiveIntel',objectiveIntel);
   const objectiveIntelSection=getElement('rallyObjectiveIntelSection');if(objectiveIntelSection)objectiveIntelSection.hidden=!objectiveIntel;
   const warnings=(model.warnings||[]).filter(item=>item?.message),warningList=getElement('rallyWarnings');
-  if(warningList)warningList.innerHTML=warnings.map(item=>`<li data-warning-id="${escapeHtml(item.id)}"><span>${escapeHtml(item.message)}</span><div><button type="button" data-warning-action="dismiss">Dismiss</button><button type="button" data-warning-action="10">10m</button><button type="button" data-warning-action="30">30m</button><button type="button" data-warning-action="checkpoint">Next CP</button></div></li>`).join('');
+  if(warningList)warningList.innerHTML=warnings.map(item=>`<li data-warning-id="${escapeHtml(item.id)}"><span>${escapeHtml(item.message)}</span>${warningActions(item,{escapeHtml,cameraCapability,cameraPermission})}</li>`).join('');
   const warningsSection=getElement('rallyWarningsSection');if(warningsSection)warningsSection.hidden=!warnings.length;
   set('rallyHotelEta',model.hotelLabel);
   set('rallyFeedAge',model.feedAge);

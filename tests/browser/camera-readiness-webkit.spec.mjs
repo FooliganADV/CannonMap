@@ -34,6 +34,9 @@ test('WebKit declares intentional manual-only capture in portrait and landscape'
   await open(page);
   await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.cameraReadinessState())).toMatchObject({permission:'unknown',capability:'manual-only',automaticCaptureEligible:false,getUserMediaSupported:true,imageCaptureSupported:false,reasonCode:'image-capture-unsupported'});
   await expect(page.locator('#rallyCameraSetup')).toBeHidden();
+  await expect(page.locator('#rallyWarnings [data-warning-id="camera"] [data-warning-action]')).toHaveCount(0);
+  await expect(page.locator('#rallyWarnings [data-warning-id="camera"] [data-camera-action="manual"]')).toHaveCount(1);
+  await expect(page.locator('#rallyWarnings [data-warning-id="camera"]')).not.toContainText('ENABLE CAMERA');
   expect(await page.evaluate(()=>globalThis.__webkitCameraMock.getUserMediaCalls())).toBe(0);
 
   await page.evaluate(input=>window.CannonMapTest.observeCheckpointDetectionsForTest(input),{observedAt:1000,speedMph:5,priorTargetId:'cp-webkit',gpsEvidence:{latitude:30,longitude:-90,accuracyFeet:7},detections:[{checkpointId:'cp-webkit',distanceFeet:3,accuracyFeet:7,radiusFeet:100}]});

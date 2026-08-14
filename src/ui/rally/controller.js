@@ -46,6 +46,12 @@ export function wireRallyController({getElement,actions,windowTarget=window}){
   on('rallyDebugExportButton','click',actions.exportDebug);
   on('rallyJournalExportButton','click',actions.exportJournal);
   on('rallyWarnings','click',event=>{
+    const cameraButton=event.target.closest('button[data-camera-action]');
+    if(cameraButton){
+      if(cameraButton.dataset.cameraAction==='enable')actions.enableCamera?.();
+      else if(cameraButton.dataset.cameraAction==='manual')actions.continueManualCamera?.();
+      return;
+    }
     const button=event.target.closest('button[data-warning-action]'),row=event.target.closest('[data-warning-id]');
     if(button&&row)actions.warning(row.dataset.warningId,button.dataset.warningAction);
   });
