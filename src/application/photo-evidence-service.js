@@ -7,6 +7,7 @@ const localParts=timestamp=>{
 
 export function buildPhotoEvidenceMetadata(context={}){
   const local=localParts(context.capturedAt);
+  const source=context.originalSourceProvenance&&typeof context.originalSourceProvenance==='object'?structuredClone(context.originalSourceProvenance):null;
   return Object.freeze({
     eventName:unavailable(context.eventName),objectiveType:unavailable(context.objectiveType),rallyName:unavailable(context.rallyName),dayNumber:unavailable(context.dayNumber),
     checkpointName:unavailable(context.checkpointName),checkpointNumber:unavailable(context.checkpointNumber),points:unavailable(context.points),
@@ -19,6 +20,9 @@ export function buildPhotoEvidenceMetadata(context={}){
     deviceHeading:context.deviceHeading===null||context.deviceHeading===undefined?'Unavailable':`${Math.round(Number(context.deviceHeading))}°`,
     travelDirection:unavailable(context.travelDirection),weatherContext:unavailable(context.weatherContext),mediaId:unavailable(context.mediaId),journalEventId:unavailable(context.journalEventId),
     cameraRole:unavailable(context.cameraRole),pairId:unavailable(context.pairId),requestedCamera:unavailable(context.requestedCamera),actualCamera:unavailable(context.actualCamera),cameraSelectionHonored:context.cameraSelectionHonored??'unknown',captureMethod:context.captureMethod||'file-input',captureTimestamp:context.captureTimestamp||context.capturedAt||null,
+    imageWidth:Number.isFinite(Number(context.imageWidth))?Number(context.imageWidth):null,imageHeight:Number.isFinite(Number(context.imageHeight))?Number(context.imageHeight):null,
+    originalMimeType:String(context.originalMimeType||source?.mimeType||'application/octet-stream'),originalByteLength:Number(context.originalByteLength||source?.byteLength)||null,
+    originalSourceProvenance:source,
     capturedAt:context.capturedAt||null
   });
 }
@@ -43,6 +47,18 @@ export async function readImageDimensions(file){
 const assertDimensions=(actual,expected,label)=>{
   if(actual.width!==expected.width||actual.height!==expected.height)throw new Error(`${label} dimension verification failed.`);
 };
+const assertReadableDimensions=(actual,label)=>{
+  if(!Number.isFinite(Number(actual?.width))||!Number.isFinite(Number(actual?.height))||Number(actual.width)<1||Number(actual.height)<1)throw new Error(`${label} dimension verification failed.`);
+};
+
+const extensionFor=mimeType=>mimeType==='image/png'?'png':mimeType==='image/webp'?'webp':mimeType==='image/heic'||mimeType==='image/heif'?'heic':'jpg';
+
+const detachedOriginalReference=(original,error)=>{
+  const abandonedPairId=original?.pairId||original?.metadata?.pairId||null,metadata={...(original?.metadata||{}),pairId:null,pairStatus:'abandoned',abandonedPairId,evidenceStatus:'failed'};
+  return {...original,pairId:null,pairStatus:'abandoned',abandonedPairId,pairedMediaId:null,evidenceStatus:'failed',evidenceError:String(error||'Evidence generation failed.'),metadata};
+};
+
+const cleanupFailure=(operation,error)=>Object.freeze({operation,errorName:error?.name||'Error',message:error?.message||String(error)});
 
 export async function renderEvidenceJpeg(file,metadata,{quality=1,canvasFactory=()=>document.createElement('canvas')}={}){
   const image=await imageSource(file),canvas=canvasFactory();canvas.width=image.width;canvas.height=image.height;
@@ -62,34 +78,50 @@ export async function renderEvidenceJpeg(file,metadata,{quality=1,canvasFactory=
 export function createPhotoEvidenceService({repository,render=renderEvidenceJpeg,inspect=readImageDimensions,createId}={}){
   if(!repository||typeof createId!=='function')throw new TypeError('repository and createId are required.');
   return Object.freeze({
-    async capture({projectId,checkpointId,journalEventId,file,context}){
+    async capture({projectId,checkpointId,journalEventId,file,source=null,context={}}){
+      const originalFile=source?.blob||file,provenance=source?.provenance||context.originalSourceProvenance||null;
+      if(!originalFile)throw new TypeError('An original camera image is required.');
+      if(provenance?.derivedFromVideoFrame===true||provenance?.sourceKind==='video-frame'||provenance?.sourceKind==='canvas-frame')throw new TypeError('A canvas or video frame cannot be stored as Original media.');
       const identities={mediaGroupId:createId(),originalMediaId:createId(),evidenceMediaId:createId()};
-      const sourceDimensions=await inspect(file),metadata=buildPhotoEvidenceMetadata({...context,mediaId:identities.mediaGroupId,journalEventId,imageWidth:sourceDimensions.width,imageHeight:sourceDimensions.height});
+      const inspectedDimensions=await inspect(originalFile),sourceDimensions={width:Number(provenance?.width)||inspectedDimensions.width,height:Number(provenance?.height)||inspectedDimensions.height};
+      assertDimensions(inspectedDimensions,sourceDimensions,'Original source');
+      const metadata=buildPhotoEvidenceMetadata({...context,mediaId:identities.mediaGroupId,journalEventId,imageWidth:sourceDimensions.width,imageHeight:sourceDimensions.height,originalMimeType:originalFile.type,originalByteLength:originalFile.size,originalSourceProvenance:provenance});
       const existing=await repository.listCheckpointPhotos?.(projectId,checkpointId)||[],sequence=existing.filter(item=>(item.role||'original')==='original').length+1;
       const label=context.eventName==='Hotel Arrival'?'Hotel':'CP',cameraSuffix=context.cameraRole==='front'?'_Front':context.cameraRole==='rear'?'_Rear':'',base=`Day${String(context.dayNumber||0).padStart(2,'0')}_${label}${String(context.checkpointNumber||checkpointId).replace(/[^a-z0-9.-]+/gi,'_')}${cameraSuffix}${sequence>1?`_${String(sequence).padStart(2,'0')}`:''}`;
-      const filenames={original:`${base}_Original.jpg`,evidence:`${base}_Evidence.jpg`};
+      const filenames={original:`${base}_Original.${extensionFor(originalFile.type)}`,evidence:`${base}_Evidence.jpg`};
       if(typeof repository.addOriginal!=='function'){
-        const evidenceBlob=await render(file,metadata);
-        return repository.addEvidencePair({projectId,checkpointId,journalEventId,originalFile:file,evidenceBlob,metadata,identities,filenames});
+        const evidenceBlob=await render(originalFile,metadata);
+        return repository.addEvidencePair({projectId,checkpointId,journalEventId,originalFile,evidenceBlob,metadata,identities,filenames,sourceProvenance:provenance});
       }
-      const original=await repository.addOriginal({projectId,checkpointId,journalEventId,originalFile:file,metadata,identities,filenames});
+      const original=await repository.addOriginal({projectId,checkpointId,journalEventId,originalFile,metadata,identities,filenames,sourceProvenance:provenance});
       let evidence=null;
       try{
         assertDimensions(await inspect(original.blob),sourceDimensions,'Original image');
-        const evidenceBlob=await render(file,metadata);evidence=await repository.addEvidence({original,evidenceBlob,filename:filenames.evidence,evidenceMediaId:identities.evidenceMediaId});
-        assertDimensions(await inspect(evidence.blob),sourceDimensions,'Evidence image');
-        const reference=record=>Object.freeze({mediaId:record.mediaId,mediaGroupId:record.mediaGroupId,uri:`media://${record.mediaId}`,kind:'photo',role:record.role,mimeType:record.mimeType,name:record.name,size:record.size,capturedAt:record.capturedAt,pairedMediaId:record.pairedMediaId});
+        const evidenceBlob=await render(originalFile,metadata);evidence=await repository.addEvidence({original,evidenceBlob,filename:filenames.evidence,evidenceMediaId:identities.evidenceMediaId});
+        assertReadableDimensions(await inspect(evidence.blob),'Evidence image');
+        const reference=record=>Object.freeze({mediaId:record.mediaId,mediaGroupId:record.mediaGroupId,uri:`media://${record.mediaId}`,kind:'photo',role:record.role,mimeType:record.mimeType,name:record.name,size:record.size,capturedAt:record.capturedAt,pairedMediaId:record.pairedMediaId,sourceProvenance:record.sourceProvenance?structuredClone(record.sourceProvenance):null});
         return Object.freeze({mediaGroupId:identities.mediaGroupId,original:reference({...original,pairedMediaId:evidence.mediaId}),evidence:reference(evidence),metadata:structuredClone(metadata)});
       }catch(error){
-        if(evidence)await repository.discardEvidence?.(evidence.mediaId,original.mediaId,error?.message||error);
-        await repository.markEvidenceFailed?.(original.mediaId,error?.message||error);
-        error.originalMedia=original;error.evidenceRetryable=true;throw error;
+        const failure=error instanceof Error?error:new Error(String(error)),reason=failure.message||failure,cleanupErrors=[];
+        // The in-memory reference is detached first so callers can always recover/export
+        // the native Original even if one or more IndexedDB cleanup writes fail.
+        let preserved=detachedOriginalReference(original,reason),durablyDetached=false,evidenceDiscarded=!evidence;
+        try{
+          const stored=await repository.abandonIncompleteOriginal?.(original.mediaId,reason);
+          if(stored){durablyDetached=stored.pairId===null&&stored.pairedMediaId===null;preserved=durablyDetached?stored:detachedOriginalReference(stored,reason);}
+        }catch(cleanupError){cleanupErrors.push(cleanupFailure('detach-original',cleanupError));}
+        try{if(evidence&&typeof repository.discardEvidence==='function'){await repository.discardEvidence(evidence.mediaId,original.mediaId,reason);evidenceDiscarded=true;}}
+        catch(cleanupError){cleanupErrors.push(cleanupFailure('discard-evidence',cleanupError));}
+        try{await repository.markEvidenceFailed?.(original.mediaId,reason);}
+        catch(cleanupError){cleanupErrors.push(cleanupFailure('mark-evidence-failed',cleanupError));}
+        failure.originalMedia=preserved;failure.evidenceRetryable=true;failure.originalPreserved=true;failure.originalDurablyDetached=durablyDetached;
+        failure.requiresNewPair=!durablyDetached||!evidenceDiscarded;failure.cleanupErrors=Object.freeze(cleanupErrors);throw failure;
       }
     },
     async retryEvidence(originalMediaId){
       const original=await repository.getMedia(originalMediaId);if(!original||original.role!=='original')throw new Error('The stored original is unavailable.');
-      const sourceDimensions=await inspect(original.blob),evidenceBlob=await render(original.blob,original.metadata),filename=String(original.name||'Original.jpg').replace(/_Original(?=\.jpe?g$)/i,'_Evidence');let evidence=null;
-      try{evidence=await repository.addEvidence({original,evidenceBlob,filename,evidenceMediaId:original.pairedMediaId||createId()});assertDimensions(await inspect(evidence.blob),sourceDimensions,'Evidence image');return evidence;}
+      await inspect(original.blob);const evidenceBlob=await render(original.blob,original.metadata),filename=String(original.name||'Original.jpg').replace(/_Original(?=\.[^.]+$)/i,'_Evidence').replace(/\.[^.]+$/,'.jpg');let evidence=null;
+      try{evidence=await repository.addEvidence({original,evidenceBlob,filename,evidenceMediaId:original.pairedMediaId||createId()});assertReadableDimensions(await inspect(evidence.blob),'Evidence image');return evidence;}
       catch(error){if(evidence)await repository.discardEvidence?.(evidence.mediaId,original.mediaId,error?.message||error);throw error;}
     }
   });

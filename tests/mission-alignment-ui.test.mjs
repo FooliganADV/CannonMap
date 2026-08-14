@@ -31,10 +31,11 @@ test('Trail Intel remains factual and configuration stays behind Advanced settin
   assert.match(app,/\[data-tab="tracking"\]/);
 });
 
-test('Journal and More preserve automatic review, Capture Pair, grouped tools, and normal-flow photos',()=>{
+test('Journal and More preserve automatic review, full-view fallback, grouped tools, and normal-flow photos',()=>{
   assert.match(html,/id="rallyJournalTimeline"/);assert.match(html,/ADD RIDER OBSERVATION/);
   for(const heading of ['Documentation','Storage &amp; Recovery','Settings','Project / Planner','Diagnostics'])assert.match(html,new RegExp(heading));
-  assert.match(html,/id="rallyCameraCapturePair"[^>]*>CAPTURE PAIR</);assert.doesNotMatch(html,/id="rallyCamera(Selfie|Forward)|>Save Pair</);
+  assert.match(html,/id="rallyCameraTapSurface"[^>]*role="button"/);assert.doesNotMatch(html,/id="rallyCamera(CapturePair|Retry|Selfie|Forward)|>Save Pair</);
+  assert.match(html,/id="rallyJourneyPhotoButton"[^>]*>Journey Photo</);assert.doesNotMatch(html,/id="rallyJourney(Selfie|Forward)Button/);
   assert.match(css,/\.rally-more-actions \.rally-photos-entry\{grid-column:1\/-1;position:static;z-index:auto/);
 });
 

@@ -1,6 +1,6 @@
-# CannonMap Planner — Beta 0.7.1 Rally Mode Reset
+# CannonMap Planner — Beta 0.7.7 Field Media Rally UX
 
-Build: `2026.07.21.08`
+Build: `2026.08.13.field-media-1`
 
 ## Purpose
 

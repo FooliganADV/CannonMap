@@ -68,12 +68,13 @@ test('service-worker shell contains the complete local startup module graph',asy
     'src/application/project-template-service.js',
     'src/infrastructure/indexeddb/template-repository.js'
   ])assert.ok(shell.has(templateModule),`${templateModule} must be cached for offline Template consumers`);
+  assert.equal(shell.has('src/application/camera-pair-capture.js'),false,'retired camera-pair runtime must not survive in the offline shell');
 });
 
 test('Mission Control cache identifier advances without deleting IndexedDB data',async()=>{
   const {cache,source}=await cacheManifest();
   assert.notEqual(cache,'cannonmap-v0.7.1-20260726-06');
-  assert.equal(cache,'cannonmap-v0.7.6-20260809-mission-alignment-1');
+  assert.equal(cache,'cannonmap-v0.7.7-20260813-field-media-1');
   assert.doesNotMatch(source,/indexedDB\.deleteDatabase|deleteDatabase\s*\(/);
   assert.doesNotMatch(source,/localStorage\.clear|caches\.delete\([^)]*CannonMapDB/);
 });

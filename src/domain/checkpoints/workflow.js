@@ -101,7 +101,7 @@ export function activeRallyDay(settings){
 export function dayCheckpoints(project,settings){
   const day=activeRallyDay(settings);
   return (project?.features||[])
-    .filter(feature=>['checkpoint','hotel'].includes(feature.type)&&(!day||Number(feature.day)===day))
+    .filter(feature=>['checkpoint','hotel'].includes(feature.type)&&day&&Number(feature.day)===day)
     .map(normalizeCheckpoint)
     .sort((a,b)=>(a.type==='hotel')-(b.type==='hotel')||(Number(a.sequence)||9999)-(Number(b.sequence)||9999)||(Number(a.resolvedImportIndex)||0)-(Number(b.resolvedImportIndex)||0));
 }
@@ -116,7 +116,7 @@ export function currentCheckpoint(project,settings){
 
 export function currentHotel(project,settings){
   const day=activeRallyDay(settings);
-  return (project?.features||[]).find(feature=>feature.type==='hotel'&&(!day||Number(feature.day)===day))||null;
+  return day?(project?.features||[]).find(feature=>feature.type==='hotel'&&Number(feature.day)===day)||null:null;
 }
 
 export function rallyScore(project){
@@ -159,11 +159,27 @@ export function recordArrival(checkpoint,now){
   return checkpoint;
 }
 
-export function completeCheckpoint(rows,checkpoint,now,{photoRecorded=false}={}){
+/** Records a GPS-confirmed checkpoint without changing the rider's active target. */
+export function recordDetectedArrival(checkpoint,now){
+  if(!checkpoint||checkpoint.type==='hotel'||![CHECKPOINT_STATE.UPCOMING,CHECKPOINT_STATE.ACTIVE,CHECKPOINT_STATE.DEFERRED].includes(checkpointState(checkpoint.status)))return null;
+  checkpoint.arrivedAt=checkpoint.arrivedAt||now;
+  checkpoint.arrivalPriorState=checkpoint.status;
+  if(checkpoint.photoRequired){checkpoint.status=CHECKPOINT_STATE.PHOTO_REQUIRED;checkpoint.photoStatus='required_pending';}
+  return checkpoint;
+}
+
+export function captureFailureDisposition(speedMph){
+  return Number.isFinite(Number(speedMph))&&Number(speedMph)>10?'camera_unavailable_high_speed':'manual_fallback_required';
+}
+
+export function completeCheckpoint(rows,checkpoint,now,{photoRecorded=false,photoDisposition=null,preserveActiveTarget=false}={}){
   if(!checkpoint||checkpoint.status===CHECKPOINT_STATE.COLLECTED)return null;
-  if(checkpoint.photoRequired&&!photoRecorded)return null;
-  checkpoint.status=CHECKPOINT_STATE.COLLECTED;checkpoint.completedAt=now;checkpoint.photoStatus=photoRecorded?'recorded':checkpoint.photoRequired?'required_pending':'not_taken';
-  checkpoint.deferredAt=null;checkpoint.deferReason=null;return activateNextPlanned(rows);
+  const acceptedDisposition=['camera_unavailable_high_speed','manual_fallback_expired'].includes(photoDisposition);
+  if(checkpoint.photoRequired&&!photoRecorded&&!acceptedDisposition)return null;
+  checkpoint.status=CHECKPOINT_STATE.COLLECTED;checkpoint.completedAt=now;checkpoint.photoStatus=photoRecorded?'recorded':acceptedDisposition?photoDisposition:checkpoint.photoRequired?'required_pending':'not_taken';
+  checkpoint.photoFailureDisposition=acceptedDisposition?photoDisposition:null;checkpoint.deferredAt=null;checkpoint.deferReason=null;delete checkpoint.arrivalPriorState;
+  if(preserveActiveTarget)return rows.find(feature=>feature.id!==checkpoint.id&&feature.status===CHECKPOINT_STATE.ACTIVE)||null;
+  return activateNextPlanned(rows);
 }
 
 export const resumeDeferred=(rows,now)=>restoreDeferred(rows,now);
@@ -196,7 +212,11 @@ export function restoreDeferred(rows,now){
   checkpoint.status=CHECKPOINT_STATE.ACTIVE;checkpoint.restoredAt=now;return checkpoint;
 }
 
-export function skipCheckpoint(rows,checkpoint){checkpoint.status=CHECKPOINT_STATE.FAILED;return activateNextPlanned(rows);}
+export function skipCheckpoint(rows,checkpoint,{preserveActiveTarget=false}={}){
+  checkpoint.status=CHECKPOINT_STATE.FAILED;
+  if(preserveActiveTarget)return rows.find(feature=>feature.id!==checkpoint.id&&feature.status===CHECKPOINT_STATE.ACTIVE)||null;
+  return activateNextPlanned(rows);
+}
 
 export function deferForHotel(rows,now){
   const deferred=rows.filter(feature=>feature.type!=='hotel'&&[CHECKPOINT_STATE.UPCOMING,CHECKPOINT_STATE.ACTIVE].includes(feature.status));

@@ -11,6 +11,12 @@ export class MediaPersistenceError extends Error{
 
 const constructorName=value=>value?.constructor?.name||typeof value;
 const sourceDetails=source=>({objectConstructor:constructorName(source),objectType:globalThis.File&&source instanceof globalThis.File?'File':globalThis.Blob&&source instanceof globalThis.Blob?'Blob':constructorName(source),objectSize:Number(source?.size)||0,mimeType:String(source?.type||'application/octet-stream'),lastModified:Number(source?.lastModified)||null});
+const clone=value=>value&&typeof value==='object'?structuredClone(value):null;
+const originalProvenance=(originalFile,metadata,provided)=>clone(provided||metadata?.originalSourceProvenance)||{
+  sourceKind:globalThis.File&&originalFile instanceof globalThis.File?'file-input':'camera-blob',nativeStill:'unknown',derivedFromVideoFrame:false,upscaled:false,
+  mimeType:String(originalFile?.type||'application/octet-stream'),byteLength:Number(originalFile?.size)||0,width:Number(metadata?.imageWidth)||null,height:Number(metadata?.imageHeight)||null
+};
+const evidenceProvenance=original=>({sourceKind:'evidence-derivative',nativeStill:false,derivedFromVideoFrame:false,upscaled:false,derivedFromMediaId:original.mediaId,originalSourceKind:original.sourceProvenance?.sourceKind||null});
 
 /**
  * WebKit can reject File/Blob structured cloning during an IndexedDB write. Persist exact
@@ -75,33 +81,40 @@ export function createMissionMediaRepository({database,createId,clock}={}){
     }
   };
   return Object.freeze({
-    async addOriginal({projectId,checkpointId,journalEventId,originalFile,metadata={},filenames={},identities={}}){
+    async addOriginal({projectId,checkpointId,journalEventId,originalFile,metadata={},filenames={},identities={},sourceProvenance=null}){
       if(!projectId||!checkpointId||!journalEventId||!originalFile)throw new TypeError('Original photo context is required.');
       const mediaGroupId=identities.mediaGroupId||createId(),mediaId=identities.originalMediaId||createId(),capturedAt=metadata.capturedAt||clock.iso();
       const record={projectId:String(projectId),checkpointId:String(checkpointId),journalEventId:String(journalEventId),mediaGroupId,capturedAt,
         pairId:metadata.pairId||null,cameraRole:metadata.cameraRole||null,pairStatus:metadata.pairId?'pending':null,metadata:structuredClone(metadata),mediaId,kind:'photo',role:'original',mimeType:String(originalFile.type||'image/jpeg'),
-        name:String(filenames.original||originalFile.name||`${mediaId}.jpg`),sourceName:String(originalFile.name||''),size:Number(originalFile.size)||0,blob:originalFile,lastModified:Number(originalFile.lastModified)||null,
+        name:String(filenames.original||originalFile.name||`${mediaId}.jpg`),sourceName:String(originalFile.name||''),size:Number(originalFile.size)||0,blob:originalFile,lastModified:Number(originalFile.lastModified)||null,sourceProvenance:originalProvenance(originalFile,metadata,sourceProvenance),
         pairedMediaId:identities.evidenceMediaId||null,evidenceStatus:'pending'};
       return (await commit({records:[record]}))[0];
     },
     async addEvidence({original,evidenceBlob,filename,evidenceMediaId}){
       if(!original?.mediaId||!evidenceBlob)throw new TypeError('Stored original and evidence image are required.');
       const mediaId=evidenceMediaId||original.pairedMediaId||createId(),evidence={...original,mediaId,role:'evidence',mimeType:'image/jpeg',name:String(filename||`${mediaId}.jpg`),size:Number(evidenceBlob.size)||0,
-        blob:evidenceBlob,lastModified:null,sourceConstructor:constructorName(evidenceBlob),pairedMediaId:original.mediaId,evidenceStatus:'complete'};
+        blob:evidenceBlob,lastModified:null,sourceName:'',sourceConstructor:constructorName(evidenceBlob),sourceProvenance:evidenceProvenance(original),derivedFromMediaId:original.mediaId,pairedMediaId:original.mediaId,evidenceStatus:'complete'};
       const originalUpdate={...original,pairedMediaId:mediaId,evidenceStatus:'complete'};
       try{return (await commit({records:[evidence],updates:[originalUpdate]}))[0];}catch(error){throw wrapPersistenceError(error,{...sourceDetails(evidenceBlob),transactionState:error.diagnostics?.transactionState||'unknown',operation:'add-evidence'},original);}
     },
     async markEvidenceFailed(mediaId,error){
       const record=await readStored(database,String(mediaId));if(!record)return null;
       const update={...record,evidenceStatus:'failed',evidenceError:String(error||'Evidence generation failed.')};
-      const transaction=database.transaction(STORE,'readwrite'),done=transactionDone(transaction);await requestResult(transaction.objectStore(STORE).put(update));await done;return hydrateMissionMediaRecord(record);
+      const transaction=database.transaction(STORE,'readwrite'),done=transactionDone(transaction);await requestResult(transaction.objectStore(STORE).put(update));await done;return hydrateMissionMediaRecord(update);
     },
-    async addEvidencePair({projectId,checkpointId,journalEventId,originalFile,evidenceBlob,metadata={},filenames={},identities={}}){
+    async abandonIncompleteOriginal(mediaId,error){
+      const record=await readStored(database,String(mediaId));if(!record||record.role!=='original')return hydrateMissionMediaRecord(record);
+      const abandonedPairId=record.pairId||record.metadata?.pairId||null,metadata={...(record.metadata||{}),pairId:null,pairStatus:'abandoned',abandonedPairId,evidenceStatus:'failed'};
+      const update={...record,pairId:null,pairStatus:'abandoned',abandonedPairId,pairedMediaId:null,evidenceStatus:'failed',evidenceError:String(error||record.evidenceError||'Evidence generation failed.'),metadata};
+      const transaction=database.transaction(STORE,'readwrite'),done=transactionDone(transaction);await requestResult(transaction.objectStore(STORE).put(update));await done;
+      return verifyRecord(update,await readStored(database,record.mediaId));
+    },
+    async addEvidencePair({projectId,checkpointId,journalEventId,originalFile,evidenceBlob,metadata={},filenames={},identities={},sourceProvenance=null}){
       if(!projectId||!checkpointId||!journalEventId||!originalFile||!evidenceBlob)throw new TypeError('Evidence photo context and both images are required.');
       const mediaGroupId=identities.mediaGroupId||createId(),originalMediaId=identities.originalMediaId||createId(),evidenceMediaId=identities.evidenceMediaId||createId(),capturedAt=metadata.capturedAt||clock.iso(),common={projectId:String(projectId),checkpointId:String(checkpointId),journalEventId:String(journalEventId),mediaGroupId,capturedAt,pairId:metadata.pairId||null,cameraRole:metadata.cameraRole||null,pairStatus:metadata.pairId?'pending':null,metadata:structuredClone(metadata)};
-      const original={...common,mediaId:originalMediaId,kind:'photo',role:'original',mimeType:String(originalFile.type||'image/jpeg'),name:String(filenames.original||originalFile.name||`${originalMediaId}.jpg`),sourceName:String(originalFile.name||''),size:Number(originalFile.size)||0,blob:originalFile,lastModified:Number(originalFile.lastModified)||null,pairedMediaId:evidenceMediaId};
-      const evidence={...common,mediaId:evidenceMediaId,kind:'photo',role:'evidence',mimeType:'image/jpeg',name:String(filenames.evidence||`${evidenceMediaId}.jpg`),size:Number(evidenceBlob.size)||0,blob:evidenceBlob,lastModified:null,pairedMediaId:originalMediaId};
-      const [storedOriginal,storedEvidence]=await commit({records:[original,evidence]}),reference=record=>Object.freeze({mediaId:record.mediaId,mediaGroupId,uri:`media://${record.mediaId}`,kind:'photo',role:record.role,mimeType:record.mimeType,name:record.name,size:record.size,capturedAt,pairedMediaId:record.pairedMediaId});
+      const original={...common,mediaId:originalMediaId,kind:'photo',role:'original',mimeType:String(originalFile.type||'image/jpeg'),name:String(filenames.original||originalFile.name||`${originalMediaId}.jpg`),sourceName:String(originalFile.name||''),size:Number(originalFile.size)||0,blob:originalFile,lastModified:Number(originalFile.lastModified)||null,sourceProvenance:originalProvenance(originalFile,metadata,sourceProvenance),pairedMediaId:evidenceMediaId};
+      const evidence={...common,mediaId:evidenceMediaId,kind:'photo',role:'evidence',mimeType:'image/jpeg',name:String(filenames.evidence||`${evidenceMediaId}.jpg`),sourceName:'',size:Number(evidenceBlob.size)||0,blob:evidenceBlob,lastModified:null,sourceProvenance:evidenceProvenance(original),derivedFromMediaId:originalMediaId,pairedMediaId:originalMediaId};
+      const [storedOriginal,storedEvidence]=await commit({records:[original,evidence]}),reference=record=>Object.freeze({mediaId:record.mediaId,mediaGroupId,uri:`media://${record.mediaId}`,kind:'photo',role:record.role,mimeType:record.mimeType,name:record.name,size:record.size,capturedAt,pairedMediaId:record.pairedMediaId,sourceProvenance:record.sourceProvenance?structuredClone(record.sourceProvenance):null});
       return Object.freeze({mediaGroupId,original:reference(storedOriginal),evidence:reference(storedEvidence),metadata:structuredClone(metadata)});
     },
     async addPhoto({projectId,checkpointId,journalEventId,file}){

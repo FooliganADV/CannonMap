@@ -36,9 +36,51 @@ test('WebKit createImageBitmap rejection falls back to HTML image decoding',asyn
 });
 
 test('evidence failure preserves the untouched original for later retry',async()=>{
-  const original=new Blob(['untouched-camera-bytes'],{type:'image/jpeg'}),stored=[];
-  const repository={listCheckpointPhotos:async()=>[],async addOriginal(input){stored.push(input.originalFile);return {mediaId:'original',mediaGroupId:'group',pairedMediaId:'evidence',role:'original',name:'Day01_CP1_Original.jpg',blob:input.originalFile,metadata:input.metadata};},async markEvidenceFailed(){},async getMedia(){return null;}};
+  const original=new Blob(['untouched-camera-bytes'],{type:'image/jpeg'}),stored=[],abandoned=[];
+  const detached={mediaId:'original',mediaGroupId:'group',pairId:null,pairStatus:'abandoned',pairedMediaId:null,evidenceStatus:'failed',role:'original',name:'Day01_CP1_Original.jpg',blob:original};
+  const repository={listCheckpointPhotos:async()=>[],async addOriginal(input){stored.push(input.originalFile);return {mediaId:'original',mediaGroupId:'group',pairId:'pair-1',pairedMediaId:'evidence',role:'original',name:'Day01_CP1_Original.jpg',blob:input.originalFile,metadata:input.metadata};},async markEvidenceFailed(){},async abandonIncompleteOriginal(mediaId,error){abandoned.push({mediaId,error});return detached;},async getMedia(){return null;}};
   const service=createPhotoEvidenceService({repository,createId:(()=>{const ids=['group','original','evidence'];return()=>ids.shift();})(),inspect:async()=>({width:4032,height:3024}),render:async()=>{throw new Error('canvas memory pressure');}});
-  await assert.rejects(()=>service.capture({projectId:'p',checkpointId:'c',journalEventId:'j',file:original,context:{dayNumber:1}}),error=>error.evidenceRetryable&&error.originalMedia.mediaId==='original');
+  await assert.rejects(()=>service.capture({projectId:'p',checkpointId:'c',journalEventId:'j',file:original,context:{dayNumber:1,pairId:'pair-1'}}),error=>error.evidenceRetryable&&error.originalMedia===detached&&error.originalMedia.pairId===null);
+  assert.deepEqual(abandoned,[{mediaId:'original',error:'canvas memory pressure'}]);
   assert.equal(stored[0],original);assert.equal(await stored[0].text(),'untouched-camera-bytes');
+});
+
+test('cleanup write failures still expose a detached untouched Original and quarantine the pair',async()=>{
+  const originalBlob=new Blob(['native-original'],{type:'image/jpeg'}),evidenceBlob=new Blob(['bad-evidence'],{type:'image/jpeg'}),calls=[];
+  const original={mediaId:'original',mediaGroupId:'group',pairId:'capture-pair',pairedMediaId:'evidence',pairStatus:'pending',role:'original',name:'Original.jpg',blob:originalBlob,metadata:{pairId:'capture-pair'}};
+  const repository={
+    listCheckpointPhotos:async()=>[],async addOriginal(){return original;},async addEvidence(){return {...original,mediaId:'evidence',role:'evidence',blob:evidenceBlob,pairedMediaId:'original'};},
+    async abandonIncompleteOriginal(){calls.push('detach');throw new Error('detach write failed');},async discardEvidence(){calls.push('discard');throw new Error('discard write failed');},async markEvidenceFailed(){calls.push('mark');throw new Error('mark write failed');}
+  };
+  const service=createPhotoEvidenceService({repository,createId:(()=>{const ids=['group','original','evidence'];return()=>ids.shift();})(),inspect:async blob=>{if(blob===evidenceBlob)throw new Error('evidence decode failed');return {width:4032,height:3024};},render:async()=>evidenceBlob});
+  await assert.rejects(()=>service.capture({projectId:'p',checkpointId:'c',journalEventId:'j',file:originalBlob,context:{dayNumber:1,pairId:'capture-pair'}}),error=>{
+    assert.equal(error.originalMedia.mediaId,'original');assert.equal(error.originalMedia.pairId,null);assert.equal(error.originalMedia.pairedMediaId,null);assert.equal(error.originalMedia.metadata.pairId,null);assert.equal(error.originalMedia.metadata.abandonedPairId,'capture-pair');
+    assert.equal(error.originalDurablyDetached,false);assert.equal(error.originalPreserved,true);assert.equal(error.evidenceRetryable,true);assert.equal(error.requiresNewPair,true);
+    assert.deepEqual(error.cleanupErrors.map(item=>item.operation),['detach-original','discard-evidence','mark-evidence-failed']);assert.equal(error.originalMedia.blob,originalBlob);return true;
+  });
+  assert.deepEqual(calls,['detach','discard','mark']);assert.equal(await originalBlob.text(),'native-original');
+});
+
+test('a detached preserved Original can regenerate Evidence without rejoining the failed capture pair',async()=>{
+  const original={mediaId:'original',mediaGroupId:'group',pairId:null,pairStatus:'abandoned',pairedMediaId:null,evidenceStatus:'failed',role:'original',name:'Day01_CP1_Original.jpg',blob:new Blob(['untouched-camera-bytes'],{type:'image/jpeg'}),metadata:{pairId:null,pairStatus:'abandoned',abandonedPairId:'failed-pair'}};
+  let added=null;
+  const repository={async getMedia(){return original;},async addEvidence(input){added=input;return {...original,mediaId:input.evidenceMediaId,role:'evidence',name:input.filename,blob:input.evidenceBlob,pairedMediaId:original.mediaId,evidenceStatus:'complete'};}};
+  const service=createPhotoEvidenceService({repository,createId:()=> 'retry-evidence',inspect:async()=>({width:4032,height:3024}),render:async()=>new Blob(['regenerated-evidence'],{type:'image/jpeg'})});
+  const evidence=await service.retryEvidence('original');
+  assert.equal(added.original,original);assert.equal(added.evidenceMediaId,'retry-evidence');assert.equal(added.original.pairId,null);assert.equal(evidence.role,'evidence');
+});
+
+test('native source provenance follows the untouched Original and Evidence remains independent',async()=>{
+  const original=new Blob(['native-high-resolution'],{type:'image/jpeg'}),evidence=new Blob(['derived-evidence'],{type:'image/jpeg'}),calls=[];
+  const repository={listCheckpointPhotos:async()=>[],async addOriginal(input){calls.push(['original',input]);return {mediaId:'o',mediaGroupId:'g',pairedMediaId:'e',role:'original',name:input.filenames.original,blob:input.originalFile,sourceProvenance:input.sourceProvenance};},async addEvidence({original:evidenceOriginal,evidenceBlob}){calls.push(['evidence',evidenceOriginal,evidenceBlob]);return {mediaId:'e',mediaGroupId:'g',pairedMediaId:'o',role:'evidence',name:'Evidence.jpg',blob:evidenceBlob,sourceProvenance:{sourceKind:'evidence-derivative'}};}};
+  const provenance={sourceKind:'image-capture-photo',nativeStill:true,derivedFromVideoFrame:false,upscaled:false,mimeType:'image/jpeg',byteLength:original.size,width:4032,height:3024};
+  const service=createPhotoEvidenceService({repository,createId:(()=>{const ids=['g','o','e'];return()=>ids.shift();})(),inspect:async blob=>blob===original?{width:4032,height:3024}:{width:1920,height:1440},render:async()=>evidence});
+  const result=await service.capture({projectId:'p',checkpointId:'c',journalEventId:'j',source:{blob:original,provenance},context:{dayNumber:1}});
+  assert.equal(calls[0][1].originalFile,original);assert.equal(calls[1][2],evidence);assert.notEqual(calls[1][2],original);
+  assert.deepEqual(result.original.sourceProvenance,provenance);assert.equal(result.evidence.sourceProvenance.sourceKind,'evidence-derivative');
+});
+
+test('canvas or video frames are rejected as Original media',async()=>{
+  const service=createPhotoEvidenceService({repository:{},createId:()=> 'id',inspect:async()=>({width:1,height:1})});
+  await assert.rejects(()=>service.capture({projectId:'p',checkpointId:'c',journalEventId:'j',source:{blob:new Blob(['frame'],{type:'image/jpeg'}),provenance:{sourceKind:'video-frame',derivedFromVideoFrame:true}},context:{}}),/cannot be stored as Original/);
 });

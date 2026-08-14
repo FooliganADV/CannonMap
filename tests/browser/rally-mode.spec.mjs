@@ -94,14 +94,13 @@ test('hotel completion persists Day Complete and requires explicit next-day star
   await expect(page.locator('#rallyNextName')).toContainText('Day 2 Checkpoint');
 });
 
-test('automatic checkpoint arrival waits for CAPTURE PAIR and attaches four media references to Journal',async({page},testInfo)=>{
+test('manual fallback stores a complete pair and attaches four media references to Journal',async({page},testInfo)=>{
   test.skip(testInfo.project.name==='desktop');
   await loadProject(page);
-  await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(true));
+  await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));
   await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();
-  await expect(page.locator('#rallyCameraCapturePair')).toHaveText('CAPTURE PAIR');
-  await expect(page.locator('#rallyCameraSelfie, #rallyCameraForward')).toHaveCount(0);
-  await expect(page.locator('#rallyCameraRetry')).toBeHidden();
+  await expect(page.locator('#rallyCameraTapSurface')).toBeVisible();
+  await expect(page.locator('#rallyCameraCapturePair, #rallyCameraRetry, #rallyCameraSelfie, #rallyCameraForward')).toHaveCount(0);
   await page.locator('#rallyCameraInput').setInputFiles({name:'checkpoint.jpg',mimeType:'image/jpeg',buffer:photoBuffer});
   await expect(page.locator('#rallyCameraWorkflow')).toBeHidden();
   await page.waitForFunction(async()=>{

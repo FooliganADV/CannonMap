@@ -1,12 +1,12 @@
-const CACHE = 'cannonmap-v0.7.6-20260809-mission-alignment-1';
+const CACHE = 'cannonmap-v0.7.7-20260813-field-media-1';
 const RADAR_CACHE='cannonmap-radar-v1',RADAR_CACHE_LIMIT=96;
 const APP_SHELL = [
   './',
   './index.html',
-  './app.css?v=20260809-mission-alignment-1',
+  './app.css?v=20260813-field-media-1',
   './gps-checkpoints-feed.js?v=20260725-02',
   './stationary-events.js?v=20260725-01',
-  './app.js?v=20260809-mission-alignment-1',
+  './app.js?v=20260813-field-media-1',
   './src/core/clock.js',
   './src/core/compatibility.js',
   './src/core/errors.js',
@@ -16,6 +16,7 @@ const APP_SHELL = [
   './src/core/ids.js',
   './src/core/state-store.js',
   './src/domain/geo/geometry.js',
+  './src/domain/geo/navigation-focus.js',
   './src/domain/projects/model.js',
   './src/domain/projects/lifecycle.js',
   './src/domain/projects/errors.js',
@@ -46,7 +47,9 @@ const APP_SHELL = [
   './src/application/project-lifecycle-manager.js',
   './src/application/project-repository-scope.js',
   './src/application/checkpoint-camera-workflow.js',
-  './src/application/camera-pair-capture.js',
+  './src/application/checkpoint-arrival-coordinator.js',
+  './src/application/paired-media-capture-service.js',
+  './src/application/screen-wake-lock-controller.js',
   './src/application/gps-follow-controller.js',
   './src/application/rally-debug-log.js',
   './src/application/ride-export-source.js',
@@ -85,6 +88,7 @@ const APP_SHELL = [
   './src/infrastructure/indexeddb/mission-media-repository.js',
   './src/infrastructure/indexeddb/template-repository.js',
   './src/infrastructure/indexeddb/journey-restore-repository.js',
+  './src/infrastructure/browser/native-camera-still-capture.js',
   './src/ui/map/map-engine.js',
   './src/ui/map/layer-registry.js',
   './src/ui/rally/presenter.js',

@@ -31,14 +31,14 @@ export function wireRallyController({getElement,actions,windowTarget=window}){
   on('rallyCompleteButton','click',actions.complete);
   on('rallyResumeDeferredButton','click',actions.resumeDeferred);
   on('rallyFinishDayButton','click',actions.finishDay);
-  on('rallyCameraCapturePair','click',actions.capturePair);
+  on('rallyCameraTapSurface','click',actions.capturePhoto);
+  on('rallyCameraTapSurface','keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();actions.capturePhoto?.();}});
   on('rallyCameraFrontInput','change',event=>actions.addCameraSide?.('front',event.target.files?.[0]));
   on('rallyCameraRearInput','change',event=>actions.addCameraSide?.('rear',event.target.files?.[0]));
   on('rallyCameraFrontInput','cancel',()=>actions.cancelCamera?.('front'));
   on('rallyCameraRearInput','cancel',()=>actions.cancelCamera?.('rear'));
   on('rallyCameraInput','change',event=>actions.addTestCameraPair?.(event.target.files?.[0]));
   on('rallyCameraInput','cancel',()=>actions.cancelCamera?.());
-  on('rallyCameraRetry','click',actions.capturePair);
   on('rallyCameraFailObjective','click',actions.failPhotoObjective);
   on('rallyStartNextDay','click',actions.startNextDay);
   on('rallyDebugExportButton','click',actions.exportDebug);

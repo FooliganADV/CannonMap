@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260809-mission-alignment-1" />
+  <link rel="stylesheet" href="app.css?v=20260813-field-media-1" />
 </head>
 <body>
   <header class="topbar">
@@ -18,7 +18,7 @@
       <span class="brand-mark">CM</span>
       <div>
         <h1>CannonMap</h1>
-          <p>America 250 Planner · <span id="buildLabel">Beta 0.7.1</span></p>
+          <p>America 250 Planner · <span id="buildLabel">Beta 0.7.7</span></p>
       </div>
     </div>
     <div class="top-actions">
@@ -281,13 +281,14 @@
           <strong id="rallyDeferredMessage">Deferred checkpoints remain.</strong>
           <div><button id="rallyResumeDeferredButton" type="button">Resume Deferred</button><button id="rallyFinishDayButton" type="button">Finish Day</button></div>
         </section>
-        <section id="rallyCameraWorkflow" class="rally-camera-workflow" hidden aria-live="polite">
-          <p><strong id="rallyCameraHeading">Checkpoint Reached</strong></p>
-          <button id="rallyCameraCapturePair" class="rally-camera-capture-pair" type="button">CAPTURE PAIR</button>
+        <section id="rallyCameraWorkflow" class="rally-camera-workflow" hidden aria-live="polite" role="dialog" aria-modal="true">
+          <div id="rallyCameraTapSurface" class="rally-camera-tap-surface" role="button" tabindex="0" aria-label="Capture required rally photo">
+            <video id="rallyCameraPreview" autoplay muted playsinline hidden></video>
+            <p><strong id="rallyCameraHeading">Checkpoint Reached</strong></p>
+            <small id="rallyCameraPhotoCount">No photos captured</small>
+            <small id="rallyCameraError" class="rally-camera-error" hidden></small>
+          </div>
           <div id="rallyCameraDebugInputs" hidden><input id="rallyCameraFrontInput" type="file" accept="image/*" capture="user" /><input id="rallyCameraRearInput" type="file" accept="image/*" capture="environment" /><input id="rallyCameraInput" type="file" accept="image/*" /></div>
-          <small id="rallyCameraPhotoCount">No photos captured</small>
-          <small id="rallyCameraError" class="rally-camera-error" hidden></small>
-          <button id="rallyCameraRetry" type="button" hidden>RESUME PAIR</button>
           <button id="rallyCameraFailObjective" type="button">Mark Objective Failed</button>
         </section>
         <section id="rallyDayComplete" class="rally-day-complete" hidden>
@@ -323,8 +324,7 @@
           </div>
           <div class="rally-more-actions">
             <h3>Documentation</h3>
-            <button id="rallyJourneySelfieButton" type="button">Journey Selfie</button>
-            <button id="rallyJourneyForwardButton" type="button">Journey Forward</button>
+            <button id="rallyJourneyPhotoButton" type="button">Journey Photo</button>
             <button id="rallyPhotoViewerButton" class="rally-photos-entry" type="button">Checkpoint Photos</button>
             <button id="rallyJourneyGalleryButton" type="button">Journey Photos</button>
             <button id="rallyMoreJournalButton" type="button">Journal</button>
@@ -342,7 +342,6 @@
             <button id="rallyPlannerButton" type="button">OPEN PLANNER</button>
             <button id="rallyHotelButton" type="button">Show hotel</button>
             <button id="goHotelButton" class="rally-hotel-action" type="button">GO TO HOTEL</button>
-            <input id="rallyJourneyPhotoInput" type="file" accept="image/*" capture="user" hidden />
           </div>
           <details class="rally-storage-diagnostics"><summary>Storage &amp; projects</summary><div id="rallyStorageSummary">Calculating storage…</div><button id="rallyRetryEvidence" type="button">Retry Failed Evidence</button><label>Active project <select id="rallyProjectSelect"></select></label><div class="rally-project-actions"><button id="rallyProjectCreate" type="button">Create Project</button><button id="rallyProjectSwitch" type="button">Switch Project</button><button id="rallyProjectRename" type="button">Rename Project</button><button id="rallyProjectArchive" type="button">Archive Project</button><button id="rallyProjectDelete" type="button">Delete Project</button><button id="rallyProjectExport" type="button">Export Project</button><label for="rallyProjectRestore">Restore Project</label><input id="rallyProjectRestore" type="file" accept=".cmapproject,.cmap,.json,application/json" hidden /></div><small id="rallyUnbackedDays"></small></details>
           <div class="rally-project-actions"><label for="rallyDayRestore">Restore Day Backup</label><input id="rallyDayRestore" type="file" accept=".cmapday.zip,application/zip" hidden /></div>
@@ -386,7 +385,7 @@
       <div class="map-status">
         <span id="cursorCoordinates">—</span>
         <span id="gpsStatus">GPS off</span>
-        <span id="appVersion">v0.7.1</span>
+        <span id="appVersion">v0.7.7 · 2026.08.13.field-media-1</span>
       </div>
       <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open planner" aria-expanded="false">Planner</button>
       <button id="intelButton" class="intel-toggle" aria-label="Open live intelligence" aria-expanded="false">Intel</button>
@@ -483,6 +482,6 @@
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260809-mission-alignment-1"></script>
+  <script type="module" src="app.js?v=20260813-field-media-1"></script>
 </body>
 </html>

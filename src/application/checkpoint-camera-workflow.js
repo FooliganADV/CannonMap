@@ -23,15 +23,17 @@ export function createCheckpointCameraWorkflow({mediaRepository,photoEvidence,jo
     active.status='ready';active.error='';active.journalPairEvent=event;publish();return snapshot();
   }
   return Object.freeze({
-    start({projectId,checkpoint,journalEvent,required=true,evidenceContext={},pairId=null,pairJournalEventId=null}){
-      active={status:'awaiting_pair',required:Boolean(required),projectId:String(projectId),checkpoint,journalEvent,evidenceContext,pairId:pairId||createId(),pairJournalEventId:pairJournalEventId||createId(),sides:{front:null,rear:null},startedAt:clock.iso(),error:''};publish();return snapshot();
+    start({projectId,checkpoint,journalEvent,required=true,evidenceContext={},pairId=null,pairJournalEventId=null,visibility='manual',captureKind='checkpoint'}){
+      active={status:visibility==='silent'?'automatic_pending':'awaiting_pair',visibility:visibility==='silent'?'silent':'manual',captureKind,required:Boolean(required),projectId:String(projectId),checkpoint,journalEvent,evidenceContext,pairId:pairId||createId(),pairJournalEventId:pairJournalEventId||createId(),sides:{front:null,rear:null},startedAt:clock.iso(),error:''};publish();return snapshot();
     },
+    setVisibility(visibility,status){if(!active)return null;active.visibility=visibility==='silent'?'silent':'manual';if(status)active.status=status;publish();return snapshot();},
     request(){if(!active)return null;active.status=active.sides.front?'rear_required':'capturing_front';active.error='';publish();onRequested(snapshot());return snapshot();},
-    async addSide(role,file){
+    async addSide(role,capture){
+      const file=capture instanceof Blob?capture:capture?.blob,sourceMetadata=capture instanceof Blob?{}:(capture?.metadata||{});
       if(!active)throw new Error('Camera workflow is not active.');if(!['front','rear'].includes(role))throw new TypeError('Camera role must be front or rear.');if(!(file instanceof Blob))throw new TypeError('A captured photo Blob is required.');
       active.status=`saving_${role}`;active.error='';publish();
       try{
-        const capturedAt=clock.iso(),pair=await photoEvidence.capture({projectId:active.projectId,checkpointId:active.checkpoint.id,journalEventId:active.pairJournalEventId,file,context:{...active.evidenceContext,capturedAt,captureTimestamp:capturedAt,captureMethod:'getUserMedia-sequential',requestedCamera:role,actualCamera:role,cameraSelectionHonored:true,cameraRole:role,pairId:active.pairId,pairJournalEventId:active.pairJournalEventId}});
+        const capturedAt=clock.iso(),pair=await photoEvidence.capture({projectId:active.projectId,checkpointId:active.checkpoint.id,journalEventId:active.pairJournalEventId,file,context:{...active.evidenceContext,...sourceMetadata,capturedAt,captureTimestamp:capturedAt,captureMethod:sourceMetadata.captureMethod||'manual-file-input',requestedCamera:sourceMetadata.requestedCamera||role,actualCamera:sourceMetadata.actualCamera||role,cameraSelectionHonored:sourceMetadata.cameraSelectionHonored!==false,cameraRole:role,captureRole:role==='rear'?'road':'rider',pairId:active.pairId,pairJournalEventId:active.pairJournalEventId}});
         active.sides[role]=pair;active.status=role==='front'&&!active.sides.rear?'rear_required':'pair_captured';publish();if(active.sides.front&&active.sides.rear)return finalizePair();return snapshot();
       }catch(error){active.status='failed';active.error=`${role==='front'?'Front':'Rear'} photo could not be saved. The objective remains PHOTO_REQUIRED.`;await recordFailure(error,role,error?.originalMedia?'evidence_failed':'write_failed');publish();throw error;}
     },

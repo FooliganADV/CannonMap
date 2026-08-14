@@ -147,3 +147,40 @@ test('restore imported order restores the resolved order rather than raw GPX ord
   workflow.restoreImportedOrder(rows);
   assert.deepEqual(workflow.dayCheckpoints({features:rows},{dayFilter:'1'}).map(item=>item.name),['1.1 First','1.2 Middle','1.10 Last']);
 });
+
+test('out-of-order arrival and completion preserve the prior active target',()=>{
+  const rows=[checkpoint('CP 37',1,'next',{photoRequired:true}),checkpoint('CP 42',2,'planned',{photoRequired:true})];
+  const prior=rows[0],detected=rows[1];
+  assert.equal(workflow.recordDetectedArrival(detected,'2026-08-13T12:00:00.000Z'),detected);
+  assert.equal(prior.status,workflow.CHECKPOINT_STATE.ACTIVE);
+  assert.equal(detected.status,workflow.CHECKPOINT_STATE.PHOTO_REQUIRED);
+  assert.equal(workflow.completeCheckpoint(rows,detected,'2026-08-13T12:00:02.000Z',{photoRecorded:true,preserveActiveTarget:true}),prior);
+  assert.equal(detected.status,workflow.CHECKPOINT_STATE.COLLECTED);
+  assert.equal(prior.status,workflow.CHECKPOINT_STATE.ACTIVE);
+});
+
+test('marking an out-of-order photo objective failed preserves the prior active target',()=>{
+  const rows=[checkpoint('CP 37',1,'next',{photoRequired:true}),checkpoint('CP 42',2,'planned',{photoRequired:true}),checkpoint('CP 43',3,'planned')],prior=rows[0],detected=rows[1];
+  workflow.recordDetectedArrival(detected,'2026-08-13T12:00:00.000Z');
+  const next=workflow.skipCheckpoint(rows,detected,{preserveActiveTarget:true});
+  assert.equal(detected.status,workflow.CHECKPOINT_STATE.FAILED);assert.equal(next,prior);assert.equal(prior.status,workflow.CHECKPOINT_STATE.ACTIVE);assert.equal(rows[2].status,workflow.CHECKPOINT_STATE.UPCOMING);
+  assert.deepEqual(rows.filter(item=>item.status===workflow.CHECKPOINT_STATE.ACTIVE).map(item=>item.id),['CP 37']);
+});
+
+test('camera failure dispositions credit truthfully without fabricating media',()=>{
+  for(const photoDisposition of ['camera_unavailable_high_speed','manual_fallback_expired']){
+    const rows=[checkpoint(`cp-${photoDisposition}`,1,'next',{photoRequired:true})],item=rows[0];
+    workflow.recordArrival(item,'2026-08-13T12:00:00.000Z');
+    workflow.completeCheckpoint(rows,item,'2026-08-13T12:01:00.000Z',{photoDisposition});
+    assert.equal(item.status,workflow.CHECKPOINT_STATE.COLLECTED);
+    assert.equal(item.photoStatus,photoDisposition);
+    assert.equal(item.photoFailureDisposition,photoDisposition);
+    assert.equal(item.photoPair,undefined);
+  }
+});
+
+test('camera failure policy interrupts only at 10 mph or below',()=>{
+  assert.equal(workflow.captureFailureDisposition(10),'manual_fallback_required');
+  assert.equal(workflow.captureFailureDisposition(10.01),'camera_unavailable_high_speed');
+  assert.equal(workflow.captureFailureDisposition(null),'manual_fallback_required');
+});

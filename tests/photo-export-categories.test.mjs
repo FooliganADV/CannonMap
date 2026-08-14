@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createPhotoExportService,photoArchiveCategory} from '../src/application/photo-export-service.js';
-import {inspectStoredZip} from '../src/application/portable-zip.js';
+import {inspectStoredZip,readStoredZip} from '../src/application/portable-zip.js';
 
 const u16=(bytes,offset)=>bytes[offset]|bytes[offset+1]<<8;
 const u32=(bytes,offset)=>(bytes[offset]|bytes[offset+1]<<8|bytes[offset+2]<<16|bytes[offset+3]<<24)>>>0;
@@ -31,22 +31,22 @@ test('photo categories distinguish checkpoint, hotel, and Journey media without 
 
 test('Day Photos includes checkpoint, Journal-resolved hotel, and Journey media with exact names and bytes',async()=>{
   const exportResult=await serviceFor([...records,records[2]]).day('project',1,{journal}),entries=await zipEntries(exportResult.blob),expectedNames=['Checkpoints/Day01_CP1.1_Evidence.jpg','Checkpoints/Day01_CP1.1_Original.jpg','Hotels/Day01_Hotel1.5_Evidence.jpg','Hotels/Day01_Hotel1.5_Original.jpg','Journey/Day01_Journey_Original.jpg'];
-  assert.equal(entries.length,5);assert.deepEqual(entries.map(entry=>entry.name).sort(),expectedNames);assert.equal(exportResult.manifest.entryCount,5);assert.equal(exportResult.manifest.totalBytes,records.reduce((sum,item)=>sum+item.blob.size,0));
-  for(const entry of entries){const source=records.find(item=>entry.name.endsWith(item.name));assert.equal(entry.size,source.blob.size);assert.deepEqual(entry.bytes,[...new Uint8Array(await source.blob.arrayBuffer())]);}
+  const photos=entries.filter(entry=>entry.name!=='manifest/photo-media-index.json');assert.equal(entries.length,6);assert.deepEqual(photos.map(entry=>entry.name).sort(),expectedNames);assert.equal(exportResult.manifest.entryCount,5);assert.equal(exportResult.manifest.archiveEntryCount,6);assert.equal(exportResult.manifest.totalBytes,records.reduce((sum,item)=>sum+item.blob.size,0));
+  for(const entry of photos){const source=records.find(item=>entry.name.endsWith(item.name));assert.equal(entry.size,source.blob.size);assert.deepEqual(entry.bytes,[...new Uint8Array(await source.blob.arrayBuffer())]);}
 });
 
 test('Entire Rally includes every unique checkpoint, hotel, and Journey record',async()=>{
-  const exportResult=await serviceFor([...records,records[0]]).rally('project',{journal}),entries=await zipEntries(exportResult.blob);assert.equal(entries.length,5);assert.equal(exportResult.manifest.entryCount,5);assert.equal(entries.filter(entry=>entry.name.startsWith('Hotels/')).length,2);assert.equal(entries.filter(entry=>entry.name.startsWith('Journey/')).length,1);
+  const exportResult=await serviceFor([...records,records[0]]).rally('project',{journal}),entries=await zipEntries(exportResult.blob);assert.equal(entries.length,6);assert.equal(exportResult.manifest.entryCount,5);assert.equal(entries.filter(entry=>entry.name.startsWith('Hotels/')).length,2);assert.equal(entries.filter(entry=>entry.name.startsWith('Journey/')).length,1);
 });
 
 test('completed front and rear pair contributes four verified checkpoint entries',async()=>{
   const pair=['Front_Original','Front_Evidence','Rear_Original','Rear_Evidence'].map((role,index)=>row(`pair-${index}`,`Day09_CP9.1_${role}.jpg`,role,{dayNumber:9,objectiveType:'checkpoint',pairId:'pair-9'}));
-  const result=await serviceFor(pair).day('project',9),entries=await inspectStoredZip(result.blob);assert.equal(result.manifest.entryCount,4);assert.equal(entries.length,4);assert.ok(entries.every(entry=>entry.size>0));
+  const result=await serviceFor(pair).day('project',9),entries=await inspectStoredZip(result.blob);assert.equal(result.manifest.entryCount,4);assert.equal(entries.length,5);assert.ok(entries.every(entry=>entry.size>0));
 });
 
 test('multiple checkpoint, hotel, and Journey pairs export the exact mixed count',async()=>{
   const mixed=[];for(const [prefix,type,checkpoint] of [['CP9.1','checkpoint','cp'],['Hotel','hotel','hotel'],['Journey','journey','journey:1']])for(const role of ['Front_Original','Front_Evidence','Rear_Original','Rear_Evidence'])mixed.push(row(`${checkpoint}-${role}`,`Day09_${prefix}_${role}.jpg`,`${checkpoint}-${role}`,{dayNumber:9,objectiveType:type,pairId:`pair-${checkpoint}`},checkpoint));
-  const result=await serviceFor(mixed).day('project',9),entries=await zipEntries(result.blob);assert.equal(result.manifest.entryCount,12);assert.equal(entries.length,12);assert.equal(entries.filter(entry=>entry.name.startsWith('Hotels/')).length,4);assert.equal(entries.filter(entry=>entry.name.startsWith('Journey/')).length,4);
+  const result=await serviceFor(mixed).day('project',9),entries=await zipEntries(result.blob);assert.equal(result.manifest.entryCount,12);assert.equal(entries.length,13);assert.equal(entries.filter(entry=>entry.name.startsWith('Hotels/')).length,4);assert.equal(entries.filter(entry=>entry.name.startsWith('Journey/')).length,4);
 });
 
 test('day filtering never creates an empty ZIP when project media exists',async()=>{
@@ -56,5 +56,10 @@ test('day filtering never creates an empty ZIP when project media exists',async(
 
 test('zero-byte media is rejected and duplicate filenames are made deterministic and unique',async()=>{
   const empty=row('empty','Day01_CP1.1_Original.jpg','',{dayNumber:1});await assert.rejects(()=>serviceFor([empty]).day('project',1),error=>error.code==='PHOTO_EXPORT_EMPTY_ENTRY');
-  const duplicates=[row('one','Same.jpg','one',{dayNumber:1}),row('two','Same.jpg','two',{dayNumber:1})],result=await serviceFor(duplicates).day('project',1),entries=await inspectStoredZip(result.blob);assert.deepEqual(entries.map(entry=>entry.name),['Checkpoints/Same.jpg','Checkpoints/Same_02.jpg']);
+  const duplicates=[row('one','Same.jpg','one',{dayNumber:1}),row('two','Same.jpg','two',{dayNumber:1})],result=await serviceFor(duplicates).day('project',1),entries=await inspectStoredZip(result.blob);assert.deepEqual(entries.filter(entry=>entry.name.endsWith('.jpg')).map(entry=>entry.name),['Checkpoints/Same.jpg','Checkpoints/Same_02.jpg']);
+});
+
+test('paired Journey Photo manifest resolves pair-only Journal references and preserves road/rider plus Original/Evidence identity',async()=>{
+  const roles=[['road','original'],['road','evidence'],['rider','original'],['rider','evidence']],paired=roles.map(([logicalSide,role],index)=>({mediaId:`journey-${index}`,projectId:'project',checkpointId:'journey:paired',pairId:'journey-pair',pairStatus:'complete',logicalSide,role,name:`Day09_Journey_${logicalSide}_${role}.jpg`,mimeType:'image/jpeg',pairedMediaId:`paired-${index}`,blob:new Blob([`${logicalSide}-${role}`],{type:'image/jpeg'}),metadata:{pairId:'journey-pair',logicalSide}})),pairJournal=[{eventType:'photo_pair_completed',references:{pairId:'journey-pair'},metadata:{dayNumber:9,objectiveType:'journey'}}],result=await serviceFor(paired).day('project',9,{journal:pairJournal}),files=await readStoredZip(result.blob),manifest=JSON.parse(files['manifest/photo-media-index.json']);
+  assert.equal(manifest.pairCount,1);assert.equal(manifest.originalCount,2);assert.equal(manifest.evidenceCount,2);assert.deepEqual(new Set(manifest.entries.map(item=>item.logicalSide)),new Set(['road','rider']));assert.deepEqual(new Set(manifest.entries.map(item=>item.cameraRole)),new Set(['rear','front']));assert.ok(manifest.entries.every(item=>item.objectiveType==='journey'&&item.dayNumber===9&&item.checksum.value.length===64));assert.equal(Object.keys(files).filter(name=>name.startsWith('Journey/')).length,4);
 });

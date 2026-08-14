@@ -10,6 +10,44 @@ test('verified Day Backup round-trips Project, state, Journal, pair identity, fi
   expect(result.filename).toBe('Day09_Backup.cmapday.zip');expect(result.verified).toBeTruthy();expect(result.project.features[0]).toMatchObject({id:'hotel',status:'collected',photoPairId:'pair-1'});expect(result.project.rallyExecution.days['9']).toMatchObject({status:'complete',score:50});expect(result.journal).toHaveLength(3);expect(result.media).toHaveLength(4);expect(new Set(result.media.map(item=>item.pairId))).toEqual(new Set(['pair-1']));expect(result.bytes).toEqual(['front-original','front-evidence','rear-original','rear-evidence']);expect(result.manifest.mediaCount).toBe(4);
 });
 
+test('partial capture pair survives Day Backup restore without fabricating the missing camera side',async({page},testInfo)=>{
+  test.skip(testInfo.project.name!=='iPhone 13 portrait');
+  await page.goto('/');
+  const result=await page.evaluate(async suffix=>{
+    const infra=await import('/src/infrastructure/indexeddb/index.js');
+    const exports=await import('/src/application/photo-export-service.js');
+    const restoreModule=await import('/src/application/journey-package-restore.js');
+    const open=name=>infra.openIndexedDbV2({indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name});
+    const projectId=`partial-${suffix}`,pairId='pair-rear-only',originalId='rear-original',evidenceId='rear-evidence';
+    const media=[
+      {mediaId:originalId,projectId,checkpointId:'cp-42',journalEventId:'photo-partial',pairId,pairStatus:'pending',cameraRole:'rear',role:'original',pairedMediaId:evidenceId,name:'rear-original.jpg',mimeType:'image/jpeg',size:20,metadata:{dayNumber:9,objectiveType:'checkpoint',pairId,cameraRole:'rear'},blob:new Blob(['partial-rear-original'],{type:'image/jpeg'})},
+      {mediaId:evidenceId,projectId,checkpointId:'cp-42',journalEventId:'photo-partial',pairId,pairStatus:'pending',cameraRole:'rear',role:'evidence',pairedMediaId:originalId,name:'rear-evidence.jpg',mimeType:'image/jpeg',size:20,metadata:{dayNumber:9,objectiveType:'checkpoint',pairId,cameraRole:'rear'},blob:new Blob(['partial-rear-evidence'],{type:'image/jpeg'})}
+    ];
+    const project={projectId,id:projectId,name:'Interrupted Media Day',features:[{id:'cp-42',type:'checkpoint',day:9,status:'photo_required',points:10,pendingPhotoPair:{pairId,pairJournalEventId:'photo-partial',status:'pending'}}],rallyExecution:{days:{9:{dayNumber:9,status:'active',score:0}}}};
+    const journal=[{eventId:'photo-partial',projectId,eventType:'photo_added',metadata:{dayNumber:9,objectiveType:'checkpoint',pairId},references:{checkpointId:'cp-42',pairId},attachments:{photos:[{mediaId:originalId},{mediaId:evidenceId}]}}];
+    const sourceDb=await open(`partial-source-${suffix}`),sourceRestore=infra.createJourneyRestoreRepository({database:sourceDb});
+    await sourceRestore.restoreNew({project,journal,media});
+    const service=exports.createPhotoExportService({repository:infra.createMissionMediaRepository({database:sourceDb,createId:()=>'',clock:{iso:()=>''}})});
+    const archive=await service.dayBackup(projectId,9,{project,journal,settings:{rallyDays:{9:{status:'active',score:0}}},applicationVersion:'test',buildId:'partial-roundtrip'});
+    sourceDb.close();
+
+    const targetDb=await open(`partial-target-${suffix}`),restore=restoreModule.createJourneyPackageRestoreService({repository:infra.createJourneyRestoreRepository({database:targetDb})});
+    const restoredPackage=await restore.restoreDay(archive.blob);
+    const targetMedia=infra.createMissionMediaRepository({database:targetDb,createId:()=>'',clock:{iso:()=>''}}),restoredMedia=(await targetMedia.listProjectPhotos(projectId)).sort((a,b)=>a.role.localeCompare(b.role));
+    const tx=targetDb.transaction(['projectRecords'],'readonly'),request=tx.objectStore('projectRecords').get(projectId),restoredProject=await new Promise((resolve,reject)=>{request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+    const bytes=await Promise.all(restoredMedia.map(row=>row.blob.text()));targetDb.close();
+    return {manifest:archive.manifest,verification:restoredPackage.verification,feature:restoredProject.features[0],media:restoredMedia.map(({blob,binaryData,...row})=>row),bytes};
+  },`${testInfo.project.name}-${Date.now()}`);
+
+  expect(result.manifest).toMatchObject({mediaCount:2,originalCount:1,evidenceCount:1,pairCount:1});
+  expect(result.verification).toMatchObject({verified:true,mediaCount:2,pairCount:1});
+  expect(result.feature).toMatchObject({id:'cp-42',status:'photo_required',pendingPhotoPair:{pairId:'pair-rear-only',status:'pending'}});
+  expect(result.media).toHaveLength(2);
+  expect(result.media.every(item=>item.pairId==='pair-rear-only'&&item.pairStatus==='pending'&&item.cameraRole==='rear')).toBeTruthy();
+  expect(result.media.some(item=>item.cameraRole==='front')).toBeFalsy();
+  expect(result.bytes).toEqual(['partial-rear-evidence','partial-rear-original']);
+});
+
 test('REPLACE changes only the selected day and CANCEL makes no writes',async({page},testInfo)=>{
   test.skip(testInfo.project.name!=='iPhone 13 portrait');await page.goto('/');const result=await page.evaluate(async suffix=>{const infra=await import('/src/infrastructure/indexeddb/index.js'),database=await infra.openIndexedDbV2({indexedDB,featureFlags:{isEnabled:()=>true},databaseName:`replace-${suffix}`}),repository=infra.createJourneyRestoreRepository({database}),base={projectId:'p',id:'p',name:'Original',features:[{id:'d1',day:1,status:'collected'},{id:'old9',day:9,status:'deferred'},{id:'d31',day:31,status:'upcoming'}],rallyExecution:{days:{1:{status:'complete'},9:{status:'active'},31:{status:'ready'}}}},other={projectId:'other',id:'other',name:'Other',features:[{id:'other1',day:1,status:'collected'}]};await repository.restoreNew({project:base,journal:[{eventId:'keep',projectId:'p',metadata:{dayNumber:1}},{eventId:'old',projectId:'p',metadata:{dayNumber:9}}],media:[{mediaId:'keep',projectId:'p',checkpointId:'d1',journalEventId:'keep',metadata:{dayNumber:1},blob:new Blob(['keep'])},{mediaId:'old',projectId:'p',checkpointId:'old9',journalEventId:'old',metadata:{dayNumber:9},blob:new Blob(['old'])}]});await repository.restoreNew({project:other});const payload={manifest:{projectId:'p',dayNumber:9,dayState:{status:'complete'}},projectMetadata:{dayFeatures:[{id:'new9',day:9,status:'collected',scoreAwarded:20}],project:{...base,features:[{id:'new9',day:9,status:'collected',scoreAwarded:20}],rallyExecution:{days:{9:{status:'complete',score:20}}}}},journal:[{eventId:'new',projectId:'p',metadata:{dayNumber:9}}],media:[{mediaId:'new',projectId:'p',checkpointId:'new9',journalEventId:'new',metadata:{dayNumber:9},blob:new Blob(['new'])}]};let cancelError='';try{await repository.restoreDay(payload,{mode:'cancel'});}catch(error){cancelError=error.code;}const beforeReplace=await repository.readDay('p',9);await repository.restoreDay(payload,{mode:'replace'});const restored=await repository.readDay('p',9),tx=database.transaction(['projectRecords','journalEvents','missionMedia'],'readonly'),get=(store,key)=>new Promise((resolve,reject)=>{const request=key?tx.objectStore(store).get(key):tx.objectStore(store).getAll();request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);}),project=await get('projectRecords','p'),unrelated=await get('projectRecords','other'),allJournal=await get('journalEvents'),allMedia=await get('missionMedia');database.close();return {cancelError,beforeIds:beforeReplace.project.features.map(item=>item.id),featureIds:project.features.map(item=>item.id),day9:restored.project.rallyExecution.days['9'],journalIds:allJournal.map(item=>item.eventId),mediaIds:allMedia.map(item=>item.mediaId),unrelated:unrelated.features.map(item=>item.id)};},`${testInfo.project.name}-${Date.now()}`);expect(result.cancelError).toBe('DUPLICATE_PROJECT');expect(result.beforeIds).toContain('old9');expect(result.featureIds).toEqual(expect.arrayContaining(['d1','new9','d31']));expect(result.featureIds).not.toContain('old9');expect(result.day9).toMatchObject({status:'complete',score:20});expect(result.journalIds).toEqual(expect.arrayContaining(['keep','new']));expect(result.journalIds).not.toContain('old');expect(result.mediaIds).toEqual(expect.arrayContaining(['keep','new']));expect(result.mediaIds).not.toContain('old');expect(result.unrelated).toEqual(['other1']);
 });
