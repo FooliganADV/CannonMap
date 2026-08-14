@@ -32,14 +32,25 @@ export function selectBestNativeStill(primary,backup,{assess=assessNativeStillQu
 }
 
 export class PairedMediaCaptureError extends Error{
-  constructor(message,{cause,pairId,failedSide,partial={},recoverableOriginal=null}={}){
+  constructor(message,{cause,pairId,failedSide,failureStage=null,partial={},recoverableOriginal=null}={}){
     super(message,{cause});this.name='PairedMediaCaptureError';this.code='PAIRED_MEDIA_CAPTURE_FAILED';this.pairId=pairId||null;this.failedSide=failedSide||null;this.partial=Object.freeze({...partial});
+    this.failureStage=failureStage||cause?.failureStage||'unknown';
     this.recoverableOriginal=recoverableOriginal||cause?.originalMedia||null;
     this.evidenceRetryable=Boolean(cause?.evidenceRetryable&&this.recoverableOriginal);
     this.originalDurablyDetached=Boolean(cause?.originalDurablyDetached);
     this.requiresNewPair=Boolean(cause?.requiresNewPair);
     this.cleanupErrors=Object.freeze([...(cause?.cleanupErrors||[])]);
   }
+}
+
+export const isNativeCameraCaptureFailure=error=>error instanceof PairedMediaCaptureError&&error.failureStage==='camera-capture';
+
+function withFailureStage(error,failureStage){
+  if(error?.failureStage)return error;
+  const wrapped=new Error(error?.message||String(error),{cause:error});
+  wrapped.name=error?.name||'Error';wrapped.code=error?.code||null;wrapped.failureStage=failureStage;
+  for(const key of ['originalMedia','evidenceRetryable','originalDurablyDetached','requiresNewPair','cleanupErrors'])if(error?.[key]!==undefined)wrapped[key]=error[key];
+  return wrapped;
 }
 
 /**
@@ -55,7 +66,8 @@ export function createPairedMediaCaptureService({captureStill,photoEvidence=null
   async function captureSide(side,{signal,pairId,pairJournalEventId,projectId,checkpointId,journalEventId,context,onEvent}){
     const common={pairId,cameraRole:side.cameraRole,requestedCamera:side.requestedCamera};
     await emit(onEvent,'automatic_capture_initiated',{...common,side:side.key});
-    let primary;
+    let primary,failureStage='camera-capture';
+    try{
     try{
       primary=await captureStill(side.requestedCamera,{signal,onPhase:(phase,details)=>emit(onEvent,phase,{...common,side:side.key,...details})});
     }catch(error){
@@ -80,6 +92,7 @@ export function createPairedMediaCaptureService({captureStill,photoEvidence=null
 
     let media=null;
     if(photoEvidence){
+      failureStage='media-persistence';
       const provenance=choice.selected.provenance,capturedAt=clock.iso();
       media=await photoEvidence.capture({
         projectId,checkpointId,journalEventId,file:choice.selected.blob,source:choice.selected,
@@ -88,6 +101,7 @@ export function createPairedMediaCaptureService({captureStill,photoEvidence=null
       await emit(onEvent,'automatic_media_persisted',{...common,side:side.key,originalMediaId:media.original?.mediaId||null,evidenceMediaId:media.evidence?.mediaId||null});
     }
     return Object.freeze({side:side.key,cameraRole:side.cameraRole,capture:choice.selected,quality:Object.freeze({primary:choice.primaryQuality,backup:choice.backupQuality,selection:choice.selection,backupAttempted}),media});
+    }catch(error){throw withFailureStage(error,failureStage);}
   }
 
   return Object.freeze({
@@ -96,7 +110,7 @@ export function createPairedMediaCaptureService({captureStill,photoEvidence=null
       await emit(onEvent,'paired_capture_initiated',base);
       for(const side of SIDES){
         try{sides[side.key]=await captureSide(side,{signal,pairId,pairJournalEventId,projectId,checkpointId,journalEventId,context,onEvent});}
-        catch(error){throw new PairedMediaCaptureError(`Automatic ${side.key} capture failed.`,{cause:error,pairId,failedSide:side.key,partial:sides,recoverableOriginal:error?.originalMedia||null});}
+        catch(error){throw new PairedMediaCaptureError(`Automatic ${side.key} capture failed.`,{cause:error,pairId,failedSide:side.key,failureStage:error?.failureStage,partial:sides,recoverableOriginal:error?.originalMedia||null});}
       }
       // Pair completion belongs to checkpoint-camera-workflow, which first writes the
       // durable photo_added Journal relationship and then marks all four assets complete.

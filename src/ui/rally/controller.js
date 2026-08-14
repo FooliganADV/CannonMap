@@ -31,6 +31,8 @@ export function wireRallyController({getElement,actions,windowTarget=window}){
   on('rallyCompleteButton','click',actions.complete);
   on('rallyResumeDeferredButton','click',actions.resumeDeferred);
   on('rallyFinishDayButton','click',actions.finishDay);
+  on('rallyEnableCameraButton','click',actions.enableCamera);
+  on('rallyCameraContinueManualButton','click',actions.continueManualCamera);
   on('rallyCameraTapSurface','click',actions.capturePhoto);
   on('rallyCameraTapSurface','keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();actions.capturePhoto?.();}});
   on('rallyCameraFrontInput','change',event=>actions.addCameraSide?.('front',event.target.files?.[0]));

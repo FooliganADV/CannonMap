@@ -47,6 +47,15 @@ test('Rally presenter hides empty objective sections and hotel defer control',()
   assert.equal(getElement('rallyDeferIcon').hidden,true);
 });
 
+test('camera setup keeps manual escape available while browser acquisition is checking',()=>{
+  const elements=new Map(),getElement=id=>{if(!elements.has(id))elements.set(id,fakeElement());return elements.get(id);};
+  renderRally({getElement,escapeHtml:String,model:{day:1,online:true,score:0,next:null,distance:null,warnings:[],checkpoints:[],hasHotel:true,showCameraSetup:true,cameraReadiness:{permission:'prompt',capability:'checking'}}});
+  assert.equal(getElement('rallyCameraSetup').hidden,false);
+  assert.equal(getElement('rallyEnableCameraButton').disabled,true);
+  assert.equal(getElement('rallyCameraContinueManualButton').disabled,false);
+  assert.equal(getElement('rallyCameraContinueManualButton').textContent,'USE MANUAL CAMERA');
+});
+
 test('Day Complete renders compact metrics and persisted backup status',()=>{
   const elements=new Map(),getElement=id=>{if(!elements.has(id))elements.set(id,fakeElement());return elements.get(id);};
   renderRally({getElement,escapeHtml:String,model:{day:1,online:true,score:45,next:null,distance:null,warnings:[],checkpoints:[],hasHotel:true,showDeferredPrompt:true,deferredCount:1,dayComplete:true,nextDay:2,backupStatus:'Photos exported',daySummary:{totalCollected:3,totalDeferred:1,score:20}}});

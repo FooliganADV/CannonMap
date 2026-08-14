@@ -166,6 +166,7 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
      Force auto + isolation + compositing layer so touchstart/click reach controls. */
   .rally-primary-card,
   .rally-deferred-prompt,
+  .rally-camera-setup,
   .rally-camera-workflow,
   .rally-day-complete,
   .rally-recenter-fab,
@@ -328,13 +329,20 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
     pointer-events:auto;
   }
 
-  .rally-deferred-prompt,.rally-camera-workflow,.rally-day-complete{
+  .rally-deferred-prompt,.rally-camera-setup,.rally-camera-workflow,.rally-day-complete{
     position:absolute;left:10px;right:10px;top:calc(max(6px,env(safe-area-inset-top)) + 36px);z-index:1080;
     padding:14px;border:2px solid #f59e0b;border-radius:14px;background:rgba(15,23,42,.97);box-shadow:0 12px 32px #000c;pointer-events:auto;
   }
-  .rally-deferred-prompt strong,.rally-camera-workflow strong{display:block;font-size:1.05rem}
+  .rally-deferred-prompt strong,.rally-camera-setup strong,.rally-camera-workflow strong{display:block;font-size:1.05rem}
   .rally-deferred-prompt>div{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
   .rally-deferred-prompt button{min-height:52px;display:grid;place-items:center;border:1px solid #64748b;border-radius:10px;background:#1f2937;color:#fff;font-weight:900}
+  .rally-camera-setup{z-index:1090;left:max(10px,env(safe-area-inset-left));right:max(10px,env(safe-area-inset-right));max-height:calc(100dvh - max(12px,env(safe-area-inset-top)) - max(12px,env(safe-area-inset-bottom)));overflow:auto;border-color:#38bdf8;text-align:left}
+  .rally-camera-setup p{margin:8px 0 0;color:#e2e8f0;font-size:.78rem;line-height:1.35}
+  .rally-camera-setup-actions{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:8px;margin-top:12px}
+  .rally-camera-setup-actions button{min-height:56px;border:2px solid #7dd3fc;border-radius:11px;background:#0369a1;color:#fff;font-size:.8rem;font-weight:900;touch-action:manipulation}
+  .rally-camera-setup-actions #rallyCameraContinueManualButton{border-color:#64748b;background:#1f2937;color:#cbd5e1}
+  .rally-camera-setup.is-denied{border-color:#fb7185}
+  .rally-camera-setup.is-denied #rallyEnableCameraButton{display:none}
   .rally-camera-workflow{border-color:#38bdf8;text-align:center}
   .rally-camera-workflow p{font-size:.75rem;color:#cbd5e1}
   .rally-camera-workflow input{position:absolute;width:1px;height:1px;overflow:hidden;opacity:0}
@@ -352,6 +360,9 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
   .map-area:has(.intel-sheet.open) .rally-recenter-fab{display:none}
   .map-area:has(.rally-camera-workflow:not([hidden])) .rally-recenter-fab,
   .map-area:has(.rally-camera-workflow:not([hidden])) .rally-actions{visibility:hidden;pointer-events:none}
+  .map-area:has(.rally-camera-setup:not([hidden])) .rally-primary-card,
+  .map-area:has(.rally-camera-setup:not([hidden])) .rally-recenter-fab,
+  .map-area:has(.rally-camera-setup:not([hidden])) .rally-actions{visibility:hidden;pointer-events:none}
   .map-area:has(.leaflet-control-layers-expanded) .leaflet-top.leaflet-right{z-index:1400}
   .map-area:has(.leaflet-control-layers-expanded) .rally-head,
   .map-area:has(.leaflet-control-layers-expanded) .rally-primary-card,

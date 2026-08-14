@@ -17,6 +17,22 @@ export function renderRally({getElement,model,escapeHtml}){
   if(!getElement('rallyMode'))return;
   const set=(id,value)=>{const el=getElement(id);if(el)el.textContent=value;};
   const kind=checkpointKind(model.next);
+  const camera=model.cameraReadiness||{},cameraCapability=String(camera.capability||'uninitialized'),cameraPermission=String(camera.permission||'unknown');
+  const cameraSetup=getElement('rallyCameraSetup'),showCameraSetup=Boolean(model.showCameraSetup);
+  if(cameraSetup){
+    cameraSetup.hidden=!showCameraSetup;
+    cameraSetup.classList.toggle('is-denied',cameraPermission==='denied');
+  }
+  if(showCameraSetup){
+    const checking=cameraCapability==='checking';
+    set('rallyCameraSetupTitle',cameraPermission==='denied'?'Camera access blocked':checking?'Checking camera…':'Enable camera before riding');
+    set('rallyCameraSetupMessage',cameraPermission==='denied'
+      ?'Camera permission is blocked in the browser. CannonMap will use the full-screen manual camera until permission is enabled in site settings.'
+      :checking?'CannonMap is verifying camera access and will release the camera immediately afterward.'
+      :'Tap once now to grant camera access. CannonMap will verify both cameras, release them, and use automatic checkpoint capture when supported.');
+    const enable=getElement('rallyEnableCameraButton');if(enable){enable.hidden=cameraPermission==='denied';enable.disabled=checking;enable.textContent=checking?'CHECKING…':'ENABLE CAMERA';}
+    const manual=getElement('rallyCameraContinueManualButton');if(manual){manual.disabled=false;manual.textContent=cameraPermission==='denied'?'CONTINUE MANUAL':'USE MANUAL CAMERA';}
+  }
   set('rallyActiveProjectName',model.projectName||'');
   set('rallyDay',`Day ${model.day||'—'}`);
   set('rallyOnlineStatus',model.online?'Online':'Offline');
@@ -44,7 +60,7 @@ export function renderRally({getElement,model,escapeHtml}){
     for(const name of ['is-extreme','is-fuel','is-hotel','is-checkpoint','is-none'])card.classList.toggle(name,false);
     card.classList.toggle(`is-${kind}`,true);
   }
-  if(card)card.hidden=Boolean(model.showDeferredPrompt||model.dayComplete);
+  if(card)card.hidden=Boolean(model.showDeferredPrompt||model.dayComplete||showCameraSetup);
   const fab=getElement('rallyRecenterFab');
   if(fab){
     const active=Boolean(model.gpsActive)||(model.gpsStatus&&!/off/i.test(model.gpsStatus));

@@ -15,8 +15,10 @@ import {createRallyJournalService} from './src/application/rally-journal-service
 import {createProjectLifecycleManager} from './src/application/project-lifecycle-manager.js';
 import {createProjectRepositoryScope} from './src/application/project-repository-scope.js';
 import {createCheckpointCameraWorkflow} from './src/application/checkpoint-camera-workflow.js';
-import {createPairedMediaCaptureService,PairedMediaCaptureError} from './src/application/paired-media-capture-service.js';
+import {createPairedMediaCaptureService,isNativeCameraCaptureFailure,PairedMediaCaptureError} from './src/application/paired-media-capture-service.js';
+import {createCameraReadinessService,AutomaticCameraNotReadyError} from './src/application/camera-readiness-service.js';
 import {captureNativeCameraStill} from './src/infrastructure/browser/native-camera-still-capture.js';
+import {createBrowserCameraReadinessAdapter} from './src/infrastructure/browser/camera-readiness-adapter.js';
 import {createCheckpointArrivalCoordinator} from './src/application/checkpoint-arrival-coordinator.js';
 import {createScreenWakeLockController} from './src/application/screen-wake-lock-controller.js';
 import {inferSignificantRouteTurns,selectNavigationFocus,decideNavigationZoom} from './src/domain/geo/navigation-focus.js';
@@ -44,10 +46,11 @@ import {
 import {createFirebaseAuthentication} from './src/infrastructure/firebase/authentication.js';
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
-const APP_VERSION = '0.7.7';
-const BUILD_ID = '2026.08.13.field-media-1';
+const APP_VERSION = '0.7.8';
+const BUILD_ID = '2026.08.13.camera-readiness-1';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
+const CAMERA_SETUP_HINT_KEY = 'cannonmap.camera-setup-succeeded.v1';
 const DB_NAME = 'CannonMapDB';
 const DB_STORE = 'projects';
 const PROHIBITED_FEATURE_NAMES = new Set(['old coast road']);
@@ -80,6 +83,8 @@ let activeLifecycleProjectId=null;
 let rallyJournal=null;
 let checkpointCamera=null;
 let pairedMediaCapture=null;
+let cameraReadiness=null;
+let cameraReadinessAdapter=null;
 let checkpointArrivalCoordinator=null;
 let screenWakeLock=null;
 let missionMedia=null;
@@ -110,6 +115,10 @@ let manualFallbackResolver=null;
 let navigationZoomState=null;
 let navigationRouteCache=null;
 let automaticCaptureOverride=null;
+let automaticCaptureAbortController=null;
+let cameraSetupDismissed=false;
+let resumeGpsAfterCameraSetup=false;
+let lastCameraEligibility=null;
 let checkpointCompletionInFlight=false;
 let projectSaveQueue=Promise.resolve();
 let defaultProjectSettings=null;
@@ -619,6 +628,37 @@ async function initializeMissionControlFoundations(){
   });
   screenWakeLock=createScreenWakeLockController({wakeLock:navigator.wakeLock,documentRef:document,debugLog:rallyDebug});
 }
+function recordCameraDiagnostic(event={}){
+  const eventType=String(event.eventType||'').trim();if(!eventType)return;
+  const details={...event};delete details.eventType;delete details.occurredAt;
+  rallyDebug.record(eventType,details);
+  if(/failed|denied|unavailable|interrupted/.test(eventType))console.warn(`[CannonMap camera] ${eventType}`,details);
+}
+function cameraSetupHint(){
+  try{return Boolean(localStorage.getItem(CAMERA_SETUP_HINT_KEY));}catch{return false;}
+}
+function persistCameraSetupHint(succeeded){
+  try{
+    if(succeeded)localStorage.setItem(CAMERA_SETUP_HINT_KEY,core.clock.iso());
+    else localStorage.removeItem(CAMERA_SETUP_HINT_KEY);
+  }catch{/* Camera readiness is authoritative in memory; this device-local hint is optional. */}
+}
+function initializeCameraReadiness(){
+  cameraReadinessAdapter=createBrowserCameraReadinessAdapter({
+    mediaDevices:navigator.mediaDevices,permissions:navigator.permissions,
+    imageCaptureFactory:typeof globalThis.ImageCapture==='function'?track=>new globalThis.ImageCapture(track):null,
+    secureContext:globalThis.isSecureContext!==false,onDiagnostic:recordCameraDiagnostic
+  });
+  cameraReadiness=createCameraReadinessService({
+    adapter:cameraReadinessAdapter,priorSetupSucceeded:cameraSetupHint(),clock:core.clock,onDiagnostic:recordCameraDiagnostic,
+    persistSetupSucceeded:persistCameraSetupHint,
+    onStateChange:cameraState=>{
+      if(lastCameraEligibility!==cameraState.automaticCaptureEligible){lastCameraEligibility=cameraState.automaticCaptureEligible;rallyDebug.record('camera_auto_capture_eligibility',{eligible:cameraState.automaticCaptureEligible,permission:cameraState.permission,capability:cameraState.capability,reasonCode:cameraState.reasonCode});}
+      renderRallyMode();
+    }
+  });
+  return cameraReadiness;
+}
 async function loadProject() {
   try {
     const db=await openDatabase();
@@ -898,6 +938,27 @@ function exportCsv() {
   downloadBlob(csv,`${safeFilename(state.project.name)}-manifest.csv`,'text/csv;charset=utf-8');setStatus(`Exported ${rows.length} manifest rows to CSV.`);
 }
 
+function cameraReadinessState(){return cameraReadiness?.state?.()||{permission:'unknown',capability:'uninitialized',automaticCaptureEligible:false,reasonCode:'not-initialized',permissionQuerySupported:false,getUserMediaSupported:Boolean(navigator.mediaDevices?.getUserMedia),imageCaptureSupported:typeof globalThis.ImageCapture==='function',lastVerifiedAt:null,setupAttemptedThisSession:false,priorSetupSucceeded:false};}
+function cameraSetupRequired(){const camera=cameraReadinessState();return camera.permission==='denied'||['uninitialized','checking','setup-required','interrupted'].includes(camera.capability);}
+function showCameraSetup(){return Boolean(activeRallyDay()&&state.gpsWatchId===null&&!cameraSetupDismissed&&cameraSetupRequired());}
+async function refreshCameraReadiness(){const result=await cameraReadiness?.inspect?.({force:true});renderRallyMode();return result||cameraReadinessState();}
+async function enableCameraForRally(){
+  cameraSetupDismissed=false;
+  const result=await cameraReadiness?.setupFromUserGesture?.();
+  renderRallyMode();
+  if(result?.automaticCaptureEligible){
+    setStatus('Camera ready for automatic checkpoint capture.');
+    const resume=resumeGpsAfterCameraSetup;resumeGpsAfterCameraSetup=false;if(resume)startGps();
+  }else if(result?.permission==='denied')setStatus('Camera permission is blocked. Use browser site settings to enable it, or continue with manual checkpoint capture.',true);
+  else setStatus('Automatic camera setup did not complete. Retry while stationary or continue with manual checkpoint capture.',true);
+  return result;
+}
+function continueWithManualCamera(){
+  const camera=cameraReadinessState();cameraSetupDismissed=true;
+  rallyDebug.record('camera_manual_mode_acknowledged',{permission:camera.permission,capability:camera.capability,reasonCode:camera.reasonCode});renderRallyMode();
+  const resume=resumeGpsAfterCameraSetup;resumeGpsAfterCameraSetup=false;if(resume)startGps();
+}
+
 function startGps() {
   if(!navigator.geolocation){
     setStatus('This browser does not support GPS.',true);
@@ -913,6 +974,9 @@ function startGps() {
     rallyDebug.record('follow_mode_changed',{enabled:false,reason:'gps-stopped'});
     renderRallyMode();
     return;
+  }
+  if(activeRallyDay()&&cameraSetupRequired()&&!cameraSetupDismissed){
+    resumeGpsAfterCameraSetup=true;renderRallyMode();setStatus('Enable the camera once before starting the rally, or choose manual camera mode.');setTimeout(()=>{const enable=$('rallyEnableCameraButton');if(enable&&!enable.hidden)enable.focus();else $('rallyCameraContinueManualButton')?.focus();},0);return;
   }
   void missionStorage?.requestPersistence?.().then(()=>renderStorageAndProjects()).catch(()=>{});
   void screenWakeLock?.start('gps-started');
@@ -1058,7 +1122,7 @@ function renderCheckpointCameraState(cameraState){
   const checkpoint=pendingObjectiveCheckpoint(),heading=$('rallyCameraHeading');if(heading)heading.textContent=checkpoint?.type==='hotel'?'Hotel Reached':checkpoint?.type==='journey'?'Journey Photo':'Checkpoint Reached';
   if($('rallyCameraFailObjective'))$('rallyCameraFailObjective').hidden=checkpoint?.type==='journey';
   const front=Boolean(cameraState.sides?.front),rear=Boolean(cameraState.sides?.rear),count=$('rallyCameraPhotoCount');
-  if(count)count.textContent=front&&rear?'Front captured ✓\nRear captured ✓':front?'Front captured ✓\nRear required':rear?'Front required\nRear captured ✓':'No photos captured';
+  if(count){const intentionalManual=Boolean(pendingMediaObjective?.fallbackReason);count.textContent=front&&rear?'Front captured ✓\nRear captured ✓':front?'Front captured ✓\nRear required':rear?'Front required\nRear captured ✓':intentionalManual?'Tap anywhere to open the camera':'No photos captured';}
   if($('rallyCameraError')){$('rallyCameraError').textContent=cameraState.error||'';$('rallyCameraError').hidden=!cameraState.error;}
   if($('rallyCameraDebugInputs'))$('rallyCameraDebugInputs').hidden=!(new URLSearchParams(location.search).has('debugPhotos')||globalThis.__CANNONMAP_PHOTO_DEBUG__===true);
 }
@@ -1141,13 +1205,13 @@ async function expireManualFallback(){
   checkpointCamera?.abandon();pendingPhotoCheckpointId=null;resolveManualFallback({status:'expired'});return true;
 }
 
-function beginManualFallback(checkpoint,{priorTargetId=null,partial=null,captureKind='checkpoint',speedMph=null,timeoutMs=60000}={}){
+function beginManualFallback(checkpoint,{priorTargetId=null,partial=null,captureKind='checkpoint',speedMph=null,timeoutMs=60000,fallbackReason='automatic-capture-failed'}={}){
   if(partial?.road?.media&&!checkpointCamera.getState().sides?.rear)checkpointCamera.restoreSide('rear',partial.road.media);
   if(partial?.rider?.media&&!checkpointCamera.getState().sides?.front)checkpointCamera.restoreSide('front',partial.rider.media);
+  pendingMediaObjective={checkpointId:checkpoint.id,checkpoint:checkpoint.type==='journey'?checkpoint:null,priorTargetId,captureKind,mode:'manual-fallback',fallbackReason,speedMph:Number.isFinite(Number(speedMph))?Number(speedMph):null,expiresAt:Date.now()+timeoutMs};
   checkpointCamera.setVisibility('manual',manualFallbackMissingRole()==='rear'?'rear_required':'awaiting_pair');
-  pendingMediaObjective={checkpointId:checkpoint.id,checkpoint:checkpoint.type==='journey'?checkpoint:null,priorTargetId,captureKind,mode:'manual-fallback',speedMph:Number.isFinite(Number(speedMph))?Number(speedMph):null,expiresAt:Date.now()+timeoutMs};
-  rallyDebug.record('slow_speed_manual_fallback',{checkpointId:checkpoint.id,speedMph:pendingMediaObjective.speedMph,expiresAt:new Date(pendingMediaObjective.expiresAt).toISOString()});
-  void appendRallyJournalEvent('manual_fallback_started',checkpoint,{eventIdentity:`manual-fallback:${checkpoint.id}:${checkpoint.arrivedAt||core.clock.iso()}`,pairId:checkpointCamera?.getState()?.pairId||null,captureStatus:'manual_fallback_required',speedAtFailureMph:pendingMediaObjective.speedMph,expiresAt:new Date(pendingMediaObjective.expiresAt).toISOString()}).catch(()=>{});
+  rallyDebug.record('slow_speed_manual_fallback',{checkpointId:checkpoint.id,speedMph:pendingMediaObjective.speedMph,fallbackReason,expiresAt:new Date(pendingMediaObjective.expiresAt).toISOString()});
+  void appendRallyJournalEvent('manual_fallback_started',checkpoint,{eventIdentity:`manual-fallback:${checkpoint.id}:${checkpoint.arrivedAt||core.clock.iso()}`,pairId:checkpointCamera?.getState()?.pairId||null,captureStatus:'manual_fallback_required',fallbackReason,speedAtFailureMph:pendingMediaObjective.speedMph,expiresAt:new Date(pendingMediaObjective.expiresAt).toISOString()}).catch(()=>{});
   return new Promise(resolve=>{
     manualFallbackResolver=resolve;
     manualFallbackTimer=setTimeout(()=>{void expireManualFallback();},timeoutMs);
@@ -1281,9 +1345,14 @@ async function requestJourneyPhoto(){
     await captureAutomaticPair(checkpoint,arrival,workflow);const result=checkpointCamera.finish();pendingPhotoCheckpointId=null;pendingMediaObjective=null;
     rallyDebug.record('journey_photo_completed',{pairId:result?.pairId||workflow.pairId});await renderStorageAndProjects();
   }catch(error){
-    let partial=error instanceof PairedMediaCaptureError?error.partial:{};const failedPairId=workflow.pairId;await appendFailureJournalBestEffort('camera_failure',checkpoint,{eventIdentity:`journey-camera-failure:${eventId}`,pairId:failedPairId,failedSide:error?.failedSide||null,captureStatus:'manual_fallback_required',partialRoadCaptured:Boolean(partial.road),partialRiderCaptured:Boolean(partial.rider),error:error?.message||String(error)});
+    let partial=error instanceof PairedMediaCaptureError?error.partial:{};const failedPairId=workflow.pairId,requestedCamera=error?.failedSide==='rider'?'front':error?.failedSide==='road'?'rear':null;
+    if(isNativeCameraCaptureFailure(error)&&!automaticCaptureOverride)await cameraReadiness?.noteCaptureFailure?.(error?.cause||error,{requestedCamera});
+    const failure=cameraFailureDetails(error),fallbackReason=cameraFallbackReason(error),readiness=cameraReadinessState();
+    rallyDebug.record('camera_failure',{checkpointId:checkpoint.id,pairId:failedPairId,failedSide:error?.failedSide||null,speedMph:speed,disposition:'manual_fallback_required',fallbackReason,permission:readiness.permission,capability:readiness.capability,...failure});
+    rallyDebug.record('camera_fallback_selected',{checkpointId:checkpoint.id,reason:fallbackReason,disposition:'manual_fallback_required',speedMph:speed,permission:readiness.permission,capability:readiness.capability});
+    await appendFailureJournalBestEffort('camera_failure',checkpoint,{eventIdentity:`journey-camera-failure:${eventId}`,pairId:failedPairId,failedSide:error?.failedSide||null,captureStatus:'manual_fallback_required',fallbackReason,permissionState:readiness.permission,cameraCapability:readiness.capability,partialRoadCaptured:Boolean(partial.road),partialRiderCaptured:Boolean(partial.rider),...failure});
     if(error?.requiresNewPair){workflow=await restartUnsafeCapturePair(checkpoint,arrival,'journey',failedPairId);partial={};}
-    const outcome=await beginManualFallback(checkpoint,{partial,captureKind:'journey',speedMph:speed});
+    const outcome=await beginManualFallback(checkpoint,{partial,captureKind:'journey',speedMph:speed,fallbackReason});
     if(outcome?.status==='captured')rallyDebug.record('journey_photo_completed',{pairId:workflow.pairId,captureMethod:'manual-fallback'});
     await renderStorageAndProjects();
   }
@@ -1841,10 +1910,12 @@ function warningVisible(warning,next){
   return true;
 }
 function currentOperationalWarnings(next){
-  const warnings=[];
+  const warnings=[],camera=cameraReadinessState();
   if(!navigator.onLine)warnings.push({id:'offline',message:'Offline — live intelligence is paused.'});
   if(state.gpsWatchId===null)warnings.push({id:'gps',message:'GPS REQUIRED — Start GPS for automatic checkpoint arrival.'});
   else if(contextualGpsLabel().startsWith('GPS POOR'))warnings.push({id:'gps',message:`${contextualGpsLabel()} — automatic arrival is waiting for better accuracy.`});
+  if(cameraSetupRequired()&&!cameraSetupDismissed)warnings.push({id:'camera',message:'CAMERA SETUP REQUIRED — enable once before riding.'});
+  else if(!camera.automaticCaptureEligible&&camera.capability!=='uninitialized'&&camera.capability!=='checking')warnings.push({id:'camera',message:'Manual camera mode — tap the full capture screen when requested.'});
   if(state.trafficIncidents.length)warnings.push({id:'traffic',message:`${state.trafficIncidents.length} traffic alert${state.trafficIncidents.length===1?'':'s'} nearby.`});
   if(Number(state.weatherData?.current?.weather_code)>=51)warnings.push({id:'weather',message:'Active weather may affect the approach.'});
   return warnings.filter(warning=>warningVisible(warning,next));
@@ -1873,7 +1944,8 @@ function renderRallyMode(){
     deferredCount,showDeferredPrompt:deferredCount>0&&!hasRunnable&&!next,hasHotel:Boolean(hotel.hotel),hotelBailoutActive:state.hotelBailoutActive,
     autoComplete:state.settings.autoCompleteCheckpoints!==false,arrivalRadius:state.settings.checkpointArrivalRadius||500,maxAccuracy:state.settings.checkpointMaxAccuracy||200,
     checkpoints:rows,hasPlanned:rows.some(feature=>feature.status===checkpoints.CHECKPOINT_STATE.UPCOMING),warnings:currentOperationalWarnings(next),
-    routeIntelligence:cannonRouteStatus(next),objectiveIntel,dayComplete:dayState.status==='complete',nextDay:dayState.nextDay,daySummary:dayState.summary,backupStatus:dayBackupStatus(),reviewMode
+    routeIntelligence:cannonRouteStatus(next),objectiveIntel,dayComplete:dayState.status==='complete',nextDay:dayState.nextDay,daySummary:dayState.summary,backupStatus:dayBackupStatus(),reviewMode,
+    cameraReadiness:cameraReadinessState(),showCameraSetup:showCameraSetup()
   }});
   renderRallyLayerControls();
 }
@@ -2043,6 +2115,9 @@ function navigationZoomForPosition(position){
   const focus=selectNavigationFocus({position,checkpoint:next?{...next,point}:null,routePoints,routeTurns:line?.turns||[],currentRouteIndex}),decision=decideNavigationZoom({focus,currentZoom:state.map?.getZoom?.(),previous:navigationZoomState,now:Date.now()});navigationZoomState=decision;
   return {targetZoom:decision.zoom,zoomReason:`${focus.kind}:${decision.reason}`,focus};
 }
+function deepestCameraCause(error){let current=error,depth=0;const seen=new Set();while(current?.cause&&depth<6&&!seen.has(current.cause)){seen.add(current);current=current.cause;depth++;}return current||error;}
+function cameraFailureDetails(error){const cause=deepestCameraCause(error);return {exceptionName:error?.name||'Error',exceptionCode:error?.code||null,exceptionMessage:error?.message||String(error),causeName:cause?.name||null,causeCode:cause?.code||null,causeMessage:cause?.message||null};}
+function cameraFallbackReason(error){const readiness=error instanceof AutomaticCameraNotReadyError?error.readinessState:cameraReadinessState();return readiness?.reasonCode||String(deepestCameraCause(error)?.code||deepestCameraCause(error)?.name||'automatic-capture-failed').toLowerCase().replaceAll('_','-');}
 
 async function processDetectedCheckpointArrival(arrival){
   const checkpoint=state.project.features.find(feature=>feature.id===arrival.checkpointId),day=activeRallyDay();
@@ -2058,15 +2133,18 @@ async function processDetectedCheckpointArrival(arrival){
     await captureAutomaticPair(checkpoint,arrivalEvent,workflow);
     await finalizePendingPhotoCheckpoint();
   }catch(error){
-    let partial=error instanceof PairedMediaCaptureError?error.partial:{};const disposition=checkpoints.captureFailureDisposition(arrival.speedMph),failedPairId=workflow.pairId;
-    rallyDebug.record('camera_failure',{checkpointId:checkpoint.id,pairId:failedPairId,failedSide:error?.failedSide||null,speedMph:arrival.speedMph,disposition,error:error?.message||String(error)});
-    await appendFailureJournalBestEffort('camera_failure',checkpoint,{eventIdentity:`camera-failure:${checkpoint.id}:${arrival.detectedAt}`,pairId:failedPairId,failedSide:error?.failedSide||null,speedAtFailureMph:arrival.speedMph,captureStatus:disposition,partialRoadCaptured:Boolean(partial.road),partialRiderCaptured:Boolean(partial.rider),preservedOriginalMediaId:error?.recoverableOriginal?.mediaId||null,evidenceRetryable:Boolean(error?.evidenceRetryable),error:error?.message||String(error)});
+    let partial=error instanceof PairedMediaCaptureError?error.partial:{};const disposition=checkpoints.captureFailureDisposition(arrival.speedMph),failedPairId=workflow.pairId,requestedCamera=error?.failedSide==='rider'?'front':error?.failedSide==='road'?'rear':null;
+    if(isNativeCameraCaptureFailure(error)&&!automaticCaptureOverride)await cameraReadiness?.noteCaptureFailure?.(error?.cause||error,{requestedCamera});
+    const failure=cameraFailureDetails(error),fallbackReason=cameraFallbackReason(error),readiness=cameraReadinessState();
+    rallyDebug.record('camera_failure',{checkpointId:checkpoint.id,pairId:failedPairId,failedSide:error?.failedSide||null,speedMph:arrival.speedMph,disposition,fallbackReason,permission:readiness.permission,capability:readiness.capability,...failure});
+    rallyDebug.record('camera_fallback_selected',{checkpointId:checkpoint.id,reason:fallbackReason,disposition,speedMph:arrival.speedMph,permission:readiness.permission,capability:readiness.capability});
+    await appendFailureJournalBestEffort('camera_failure',checkpoint,{eventIdentity:`camera-failure:${checkpoint.id}:${arrival.detectedAt}`,pairId:failedPairId,failedSide:error?.failedSide||null,speedAtFailureMph:arrival.speedMph,captureStatus:disposition,fallbackReason,permissionState:readiness.permission,cameraCapability:readiness.capability,partialRoadCaptured:Boolean(partial.road),partialRiderCaptured:Boolean(partial.rider),preservedOriginalMediaId:error?.recoverableOriginal?.mediaId||null,evidenceRetryable:Boolean(error?.evidenceRetryable),...failure});
     if(disposition==='camera_unavailable_high_speed'){
       checkpoint.pendingPhotoPair={...checkpoint.pendingPhotoPair,status:'camera_unavailable_high_speed'};checkpointCamera.abandon();pendingPhotoCheckpointId=null;pendingMediaObjective=null;
       await completeCurrentCheckpoint(true,{checkpoint,photoDisposition:disposition,preserveActiveTarget:Boolean(priorTarget),silent:true});
     }else{
       if(error?.requiresNewPair){workflow=await restartUnsafeCapturePair(checkpoint,arrivalEvent,checkpoint.type==='hotel'?'hotel':'checkpoint',failedPairId);partial={};}
-      const outcome=await beginManualFallback(checkpoint,{priorTargetId:priorTarget?.id||null,partial,captureKind:checkpoint.type==='hotel'?'hotel':'checkpoint',speedMph:arrival.speedMph});
+      const outcome=await beginManualFallback(checkpoint,{priorTargetId:priorTarget?.id||null,partial,captureKind:checkpoint.type==='hotel'?'hotel':'checkpoint',speedMph:arrival.speedMph,fallbackReason});
       if(outcome?.status==='expired')await completeCurrentCheckpoint(true,{checkpoint,photoDisposition:'manual_fallback_expired',preserveActiveTarget:Boolean(priorTarget),silent:true});
     }
   }
@@ -2101,21 +2179,33 @@ async function beginPhotoWorkflow(checkpoint,automatic,{arrivalEvent=null,visibi
 async function recordMediaAutomationEvent(event,checkpoint,arrivalEvent){
   if(!event?.eventType)return null;
   const details=structuredClone(event);delete details.eventType;delete details.occurredAt;
-  return appendRallyJournalEvent(event.eventType,checkpoint,{
-    eventIdentity:`media:${event.eventType}:${event.pairId||checkpoint.id}:${event.side||''}:${event.occurredAt||core.clock.iso()}`,
-    source:'automatic_camera',parentEventId:arrivalEvent?.eventId||null,...details
-  },event.occurredAt||core.clock.iso());
+  try{
+    return await appendRallyJournalEvent(event.eventType,checkpoint,{
+      eventIdentity:`media:${event.eventType}:${event.pairId||checkpoint.id}:${event.side||''}:${event.occurredAt||core.clock.iso()}`,
+      source:'automatic_camera',parentEventId:arrivalEvent?.eventId||null,...details
+    },event.occurredAt||core.clock.iso());
+  }catch(error){
+    rallyDebug.record('camera_automation_journal_failed',{cameraEventType:event.eventType,pairId:event.pairId||null,checkpointId:checkpoint?.id||null,exceptionName:error?.name||'Error',message:error?.message||String(error)});
+    return null;
+  }
 }
 
 async function captureAutomaticPair(checkpoint,arrivalEvent,workflow){
-  const result=await pairedMediaCapture.capturePair({
-    projectId:state.project.projectId,checkpointId:checkpoint.id,journalEventId:workflow.pairJournalEventId,
-    pairJournalEventId:workflow.pairJournalEventId,pairId:workflow.pairId,context:photoEvidenceContext(checkpoint,arrivalEvent),
-    onEvent:event=>recordMediaAutomationEvent(event,checkpoint,arrivalEvent)
-  });
-  checkpointCamera.restoreSide('rear',result.sides.rear.media);checkpointCamera.restoreSide('front',result.sides.front.media);
-  try{await checkpointCamera.finalizeRestoredPair();return result;}
-  catch(error){throw new PairedMediaCaptureError('Captured media could not be finalized.',{cause:error,pairId:result.pairId,failedSide:'pair-finalization',partial:{road:result.road,rider:result.rider}});}
+  if(!automaticCaptureOverride){
+    if(cameraReadiness?.state?.().capability==='interrupted'&&cameraReadiness?.state?.().permission==='granted')await cameraReadiness?.prepareAutomaticCapture?.();
+    cameraReadiness?.assertAutomaticCaptureEligible?.();
+  }
+  const controller=new AbortController();automaticCaptureAbortController=controller;
+  try{
+    const result=await pairedMediaCapture.capturePair({
+      signal:controller.signal,projectId:state.project.projectId,checkpointId:checkpoint.id,journalEventId:workflow.pairJournalEventId,
+      pairJournalEventId:workflow.pairJournalEventId,pairId:workflow.pairId,context:photoEvidenceContext(checkpoint,arrivalEvent),
+      onEvent:event=>recordMediaAutomationEvent(event,checkpoint,arrivalEvent)
+    });
+    checkpointCamera.restoreSide('rear',result.sides.rear.media);checkpointCamera.restoreSide('front',result.sides.front.media);
+    try{await checkpointCamera.finalizeRestoredPair();if(!automaticCaptureOverride)cameraReadiness?.noteCaptureSuccess?.();return result;}
+    catch(error){throw new PairedMediaCaptureError('Captured media could not be finalized.',{cause:error,pairId:result.pairId,failedSide:'pair-finalization',failureStage:'pair-finalization',partial:{road:result.road,rider:result.rider}});}
+  }finally{if(automaticCaptureAbortController===controller)automaticCaptureAbortController=null;}
 }
 function showRestoreResult(payload){
   const result=payload.verification,copy=Boolean(payload.recoveryCopy),complete=String(result.status).toLowerCase()==='complete',dialog=$('restoreResultDialog');if(!dialog)return;
@@ -2322,7 +2412,7 @@ function wireUi() {
     startGps,
     toggleMore:()=>setRallyMoreOpen(!$('rallyMode').classList.contains('more-open')),
     openPlanner:()=>{setRallyMoreOpen(false);setSidebarOpen(true);},toggleHotelBailout,
-    complete:()=>completeCurrentCheckpoint(false),resumeDeferred:resumeDeferredQueue,finishDay:finishDayFromDeferredQueue,
+    complete:()=>completeCurrentCheckpoint(false),resumeDeferred:resumeDeferredQueue,finishDay:finishDayFromDeferredQueue,enableCamera:enableCameraForRally,continueManualCamera:continueWithManualCamera,
     capturePhoto:triggerManualFallbackCapture,addCameraSide:addCheckpointCameraSide,addTestCameraPair:addTestCheckpointCameraPair,cancelCamera:cancelCheckpointCamera,failPhotoObjective:failPendingPhotoObjective,startNextDay:startNextRallyDay,warning:suppressWarning,
     exportDebug:()=>downloadBlob(rallyDebug.exportJson(),`${safeFilename(state.project.name)}-rally-debug.json`,'application/json'),
     exportJournal:async()=>downloadBlob(JSON.stringify(await missionControlJournalEvents(),null,2),`${safeFilename(state.project.name)}-daily-journal.json`,'application/json'),
@@ -2347,6 +2437,7 @@ async function initializeApplication() {
   state.settings.typeVisibility=Object.assign({track:true,route:true,backbone:true,waypoint:true,checkpoint:true,fuel:true,hotel:true},state.settings.typeVisibility||{});
   state.settings=Object.assign({...RALLY_FEED_DEFAULTS,rallyPollSeconds:30,showCompetitorTrails:true,showCompetitorMarkers:true,showStationaryEvents:true,showCompetitorClusters:true,competitorTrailMinutes:480,competitorTrailOpacity:100,competitorFreshMinutes:15,trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:'',radarOpacity:65,radarCoverage:'active-day',radarEnabled:false,routeWeatherSpeed:45,usableFuelCapacity:0,expectedPavedRange:0,expectedMixedRange:0,reserveDistance:25,fuelProfile:'mixed',autoCompleteCheckpoints:true,checkpointArrivalRadius:500,checkpointMaxAccuracy:200,hideCompletedCheckpoints:true,preferredCamera:'front'},state.settings);
   state.settings.preferredCamera=normalizeCameraPreference(state.settings.preferredCamera);applyCameraPreference();
+  initializeCameraReadiness();
   loadPersistedRestoredDayReview();
   defaultProjectSettings=deepClean(state.settings);
   state.project.competitors ||= [];
@@ -2362,13 +2453,14 @@ async function initializeApplication() {
   });
   weatherMaintenance=createProjectWeatherMaintenance();
   initMap();wireUi();weatherMaintenance.restore();if($('radarOpacity'))$('radarOpacity').value=state.settings.radarOpacity||65;if($('radarCoverage'))$('radarCoverage').value=state.settings.radarCoverage||'active-day';if($('routeWeatherSpeed'))$('routeWeatherSpeed').value=String(state.settings.routeWeatherSpeed||45);
+  await cameraReadiness.inspect();
   if($('buildLabel'))$('buildLabel').textContent=`Beta ${APP_VERSION}`;
   if($('appVersion'))$('appVersion').textContent=`v${APP_VERSION} · ${BUILD_ID}`;
   renderAll();
   weatherMaintenance.onGps(currentIntelPoint(),{moving:false}).catch(error=>console.warn(`[CannonMap weather] Background refresh failed: ${error?.message||error}`));
-  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')weatherMaintenance?.onGps(currentIntelPoint(),{moving:false}).catch(()=>{});},{passive:true});
-  window.addEventListener('pagehide',()=>{void screenWakeLock?.stop('page-hidden');},{passive:true});
-  window.addEventListener('pageshow',()=>{if(state.gpsWatchId!==null)void screenWakeLock?.start('page-restored');},{passive:true});
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){weatherMaintenance?.onGps(currentIntelPoint(),{moving:false}).catch(()=>{});void refreshCameraReadiness();}else automaticCaptureAbortController?.abort();},{passive:true});
+  window.addEventListener('pagehide',()=>{automaticCaptureAbortController?.abort();void screenWakeLock?.stop('page-hidden');},{passive:true});
+  window.addEventListener('pageshow',()=>{void refreshCameraReadiness();if(state.gpsWatchId!==null)void screenWakeLock?.start('page-restored');},{passive:true});
   if(state.settings.radarEnabled)showRadar({silent:true});
   const pendingPhoto=state.project.features.find(feature=>checkpoints.checkpointState(feature.status)===checkpoints.CHECKPOINT_STATE.PHOTO_REQUIRED);
   if(pendingPhoto){
@@ -2426,5 +2518,5 @@ function setGpsPositionForTest(position={}){
   const speedMps=Number.isFinite(Number(position.speedMps))?Number(position.speedMps):(Number.isFinite(Number(position.speedMph))?Number(position.speedMph)/2.23694:null);
   state.lastGpsPosition={lat:Number(position.lat),lon:Number(position.lon),heading:Number.isFinite(Number(position.heading))?Number(position.heading):null,speedMps,accuracyFeet:Number.isFinite(Number(position.accuracyFeet))?Number(position.accuracyFeet):15,elevationFeet:Number.isFinite(Number(position.elevationFeet))?Number(position.elevationFeet):null,time:position.time||new Date().toISOString()};return structuredClone(state.lastGpsPosition);
 }
-window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,resumeDeferredQueue,finishDayFromDeferredQueue,startNextRallyDay,finalizePendingPhotoCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival,moveCheckpointInOrder,makeCheckpointNext,restoreImportedCheckpointOrder,handleStationaryAction,renderStationaryEvents,updateStationaryDetection,renderMapFeatures,mapEngineDiagnostics,observationCaptureDiagnostics,captureGpsObservation,replaySecureObservations,observationContext,missionControlJournalEvents,missionControlAppendTestPhotoReference,rideExportSnapshot,missionMediaRecords:async()=>Promise.all((await missionMedia.listProjectPhotos(state.project.projectId)).map(async row=>({role:row.role,metadata:row.metadata,name:row.name,bytes:[...new Uint8Array(await row.blob.arrayBuffer())]}))),rallyDebugEntries:()=>rallyDebug.entries(),gpsFollowState:()=>gpsFollow?.state(),simulateManualMapPan:()=>state.map?.fire('dragstart',{originalEvent:{type:'field-test'}}),gpsMarkerBounds:()=>{if(!state.lastGpsPosition||!state.map)return null;const point=state.map.latLngToContainerPoint([state.lastGpsPosition.lat,state.lastGpsPosition.lon]),mapRect=$('map')?.getBoundingClientRect();return mapRect?{x:mapRect.left+point.x,y:mapRect.top+point.y}:null;},setCompetitorsForTest:competitors=>{state.project.competitors=structuredClone(competitors);renderCompetitors();return mapEngineDiagnostics();},openCompetitorPopupForTest:id=>mapEngine.layers.get('competitors',`marker:${id}`)?.openPopup(),competitorPopupState:()=>structuredClone(competitorPopupSelection),setAutomaticCameraCaptureForTest:handler=>{automaticCaptureOverride=typeof handler==='function'?handler:null;},observeCheckpointDetectionsForTest:input=>checkpointArrivalCoordinator?.observe(input),awaitFieldMediaIdle:()=>checkpointArrivalCoordinator?.whenIdle(),expireManualFallbackForTest:expireManualFallback,fieldMediaState,missionStorageEstimate:()=>missionStorage?.estimate(state.project.projectId),wakeLockState:()=>screenWakeLock?.state()||null,setGpsPositionForTest,runtimeDependencyReport,startApplication,registerServiceWorker};
+window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,resumeDeferredQueue,finishDayFromDeferredQueue,startNextRallyDay,finalizePendingPhotoCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival,moveCheckpointInOrder,makeCheckpointNext,restoreImportedCheckpointOrder,handleStationaryAction,renderStationaryEvents,updateStationaryDetection,renderMapFeatures,mapEngineDiagnostics,observationCaptureDiagnostics,captureGpsObservation,replaySecureObservations,observationContext,missionControlJournalEvents,missionControlAppendTestPhotoReference,rideExportSnapshot,missionMediaRecords:async()=>Promise.all((await missionMedia.listProjectPhotos(state.project.projectId)).map(async row=>({role:row.role,metadata:row.metadata,name:row.name,bytes:[...new Uint8Array(await row.blob.arrayBuffer())]}))),rallyDebugEntries:()=>rallyDebug.entries(),gpsFollowState:()=>gpsFollow?.state(),simulateManualMapPan:()=>state.map?.fire('dragstart',{originalEvent:{type:'field-test'}}),gpsMarkerBounds:()=>{if(!state.lastGpsPosition||!state.map)return null;const point=state.map.latLngToContainerPoint([state.lastGpsPosition.lat,state.lastGpsPosition.lon]),mapRect=$('map')?.getBoundingClientRect();return mapRect?{x:mapRect.left+point.x,y:mapRect.top+point.y}:null;},setCompetitorsForTest:competitors=>{state.project.competitors=structuredClone(competitors);renderCompetitors();return mapEngineDiagnostics();},openCompetitorPopupForTest:id=>mapEngine.layers.get('competitors',`marker:${id}`)?.openPopup(),competitorPopupState:()=>structuredClone(competitorPopupSelection),setAutomaticCameraCaptureForTest:handler=>{automaticCaptureOverride=typeof handler==='function'?handler:null;},cameraReadinessState:()=>structuredClone(cameraReadinessState()),refreshCameraReadinessForTest:refreshCameraReadiness,observeCheckpointDetectionsForTest:input=>checkpointArrivalCoordinator?.observe(input),awaitFieldMediaIdle:()=>checkpointArrivalCoordinator?.whenIdle(),expireManualFallbackForTest:expireManualFallback,fieldMediaState,missionStorageEstimate:()=>missionStorage?.estimate(state.project.projectId),wakeLockState:()=>screenWakeLock?.state()||null,setGpsPositionForTest,runtimeDependencyReport,startApplication,registerServiceWorker};
 startApplication();

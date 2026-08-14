@@ -1,6 +1,8 @@
-# CannonMap Planner — Beta 0.7.7 Field Media Rally UX
+# CannonMap Planner — Beta 0.7.8 Camera Readiness
 
-Build: `2026.08.13.field-media-1`
+Build: `2026.08.13.camera-readiness-1`
+
+Rally Mode now checks camera readiness before active riding. Supported Android browsers offer one deliberate **Enable Camera** setup action, verify both cameras, release the probe streams, and then reopen them automatically for checkpoint capture. Browsers without native `ImageCapture` support continue through the full-screen manual fallback intentionally.
 
 ## Purpose
 

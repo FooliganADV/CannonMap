@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {assessNativeStillQuality,createPairedMediaCaptureService,selectBestNativeStill} from '../src/application/paired-media-capture-service.js';
+import {assessNativeStillQuality,createPairedMediaCaptureService,isNativeCameraCaptureFailure,selectBestNativeStill} from '../src/application/paired-media-capture-service.js';
 
 const still=(camera,{width=4032,height=3024,size=300_000,label=camera}={})=>({blob:new Blob([new Uint8Array(size)],{type:'image/jpeg'}),tracksStopped:true,provenance:{sourceKind:'image-capture-photo',nativeStill:true,derivedFromVideoFrame:false,upscaled:false,requestedCamera:camera,actualCamera:camera,cameraSelectionHonored:true,captureMethod:'getUserMedia-imagecapture',mimeType:'image/jpeg',byteLength:size,width,height,label}});
 
@@ -32,7 +32,17 @@ test('indeterminate quality retains the primary without destructive guessing',()
 
 test('synthetic video-frame captures cannot become automatic Originals',async()=>{
   const service=createPairedMediaCaptureService({captureStill:async camera=>({blob:new Blob(['frame']),provenance:{sourceKind:'video-frame',nativeStill:false,derivedFromVideoFrame:true,requestedCamera:camera}}),createId:()=> 'pair'});
-  await assert.rejects(()=>service.capturePair(),error=>error.code==='PAIRED_MEDIA_CAPTURE_FAILED'&&error.failedSide==='road');
+  await assert.rejects(()=>service.capturePair(),error=>error.code==='PAIRED_MEDIA_CAPTURE_FAILED'&&error.failedSide==='road'&&error.failureStage==='camera-capture');
+});
+
+test('native camera errors are distinguished from media persistence errors',async()=>{
+  const denied=new DOMException('Camera permission denied.','NotAllowedError');
+  const captureService=createPairedMediaCaptureService({captureStill:async()=>{throw denied;},createId:()=> 'pair-camera'});
+  await assert.rejects(()=>captureService.capturePair(),error=>isNativeCameraCaptureFailure(error)&&error.cause.cause===denied);
+
+  const storageFailure=Object.assign(new Error('IndexedDB quota exceeded.'),{code:'MEDIA_STORAGE_FAILED'});
+  const persistenceService=createPairedMediaCaptureService({captureStill:async camera=>still(camera),photoEvidence:{capture:async()=>{throw storageFailure;}},createId:()=> 'pair-storage'});
+  await assert.rejects(()=>persistenceService.capturePair(),error=>!isNativeCameraCaptureFailure(error)&&error.failureStage==='media-persistence'&&error.cause.cause===storageFailure);
 });
 
 test('Evidence failure propagates a recoverable detached Original without treating it as a complete side',async()=>{
@@ -46,6 +56,7 @@ test('Evidence failure propagates a recoverable detached Original without treati
   await assert.rejects(()=>service.capturePair(),error=>{
     assert.equal(error.code,'PAIRED_MEDIA_CAPTURE_FAILED');
     assert.equal(error.failedSide,'road');
+    assert.equal(error.failureStage,'media-persistence');
     assert.deepEqual(error.partial,{},'an Original without Evidence is not a complete restorable side');
     assert.equal(error.cause.originalMedia,preserved);
     assert.equal(error.recoverableOriginal,preserved);

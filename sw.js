@@ -1,12 +1,12 @@
-const CACHE = 'cannonmap-v0.7.7-20260813-field-media-1';
+const CACHE = 'cannonmap-v0.7.8-20260813-camera-readiness-1';
 const RADAR_CACHE='cannonmap-radar-v1',RADAR_CACHE_LIMIT=96;
 const APP_SHELL = [
   './',
   './index.html',
-  './app.css?v=20260813-field-media-1',
+  './app.css?v=20260813-camera-readiness-1',
   './gps-checkpoints-feed.js?v=20260725-02',
   './stationary-events.js?v=20260725-01',
-  './app.js?v=20260813-field-media-1',
+  './app.js?v=20260813-camera-readiness-1',
   './src/core/clock.js',
   './src/core/compatibility.js',
   './src/core/errors.js',
@@ -49,6 +49,7 @@ const APP_SHELL = [
   './src/application/checkpoint-camera-workflow.js',
   './src/application/checkpoint-arrival-coordinator.js',
   './src/application/paired-media-capture-service.js',
+  './src/application/camera-readiness-service.js',
   './src/application/screen-wake-lock-controller.js',
   './src/application/gps-follow-controller.js',
   './src/application/rally-debug-log.js',
@@ -89,6 +90,7 @@ const APP_SHELL = [
   './src/infrastructure/indexeddb/template-repository.js',
   './src/infrastructure/indexeddb/journey-restore-repository.js',
   './src/infrastructure/browser/native-camera-still-capture.js',
+  './src/infrastructure/browser/camera-readiness-adapter.js',
   './src/ui/map/map-engine.js',
   './src/ui/map/layer-registry.js',
   './src/ui/rally/presenter.js',

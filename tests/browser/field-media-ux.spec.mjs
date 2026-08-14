@@ -45,6 +45,10 @@ async function open(page,input=payload){
     day.value='1';
     day.dispatchEvent(new Event('change',{bubbles:true}));
   });
+  // This suite validates field-media behavior rather than permission setup.
+  // Make the pre-ride choice explicit so the readiness overlay cannot conceal
+  // unrelated Rally controls in a fresh browser context.
+  if(await page.locator('#rallyCameraSetup').isVisible())await page.locator('#rallyCameraContinueManualButton').click();
 }
 
 test('Mission Control exposes one paired Journey Photo action',async({page},testInfo)=>{

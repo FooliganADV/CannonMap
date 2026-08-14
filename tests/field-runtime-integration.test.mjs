@@ -22,6 +22,29 @@ test('Wake Lock resumes with an active GPS watch after day and page restoration'
   assert.match(app,/addEventListener\('pageshow',[^\n]+state\.gpsWatchId!==null[^\n]+screenWakeLock\?\.start\('page-restored'\)/);
 });
 
+test('camera readiness is device-local and cannot mutate portable project settings at startup',()=>{
+  assert.match(app,/const CAMERA_SETUP_HINT_KEY = 'cannonmap\.camera-setup-succeeded\.v1'/);
+  assert.match(app,/priorSetupSucceeded:cameraSetupHint\(\)/);
+  assert.match(app,/persistSetupSucceeded:persistCameraSetupHint/);
+  assert.doesNotMatch(app,/state\.settings\.cameraSetupSucceededAt/);
+  const persistence=app.slice(app.indexOf('function persistCameraSetupHint'),app.indexOf('function initializeCameraReadiness'));
+  assert.match(persistence,/localStorage\.(?:setItem|removeItem)/);
+  assert.doesNotMatch(persistence,/saveProject|state\.project|state\.settings/);
+});
+
+test('camera setup gates active Rally GPS without blocking Planner GPS',()=>{
+  const startGps=app.slice(app.indexOf('function startGps()'),app.indexOf('function stopGps()'));
+  assert.match(startGps,/if\(activeRallyDay\(\)&&cameraSetupRequired\(\)&&!cameraSetupDismissed\)/);
+});
+
+test('only native camera-stage failures revoke automatic camera readiness',()=>{
+  assert.match(app,/isNativeCameraCaptureFailure\(error\).*noteCaptureFailure/);
+  assert.doesNotMatch(app,/!\(error instanceof AutomaticCameraNotReadyError\).*noteCaptureFailure/);
+  assert.match(app,/failureStage:'pair-finalization'/);
+  const automationLog=app.slice(app.indexOf('async function recordMediaAutomationEvent'),app.indexOf('async function captureAutomaticPair'));
+  assert.match(automationLog,/try\{[\s\S]*await appendRallyJournalEvent[\s\S]*catch\(error\)[\s\S]*camera_automation_journal_failed/);
+});
+
 test('landscape header and action dock preserve score separation and 48px safe-area targets',()=>{
   assert.match(css,/\.rally-head\{left:max\(8px,env\(safe-area-inset-left\)\);right:max\(8px,env\(safe-area-inset-right\)\);width:auto\}/);
   assert.doesNotMatch(css,/\.rally-head\{[^}]*width:120px/);

@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260813-field-media-1" />
+  <link rel="stylesheet" href="app.css?v=20260813-camera-readiness-1" />
 </head>
 <body>
   <header class="topbar">
@@ -18,7 +18,7 @@
       <span class="brand-mark">CM</span>
       <div>
         <h1>CannonMap</h1>
-          <p>America 250 Planner · <span id="buildLabel">Beta 0.7.7</span></p>
+          <p>America 250 Planner · <span id="buildLabel">Beta 0.7.8</span></p>
       </div>
     </div>
     <div class="top-actions">
@@ -281,6 +281,14 @@
           <strong id="rallyDeferredMessage">Deferred checkpoints remain.</strong>
           <div><button id="rallyResumeDeferredButton" type="button">Resume Deferred</button><button id="rallyFinishDayButton" type="button">Finish Day</button></div>
         </section>
+        <section id="rallyCameraSetup" class="rally-camera-setup" hidden aria-live="polite" role="dialog" aria-modal="true" aria-labelledby="rallyCameraSetupTitle">
+          <strong id="rallyCameraSetupTitle">Camera setup</strong>
+          <p id="rallyCameraSetupMessage">Enable the camera once before riding so checkpoint photos can be captured automatically.</p>
+          <div class="rally-camera-setup-actions">
+            <button id="rallyEnableCameraButton" type="button">ENABLE CAMERA</button>
+            <button id="rallyCameraContinueManualButton" type="button">USE MANUAL CAMERA</button>
+          </div>
+        </section>
         <section id="rallyCameraWorkflow" class="rally-camera-workflow" hidden aria-live="polite" role="dialog" aria-modal="true">
           <div id="rallyCameraTapSurface" class="rally-camera-tap-surface" role="button" tabindex="0" aria-label="Capture required rally photo">
             <video id="rallyCameraPreview" autoplay muted playsinline hidden></video>
@@ -385,7 +393,7 @@
       <div class="map-status">
         <span id="cursorCoordinates">—</span>
         <span id="gpsStatus">GPS off</span>
-        <span id="appVersion">v0.7.7 · 2026.08.13.field-media-1</span>
+        <span id="appVersion">v0.7.8 · 2026.08.13.camera-readiness-1</span>
       </div>
       <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open planner" aria-expanded="false">Planner</button>
       <button id="intelButton" class="intel-toggle" aria-label="Open live intelligence" aria-expanded="false">Intel</button>
@@ -482,6 +490,6 @@
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260813-field-media-1"></script>
+  <script type="module" src="app.js?v=20260813-camera-readiness-1"></script>
 </body>
 </html>
