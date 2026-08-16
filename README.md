@@ -1,6 +1,6 @@
-# CannonMap Planner — Beta 0.7.7 Trail Intel Tactical Identity
+# CannonMap Planner — Beta 0.7.7 Compact Rally Mission Header
 
-Build: `2026.08.16.trail-intel-tactical-1`
+Build: `2026.08.16.rally-objective-compact-1`
 
 ## Purpose
 
@@ -8,6 +8,8 @@ CannonMap is a rally decision system. The primary live-rally function is display
 
 ## New in this release
 
+- Replaces the oversized Rally Mode objective billboard with a compact, map-first name, distance, NAV, and COMPLETE header
+- Moves Rider Notes, route status, objective intelligence, warnings, and defer into rider-opened objective details
 - Preserves GPS Checkpoints rider numbers across live markers, trails, clusters, and compact tactical rows
 - Separates each rider's observations, records telemetry gaps, and never draws or calculates motion across missing intervals
 - Derives geodesic recent speed, 3-minute pace, sustained pace, freshness, heading, and moving/stopped state

@@ -5,6 +5,7 @@ import {wireRallyController} from '../src/ui/rally/controller.js';
 
 const fakeElement=()=>({
   textContent:'',innerHTML:'',disabled:false,hidden:false,value:'',checked:false,listeners:{},
+  dataset:{},
   classList:{values:new Set(),toggle(name,enabled){if(enabled)this.values.add(name);else this.values.delete(name);}},
   attributes:{},addEventListener(name,handler){this.listeners[name]=handler;},
   setAttribute(name,value){this.attributes[name]=String(value);}
@@ -17,25 +18,25 @@ test('Rally presenter preserves score, checkpoint, fuel, and control state',()=>
   };
   renderRally({getElement,escapeHtml:value=>String(value),model:{
     day:1,online:false,gpsStatus:'GPS off',gpsAccuracy:'GPS off',elevation:'Elev —',score:31,
-    next:{id:'cp',name:'Extreme Checkpoint',notes:'Approach from the north.',extreme:true,points:21,status:'next'},distance:4.25,
+    next:{id:'cp',name:'Extreme Checkpoint',notes:'Approach from the north.',extreme:true,points:21,status:'next',sequence:2,type:'checkpoint'},distance:4.25,canNavigate:true,
     hotelLabel:'Hotel 12 mi',feedAge:'Feed Never',warnings:[{id:'construction',message:'Construction at the south entrance.'}],
     deferredCount:1,showDeferredPrompt:false,hasHotel:true,hotelBailoutActive:false,autoComplete:true,arrivalRadius:500,maxAccuracy:200,
-    navigationGuidance:"Turn LEFT in 200'",routeIntelligence:'Backbone Route Active',objectiveIntel:'4 riders near objective · 3 recent trails within 1 mi',
+    routeIntelligence:'Backbone Route Active',objectiveIntel:'4 riders near objective · 3 recent trails within 1 mi',
     checkpoints:[{id:'cp',name:'Extreme Checkpoint',extreme:true,status:'next'}]
   }});
   assert.equal(getElement('rallyScore').textContent,31);
   assert.equal(getElement('rallyDay').textContent,'Day 1');
-  assert.equal(getElement('rallyNavigationGuidance').textContent,"Turn LEFT in 200'");
   assert.equal(getElement('rallyNextDistance').textContent,'4.3 mi');
   assert.equal(getElement('rallyRiderNotes').textContent,'Approach from the north.');
   assert.match(getElement('rallyWarnings').innerHTML,/Construction/);
   assert.equal(getElement('rallyNextButton').hidden,true);
   assert.match(getElement('checkpointOrderList').innerHTML,/21-point extreme/);
   assert.equal(getElement('rallyCompleteButton').disabled,false);
-  assert.equal(getElement('rallyRiderNotesSection').hidden,false);
+  assert.equal(getElement('rallyObjectiveDetails').hidden,true);
   assert.equal(getElement('rallyWarningsSection').hidden,false);
-  assert.match(getElement('rallyObjectiveStatus').textContent,/21 points · EXTREME/);
+  assert.match(getElement('rallyObjectiveMetadata').textContent,/Day 1 · Sequence 2 · checkpoint · Extreme/);
   assert.equal(getElement('rallyObjectiveIntelSection').hidden,false);
+  assert.equal(getElement('rallyNavigateButton').disabled,false);
 });
 
 test('Rally presenter hides empty objective sections and hotel defer control',()=>{

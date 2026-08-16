@@ -52,8 +52,8 @@ test('Mandeville GPX checkpoint 1.1 requires durable photo evidence by default',
   await page.goto('/?e2e=mandeville-photo-contract');await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
   await page.locator('#gpxInput').setInputFiles(mandevilleFixture);await expect(page.locator('#importDialog')).toBeVisible();await page.locator('#importForm button[value="replace"]').click();
   await expect(page.locator('#rallyNextName')).toHaveText('1.1');await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(true));
-  await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();await expect(page.locator('#rallyObjectiveStatus')).toContainText('photo_required');
-  await page.locator('#rallyCameraInput').dispatchEvent('cancel');await expect(page.locator('#rallyCameraRetry')).toBeVisible();await expect(page.locator('#rallyObjectiveStatus')).toContainText('photo_required');
+  await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();await expect(page.locator('#rallyCompleteButton')).toBeDisabled();
+  await page.locator('#rallyCameraInput').dispatchEvent('cancel');await expect(page.locator('#rallyCameraRetry')).toBeVisible();await expect(page.locator('#rallyCompleteButton')).toBeDisabled();
   await page.locator('#rallyCameraRetry').click();await page.locator('#rallyCameraInput').setInputFiles({name:'checkpoint-1.1.jpg',mimeType:'image/jpeg',buffer:photoBuffer});
   await expect(page.locator('#rallyCameraWorkflow')).toBeHidden();
   await expect.poll(async()=>page.evaluate(async()=>{const events=await window.CannonMapTest.missionControlJournalEvents();return events.some(event=>event.eventType==='checkpoint_completed'&&event.references.checkpointId);})).toBe(true);
@@ -89,9 +89,9 @@ test('deferred resume and finish, hotel completion, reload, and explicit Day 2 s
   await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();
   await page.locator('#rallyCameraInput').setInputFiles({name:'required.jpg',mimeType:'image/jpeg',buffer:photoBuffer});
   await expect(page.locator('#rallyNextName')).toContainText('1.3 Defer');
-  await page.locator('#rallyDeferIcon').click();await expect(page.locator('#rallyDeferredPrompt')).toBeVisible();
+  await page.locator('#rallyObjectiveDetailsToggle').click();await page.locator('#rallyDeferIcon').click();await expect(page.locator('#rallyDeferredPrompt')).toBeVisible();
   await page.locator('#rallyResumeDeferredButton').click();await expect(page.locator('#rallyNextName')).toContainText('1.3 Defer');
-  await page.locator('#rallyDeferIcon').click();await expect(page.locator('#rallyDeferredPrompt')).toBeVisible();
+  await page.locator('#rallyObjectiveDetailsToggle').click();await page.locator('#rallyDeferIcon').click();await expect(page.locator('#rallyDeferredPrompt')).toBeVisible();
   await page.locator('#rallyFinishDayButton').click();await expect(page.locator('#rallyNextName')).toContainText('Hotel');
   await page.locator('#rallyCompleteButton').click();await expect(page.locator('#rallyCameraHeading')).toHaveText('Hotel Reached');await expect(page.locator('#rallyDayComplete')).toBeHidden();
   await page.locator('#rallyCameraInput').dispatchEvent('cancel');await expect(page.locator('#rallyCameraRetry')).toBeVisible();await expect(page.locator('#rallyDayComplete')).toBeHidden();

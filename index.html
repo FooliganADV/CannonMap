@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260816-trail-intel-tactical-1" />
+  <link rel="stylesheet" href="app.css?v=20260816-rally-objective-compact-1" />
 </head>
 <body>
   <header class="topbar">
@@ -262,21 +262,32 @@
           <div class="rally-head-day"><strong id="rallyActiveProjectName"></strong><small><span id="rallyDay">Day —</span><span id="rallyGpsAccuracy">GPS OFF</span><span id="rallyOnlineStatus">Checking</span><span id="rallyElevation" class="rally-recorded-metadata">Elev —</span></small></div>
           <div class="rally-score-slot"><span>Score</span><strong id="rallyScore">0</strong></div>
         </header>
-        <div id="rallyPrimaryCard" class="rally-primary-card is-none">
-          <div class="rally-objective-heading">
-            <div><strong id="rallyNextName">Preparing objective…</strong></div>
-            <button id="rallyDeferIcon" type="button" aria-label="Defer current checkpoint" title="Defer current checkpoint">⇥</button>
+        <div id="rallyPrimaryCard" class="rally-primary-card is-none" aria-label="Current rally objective">
+          <div class="rally-objective-summary">
+            <button id="rallyObjectiveDetailsToggle" class="rally-objective-identity" type="button" aria-expanded="false" aria-controls="rallyObjectiveDetails" aria-label="Show objective details">
+              <strong id="rallyNextName">Preparing objective…</strong>
+              <span id="rallyNextDistance" class="rally-objective-distance">Distance unavailable</span>
+              <small id="rallyObjectiveDetailsCue">DETAILS <span aria-hidden="true">⌄</span></small>
+            </button>
+            <div id="rallyObjectiveActions" class="rally-objective-actions">
+              <button id="rallyNavigateButton" type="button">NAV</button>
+              <button id="rallyCompleteButton" type="button" title="Manual completion fallback">COMPLETE</button>
+              <button id="rallyNextButton" type="button">SELECT OBJECTIVE</button>
+            </div>
           </div>
-          <span id="rallyNavigationGuidance" class="rally-objective-distance">Preparing navigation…</span>
-          <small id="rallyNextDistance" class="rally-objective-secondary"></small>
-          <small id="rallyObjectiveStatus" class="rally-objective-status"></small>
-          <div id="rallyObjectiveActions" class="rally-objective-actions"><button id="rallyNextButton" type="button">SELECT OBJECTIVE</button><button id="rallyCompleteButton" type="button" title="Manual completion fallback">COMPLETE</button></div>
-          <div class="rally-objective-sections">
-            <section id="rallyRiderNotesSection" hidden><h3>Rider Notes</h3><p id="rallyRiderNotes"></p></section>
-            <section id="rallyRouteIntelligenceSection" hidden><p id="rallyRouteIntelligence"></p></section>
-            <section id="rallyObjectiveIntelSection" hidden><h3>Trail Intel</h3><p id="rallyObjectiveIntel"></p></section>
-            <section id="rallyWarningsSection" hidden><ul id="rallyWarnings"></ul></section>
-          </div>
+          <section id="rallyObjectiveDetails" class="rally-objective-details" hidden>
+            <header>
+              <div><strong>Objective details</strong><small id="rallyObjectiveMetadata"></small></div>
+              <button id="rallyObjectiveDetailsClose" type="button" aria-label="Close objective details">CLOSE</button>
+            </header>
+            <div class="rally-objective-secondary-actions"><button id="rallyDeferIcon" type="button">DEFER</button></div>
+            <div class="rally-objective-sections">
+              <section id="rallyRiderNotesSection" hidden><h3>Rider Notes</h3><p id="rallyRiderNotes"></p></section>
+              <section id="rallyRouteIntelligenceSection" hidden><h3>Route status</h3><p id="rallyRouteIntelligence"></p></section>
+              <section id="rallyObjectiveIntelSection" hidden><h3>Trail Intel</h3><p id="rallyObjectiveIntel"></p></section>
+              <section id="rallyWarningsSection" hidden><h3>Warnings</h3><ul id="rallyWarnings"></ul></section>
+            </div>
+          </section>
         </div>
         <section id="rallyDeferredPrompt" class="rally-deferred-prompt" hidden>
           <strong id="rallyDeferredMessage">Deferred checkpoints remain.</strong>
@@ -483,8 +494,8 @@
   <script src="vendor/firebase/firebase-database.js"></script>
   <script src="vendor/firebase/firebase-auth.js"></script>
   <script src="vendor/firebase/firebase-app-check.js"></script>
-  <script src="gps-checkpoints-feed.js?v=20260816-trail-intel-tactical-1"></script>
+  <script src="gps-checkpoints-feed.js?v=20260816-rally-objective-compact-1"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260816-trail-intel-tactical-1"></script>
+  <script type="module" src="app.js?v=20260816-rally-objective-compact-1"></script>
 </body>
 </html>

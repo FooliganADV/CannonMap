@@ -1,8 +1,23 @@
 export function wireRallyController({getElement,actions,windowTarget=window}){
   const on=(id,event,handler)=>getElement(id)?.addEventListener(event,handler);
+  const setObjectiveDetails=expanded=>{
+    const card=getElement('rallyPrimaryCard'),details=getElement('rallyObjectiveDetails'),toggle=getElement('rallyObjectiveDetailsToggle');
+    const open=Boolean(expanded&&toggle&&!toggle.disabled);
+    if(card?.dataset)card.dataset.detailsExpanded=String(open);
+    card?.classList?.toggle('is-expanded',open);
+    if(details)details.hidden=!open;
+    if(toggle){
+      toggle.setAttribute('aria-expanded',String(open));
+      const name=getElement('rallyNextName')?.textContent?.trim()||'current objective';
+      toggle.setAttribute('aria-label',`${open?'Hide':'Show'} details for ${name}`);
+    }
+  };
   on('rallyNextButton','click',actions.selectNext);
+  on('rallyNavigateButton','click',actions.navigate);
+  on('rallyObjectiveDetailsToggle','click',()=>setObjectiveDetails(getElement('rallyObjectiveDetails')?.hidden!==false));
+  on('rallyObjectiveDetailsClose','click',()=>setObjectiveDetails(false));
   on('rallyDeferIcon','click',actions.defer);
-  on('rallyWeatherButton','click',()=>actions.setIntelOpen(true));
+  on('rallyWeatherButton','click',()=>{setObjectiveDetails(false);actions.setIntelOpen(true);});
   on('rallyHotelButton','click',actions.focusHotel);
   on('rallyRecenterFab','click',()=>{
     const status=getElement('gpsStatus');
@@ -19,10 +34,10 @@ export function wireRallyController({getElement,actions,windowTarget=window}){
       actions.center();
     }
   });
-  on('rallyMoreButton','click',actions.toggleMore);
+  on('rallyMoreButton','click',()=>{setObjectiveDetails(false);actions.toggleMore();});
   on('rallyMissionButton','click',actions.showMission);
-  on('rallyTrailIntelButton','click',()=>actions.setIntelOpen(true));
-  on('rallyJournalButton','click',()=>actions.setJournalOpen(true));
+  on('rallyTrailIntelButton','click',()=>{setObjectiveDetails(false);actions.setIntelOpen(true);});
+  on('rallyJournalButton','click',()=>{setObjectiveDetails(false);actions.setJournalOpen(true);});
   on('rallyJournalClose','click',()=>actions.setJournalOpen(false));
   on('rallyMoreJournalButton','click',()=>actions.setJournalOpen(true));
   on('rallyJournalObservation','click',actions.addObservation);

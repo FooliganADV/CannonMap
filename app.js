@@ -43,7 +43,7 @@ import {createFirebaseAuthentication} from './src/infrastructure/firebase/authen
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
 const APP_VERSION = '0.7.7';
-const BUILD_ID = '2026.08.16.trail-intel-tactical-1';
+const BUILD_ID = '2026.08.16.rally-objective-compact-1';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
@@ -1820,14 +1820,6 @@ function currentHotel(){return checkpoints.currentHotel(state.project,state.sett
 function distanceFromCurrent(feature){const point=feature?.geometry?.coordinates?.[0];const from=state.lastGpsPosition;if(!point||!from)return null;return haversine(from,point)/1609.344;}
 function rallyScore(){return checkpoints.rallyScore(state.project);}
 function hotelEta(){const hotel=currentHotel(),miles=distanceFromCurrent(hotel);if(miles===null)return {hotel,miles:null,label:'Hotel ETA —'};const minutes=miles/(Number(state.settings.routeWeatherSpeed)||45)*60;return {hotel,miles,label:`Hotel ${miles.toFixed(0)} mi · ${new Date(Date.now()+minutes*60000).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}`};}
-function navigationGuidance(next,distance){
-  if(!next)return '';
-  const explicit=next.navigationGuidance||next.routeInstruction||next.turnInstruction;if(explicit)return String(explicit);
-  if(distance===null)return 'Navigation position unavailable';
-  const feet=Math.round(distance*5280),radius=Math.max(100,Number(state.settings.checkpointArrivalRadius)||500);
-  if(feet<=radius)return 'Checkpoint Ahead';
-  return feet<1000?`Continue ${feet}'`:`Continue ${distance.toFixed(1)} mi`;
-}
 function cannonRouteStatus(next){
   const explicit=next?.routeIntelligence||next?.cannonRouteIntelligence;if(explicit)return String(explicit);
   if(!navigator.onLine)return 'Offline Navigation';
@@ -1870,7 +1862,7 @@ function renderRallyMode(){
     projectName:state.project.name,day:activeRallyDay(),online:navigator.onLine,gpsStatus:$('gpsStatus')?.textContent||'GPS off',
     gpsAccuracy:contextualGpsLabel(),
     elevation:Number.isFinite(state.lastGpsPosition?.elevationFeet)?`Elev ${Math.round(state.lastGpsPosition.elevationFeet).toLocaleString()} ft`:'Elev —',
-    gpsActive:state.gpsWatchId!==null,followMode:gpsFollow?.state().mode||'following',score:rallyScore(),next,distance,navigationGuidance:next?navigationGuidance(next,distance):empty.guidance,
+    gpsActive:state.gpsWatchId!==null,followMode:gpsFollow?.state().mode||'following',score:rallyScore(),next,distance,canNavigate:Boolean(next?.geometry?.coordinates?.[0]),
     emptyLabel:empty.label,hotelLabel:hotel.label,feedAge:last?`Feed ${formatClock(last)}`:'Feed never updated',
     deferredCount,showDeferredPrompt:deferredCount>0&&!hasRunnable&&!next,hasHotel:Boolean(hotel.hotel),hotelBailoutActive:state.hotelBailoutActive,
     autoComplete:state.settings.autoCompleteCheckpoints!==false,arrivalRadius:state.settings.checkpointArrivalRadius||500,maxAccuracy:state.settings.checkpointMaxAccuracy||200,
@@ -2133,7 +2125,8 @@ async function startNextRallyDay(){
   await appendRallyJournalEvent('day_started',next,{eventIdentity:`day-started:${nextDay}`,dayStartTimestamp:dayState.startedAt,title:`Day ${nextDay} Started`},dayState.startedAt);
   rallyDebug.record('next_day_request',{day:nextDay,accepted:true});await saveProject(false);renderAll();setTimeout(()=>{fitMap();gpsFollow?.restore('day-started');},0);return next;
 }
-function launchNavigation(feature){const point=feature?.geometry?.coordinates?.[0];if(!point)return;window.open(`https://www.google.com/maps/dir/?api=1&destination=${point.lat},${point.lon}`,'_blank','noopener,noreferrer');}
+function launchNavigation(feature){const point=feature?.geometry?.coordinates?.[0];if(!point)return false;window.open(`https://www.google.com/maps/dir/?api=1&destination=${point.lat},${point.lon}`,'_blank','noopener,noreferrer');return true;}
+function navigateCurrentObjective(){const objective=currentCheckpoint();if(!objective||!launchNavigation(objective))return setStatus('No navigable objective is selected.',true);rallyDebug.record('objective_navigation_opened',{objectiveId:objective.id,day:activeRallyDay()});setStatus(`Opening navigation to ${objective.name}.`);}
 async function goToHotel(){
   const hotel=currentHotel();if(!hotel)return setStatus('No hotel is assigned to the active day.',true);const info=hotelEta();if(!confirm(`Go to ${hotel.name}? ${info.miles===null?'Distance unavailable':`${info.miles.toFixed(1)} miles`}. Unfinished checkpoints will be deferred, not deleted.`))return;
   snapshot();const now=new Date().toISOString(),deferred=checkpoints.deferForHotel(dayCheckpoints(),now);state.hotelBailoutActive=true;
@@ -2259,7 +2252,7 @@ function wireUi() {
   $('rallyExportOriginal')?.addEventListener('click',()=>exportPhotoSelection('original'));$('rallyExportEvidence')?.addEventListener('click',()=>exportPhotoSelection('evidence'));$('rallyExportDayPhotos')?.addEventListener('click',()=>exportPhotoArchive('day'));$('rallyExportRallyPhotos')?.addEventListener('click',()=>exportPhotoArchive('rally'));$('rallyExportJourneyPhotos')?.addEventListener('click',exportEntireJourney);
   let photoSwipeStart=null;$('rallyPhotoImage')?.addEventListener('pointerdown',event=>{photoSwipeStart=event.clientX;});$('rallyPhotoImage')?.addEventListener('pointerup',event=>{if(photoSwipeStart===null)return;const delta=event.clientX-photoSwipeStart;photoSwipeStart=null;if(Math.abs(delta)<50)return;const button=delta<0?$('rallyPhotoNext'):$('rallyPhotoPrevious');button?.click();});
   wireRallyController({getElement:$,actions:{
-    selectNext:selectNextCheckpoint,setIntelOpen:setIntelSheetOpen,setJournalOpen:setRallyJournalOpen,showMission:showMissionSurface,addObservation:addRiderObservation,defer:()=>deferCurrentCheckpoint(),
+    selectNext:selectNextCheckpoint,navigate:navigateCurrentObjective,setIntelOpen:setIntelSheetOpen,setJournalOpen:setRallyJournalOpen,showMission:showMissionSurface,addObservation:addRiderObservation,defer:()=>deferCurrentCheckpoint(),
     focusHotel:()=>{const hotel=currentHotel();if(hotel){const point=hotel.geometry.coordinates[0];state.map.setView([point.lat,point.lon],14);setRallyMoreOpen(false);}else setStatus('No hotel is assigned to the active day.',true);},
     center:()=>{if(state.lastGpsPosition)gpsFollow?.restore('gps-button');else fitMap();},
     startGps,

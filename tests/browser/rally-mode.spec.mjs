@@ -50,6 +50,7 @@ test('checkpoint defer queue, completion, scoring, mandatory hotel bailout and u
   test.skip(testInfo.project.name==='desktop');
   await loadProject(page);
   await expect(page.locator('#rallyNextName')).toContainText('Checkpoint One');
+  await page.locator('#rallyObjectiveDetailsToggle').click();
   await page.locator('#rallyDeferIcon').click();
   await expect(page.locator('#rallyNextName')).toContainText('Extreme Checkpoint Two');
   await completeWithEvidence(page,'extreme.jpg');
