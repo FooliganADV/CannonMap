@@ -32,7 +32,8 @@ import {captureArrivalEvidence} from './src/application/arrival-evidence.js';
 import {createWeatherMaintenance} from './src/application/weather-maintenance.js';
 import {createFinalizedProjectService} from './src/application/finalized-project-service.js';
 import {createFinalizedProjectRepository} from './src/infrastructure/indexeddb/finalized-project-repository.js';
-import {stableCompetitorId,normalizeTrailPoints,segmentTrail,trailStatus,mergeCompetitorSnapshots,buildTacticalClusters} from './src/domain/competitors/trails.js';
+import {stableCompetitorIdentity,mergeCompetitorSnapshots,mergeTrailGapMetadata,buildTacticalClusters,buildRiderTacticalModel} from './src/domain/competitors/trails.js';
+import {riderSourceLabel,competitorMarkerIconSpec,competitorTrailStyle,shouldShowTacticalCluster,competitorClusterIconSpec,competitorClusterPopupHtml,compactRiderListHtml} from './src/ui/trail-intel/tactical-presentation.js';
 import {
   createAnalyticsRepository,createJournalRepository,createLegacyCurrentProjectRepository,
   createObservationCaptureRepository,createProjectDeletionRepository,createProjectLifecycleRepository,
@@ -41,8 +42,8 @@ import {
 import {createFirebaseAuthentication} from './src/infrastructure/firebase/authentication.js';
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
-const APP_VERSION = '0.7.6';
-const BUILD_ID = '2026.08.09.mission-alignment-1';
+const APP_VERSION = '0.7.7';
+const BUILD_ID = '2026.08.16.trail-intel-tactical-1';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const DB_NAME = 'CannonMapDB';
@@ -238,6 +239,7 @@ function initMap() {
     $('createDialog')?.showModal();
   });
   state.map.on('mousemove', e => { if($('cursorCoordinates')) $('cursorCoordinates').textContent = `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`; });
+  state.map.on('zoomend',()=>renderCompetitors());
 }
 
 function normalizeLatLngs(latlngs) {
@@ -316,42 +318,125 @@ function pointTimestamp(point) {
   const ms = Date.parse(value);
   return Number.isFinite(ms) ? ms : 0;
 }
+function competitorAnalysisOptions(now=Date.now()) {
+  const freshMs=Math.max(1,Number(state.settings.competitorFreshMinutes)||15)*60000;
+  return {
+    now,
+    historyMs:Math.max(15,Number(state.settings.competitorTrailMinutes)||480)*60000,
+    gapMs:Math.max(15,Number(state.settings.competitorGapSeconds)||90)*1000,
+    freshMs,
+    staleMs:Math.max(60*60000,freshMs*4),
+    maxPoints:12000
+  };
+}
+function competitorTacticalModel(comp,index=0,now=Date.now()) {
+  return buildRiderTacticalModel(comp,{...competitorAnalysisOptions(now),index});
+}
+function refreshCompetitorGapMetadata(now=Date.now()) {
+  state.project.competitors.forEach((competitor,index)=>{
+    const model=competitorTacticalModel(competitor,index,now);
+    competitor.trailGaps=deepClean(mergeTrailGapMetadata(competitor.trailGaps,model.gaps));
+  });
+}
 function competitorFreshness(comp) {
-  const status=trailStatus(comp.points,{freshMs:Number(state.settings.competitorFreshMinutes||15)*60000});
-  return {fresh:status.status==='live',ageMinutes:status.ageMs===null?null:status.ageMs/60000,...status};
+  const tactical=competitorTacticalModel(comp,0).tactical;
+  return {
+    ...tactical,
+    fresh:tactical.status==='live',
+    ageMinutes:tactical.ageMs===null?null:tactical.ageMs/60000,
+    speedMph:tactical.currentSpeedMph,
+    direction:tactical.headingDegrees,
+    motion:tactical.motion==='stopped'?'stationary':tactical.motion
+  };
+}
+function selectCompetitor(id) {
+  const competitor=state.project.competitors.find(item=>String(item.id)===String(id));
+  if(!competitor)return false;
+  state.selectedCompetitorId=String(competitor.id);
+  renderCompetitors();
+  renderCompetitorSummary();
+  setStatus(`Rider ${riderSourceLabel(competitor)} selected. Map navigation was not changed.`);
+  return true;
+}
+function clearCompetitorSelection() {
+  state.selectedCompetitorId=null;
+  renderCompetitors();
+  renderCompetitorSummary();
+  setStatus('Showing all competitors.');
+}
+function assignCompetitorMarkerOffsets(models,{minimumSeparationPx=46}={}) {
+  const markers=models.filter(model=>model.kind==='marker').map(model=>{
+    const last=model.points.at(-1),screen=state.map?.latLngToContainerPoint?.([last.lat,last.lon]);
+    return {model,screen};
+  }).filter(item=>item.screen);
+  const visited=new Set();
+  for(let start=0;start<markers.length;start++){
+    if(visited.has(start))continue;
+    const group=[],queue=[start];visited.add(start);
+    while(queue.length){
+      const index=queue.shift(),current=markers[index];group.push(current);
+      for(let candidate=0;candidate<markers.length;candidate++){
+        if(visited.has(candidate))continue;
+        const point=markers[candidate].screen;
+        if(Math.hypot(current.screen.x-point.x,current.screen.y-point.y)<minimumSeparationPx){visited.add(candidate);queue.push(candidate);}
+      }
+    }
+    group.sort((a,b)=>String(a.model.comp.id).localeCompare(String(b.model.comp.id),undefined,{numeric:true}));
+    if(group.length===1){group[0].model.displayOffset={x:0,y:0};continue;}
+    if(group.length===2){
+      group[0].model.displayOffset={x:-24,y:0};
+      group[1].model.displayOffset={x:24,y:0};
+      continue;
+    }
+    const radius=Math.min(38,24+group.length*2);
+    group.forEach((item,index)=>{const angle=-Math.PI/2+index*2*Math.PI/group.length;item.model.displayOffset={x:Math.round(Math.cos(angle)*radius),y:Math.round(Math.sin(angle)*radius)};});
+  }
+  return models;
 }
 function renderCompetitors() {
-  const models=[];
+  const models=[],now=Date.now(),analysisOptions=competitorAnalysisOptions(now);
   state.project.competitors.forEach((comp,index) => {
-    if (!Array.isArray(comp.points) || !comp.points.length) return;
-    const competitorKey=comp.id||comp.name||`legacy-index:${index}`;
-    const freshness = competitorFreshness(comp);
-    const opacity = (freshness.fresh ? .88 : .32)*(Number(state.settings.competitorTrailOpacity??100)/100);
-    const historyMs=Math.max(15,Number(state.settings.competitorTrailMinutes)||480)*60000,points=normalizeTrailPoints(comp.points,{historyMs});
-    const segments=segmentTrail(points);
+    const tactical=buildRiderTacticalModel(comp,{...analysisOptions,index});
+    if (!tactical.observations.length) return;
+    const competitorKey=tactical.id;
+    const freshness={...tactical.tactical,fresh:tactical.tactical.status==='live',ageMinutes:tactical.tactical.ageMs===null?null:tactical.tactical.ageMs/60000};
+    const opacity=(freshness.fresh ? .92 : .4)*(Number(state.settings.competitorTrailOpacity??100)/100);
     if (state.settings.showCompetitorTrails !== false && comp.trailHidden!==true) {
-      segments.filter(segment=>segment.length>1).forEach((segment,segmentIndex)=>models.push({key:`trail:${competitorKey}:${segmentIndex}:${pointTimestamp(segment[0])}`,kind:'trail',comp,freshness,opacity,points:segment}));
+      tactical.segments.filter(segment=>segment.length>1).forEach((segment,segmentIndex)=>models.push({key:`trail:${competitorKey}:${segmentIndex}:${pointTimestamp(segment[0])}`,kind:'trail',comp,tactical,freshness,opacity,points:segment,segmentIndex}));
     }
     if (state.settings.showCompetitorMarkers !== false) {
-      models.push({key:`marker:${competitorKey}`,kind:'marker',comp,freshness,opacity,points});
+      models.push({key:`marker:${competitorKey}`,kind:'marker',comp,tactical,freshness,opacity,points:[tactical.renderObservation]});
     }
   });
+  assignCompetitorMarkerOffsets(models);
   mapEngine.layers.reconcile('competitors',models,{
     key:model=>model.key,
     fingerprint:model=>JSON.stringify({
-      kind:model.kind,id:model.comp.id,name:model.comp.name,points:model.points,
+      kind:model.kind,id:model.comp.id,number:model.comp.number,name:model.comp.name,points:model.points,
+      selectedRiderId:state.selectedCompetitorId,segmentIndex:model.segmentIndex,displayOffset:model.displayOffset,
       fresh:model.freshness.fresh,age:model.freshness.ageMinutes===null?null:Math.round(model.freshness.ageMinutes)
     }),
     create:model=>{
       if(model.kind==='trail'){
-        const line=L.polyline(model.points.map(p=>[p.lat,p.lon]),{pane:'competitorTrailsPane',color:COLORS.competitor,weight:model.freshness.fresh?4:3,dashArray:model.freshness.fresh?null:'7 7',opacity:model.opacity});
-        line.bindTooltip(`${model.comp.name||model.comp.id} · ${model.freshness.ageMinutes===null?'unknown age':`${Math.round(model.freshness.ageMinutes)} min old`}`);
+        const style=competitorTrailStyle(model.comp,{fresh:model.freshness.fresh,opacity:model.opacity,selectedRiderId:state.selectedCompetitorId});
+        const line=L.polyline(model.points.map(p=>[p.lat,p.lon]),style);
+        line._cannonCompetitorId=String(model.comp.id);line._cannonLayerKind='trail';line._cannonSegmentIndex=model.segmentIndex;
+        const segmentCount=model.tactical.segments.length,segmentLabel=segmentCount>1?` · segment ${model.segmentIndex+1}/${segmentCount}`:'';
+        line.bindTooltip(`Rider ${escapeHtml(riderSourceLabel(model.comp))} · ${escapeHtml(model.freshness.status.toUpperCase())}${segmentLabel}`);
+        line.on('click',()=>selectCompetitor(model.comp.id));
         return line;
       }
       const last=model.points.at(-1);
-      const marker=L.circleMarker([last.lat,last.lon],{pane:'competitorTrailsPane',radius:model.freshness.fresh?7:5,color:'#fff',weight:2,fillColor:COLORS.competitor,fillOpacity:model.opacity});
-      const speed=model.freshness.speedMph===null?'Unavailable':`${model.freshness.speedMph.toFixed(1)} mph`,direction=model.freshness.direction===null?'Unavailable':`${Math.round(model.freshness.direction)}°`;
-      marker.bindPopup(`<strong>${escapeHtml(model.comp.name||model.comp.id)}</strong><br>${escapeHtml(last.time||'Time unavailable')}<br>${escapeHtml(model.freshness.status)} · ${escapeHtml(model.freshness.motion)}<br>Speed ${speed} · Direction ${direction}`);
+      const iconSpec=competitorMarkerIconSpec(model.comp,{selectedRiderId:state.selectedCompetitorId,displayOffset:model.displayOffset});
+      const icon=L.divIcon({className:iconSpec.className,html:iconSpec.html,iconSize:[iconSpec.size,iconSpec.size],iconAnchor:[iconSpec.size/2,iconSpec.size/2],popupAnchor:[0,-iconSpec.size/2]});
+      const marker=L.marker([last.lat,last.lon],{pane:String(state.selectedCompetitorId)===String(model.comp.id)?'activeRiderPane':'competitorTrailsPane',icon,riseOnHover:true,zIndexOffset:iconSpec.zIndexOffset});
+      marker._cannonCompetitorId=String(model.comp.id);marker._cannonLayerKind='marker';
+      const speed=model.freshness.currentSpeedMph===null?'Unavailable':`${model.freshness.currentSpeedMph.toFixed(1)} mph`;
+      const pace=model.freshness.rollingPaceMph===null?'Unavailable':`${model.freshness.rollingPaceMph.toFixed(1)} mph`;
+      const sustained=model.freshness.sustainedPaceMph===null?'Insufficient history':`${model.freshness.sustainedPaceMph.toFixed(1)} mph`;
+      const heading=model.freshness.headingCardinal||'Unavailable';
+      marker.bindPopup(`<strong>Rider ${escapeHtml(riderSourceLabel(model.comp))}</strong>${model.comp.name?`<br>${escapeHtml(model.comp.name)}`:''}<br>${escapeHtml(last.time||'Time unavailable')}<br>${escapeHtml(model.freshness.status.toUpperCase())} · ${escapeHtml(model.freshness.motion)}<br>Speed ${escapeHtml(speed)} · 3 min pace ${escapeHtml(pace)}<br>15 min pace ${escapeHtml(sustained)} · Heading ${escapeHtml(heading)}<br>${model.tactical.gaps.length} telemetry gap${model.tactical.gaps.length===1?'':'s'} recorded`);
+      marker.on('click',()=>selectCompetitor(model.comp.id));
       marker.on('popupopen',()=>competitorPopupSelection={type:'competitor',id:String(model.comp.id),openedAt:Date.now()});marker.on('popupclose',()=>{if(competitorPopupSelection?.id===String(model.comp.id))competitorPopupSelection=null;});
       return marker;
     }
@@ -359,7 +444,7 @@ function renderCompetitors() {
   renderCompetitorClusters();
   if(competitorPopupSelection?.type==='competitor'){const marker=mapEngine.layers.get('competitors',`marker:${competitorPopupSelection.id}`);if(marker&&!marker.isPopupOpen?.())marker.openPopup();}
   const followed=state.project.competitors.find(comp=>String(state.followedCompetitorId)===String(comp.id));
-  const last=followed?.points?.at(-1);
+  const last=followed?competitorTacticalModel(followed).renderObservation:null;
   if(last)state.map.setView([last.lat,last.lon],Math.max(14,state.map.getZoom()));
 }
 function formatStationaryDuration(ms) {
@@ -401,7 +486,7 @@ function handleStationaryAction(action,event) {
 }
 function followCompetitor(id) {
   state.followedCompetitorId=String(id);
-  const competitor=state.project.competitors.find(item=>String(item.id)===String(id)),last=competitor?.points?.at(-1);
+  const competitor=state.project.competitors.find(item=>String(item.id)===String(id)),last=competitor?competitorTacticalModel(competitor).renderObservation:null;
   if(last)state.map.setView([last.lat,last.lon],Math.max(14,state.map.getZoom()));
   setStatus(`Following ${competitor?.name||`Rider ${id}`}.`);
 }
@@ -482,16 +567,23 @@ function renderAll() {
   if($('showCompetitorMarkers'))$('showCompetitorMarkers').checked=state.settings.showCompetitorMarkers!==false;
   if($('showStationaryEvents'))$('showStationaryEvents').checked=state.settings.showStationaryEvents!==false;
   if($('showCompetitorClusters'))$('showCompetitorClusters').checked=state.settings.showCompetitorClusters!==false;
+  if($('competitorGapSeconds'))$('competitorGapSeconds').value=String(state.settings.competitorGapSeconds||90);
   if($('competitorTrailMinutes'))$('competitorTrailMinutes').value=String(state.settings.competitorTrailMinutes||480);
   if($('competitorTrailOpacity'))$('competitorTrailOpacity').value=String(state.settings.competitorTrailOpacity??100);
   renderMapFeatures(); renderLayerList(); renderStats(); renderCompetitorSummary(); renderMissionControl(); renderTypeLayerControls(); renderSearch(); renderIntelSummary(); renderRallyMode();
 }
 function renderCompetitorClusters(){
-  if(state.settings.showCompetitorClusters===false){mapEngine.layers.clear('competitorClusters');return;}
-  const clusters=buildTacticalClusters(state.project.competitors);mapEngine.layers.reconcile('competitorClusters',clusters,{key:cluster=>cluster.id,fingerprint:cluster=>JSON.stringify(cluster),create:cluster=>{
-    const marker=L.circleMarker([cluster.center.lat,cluster.center.lon],{pane:'stationaryPane',radius:12,color:'#fff',weight:2,fillColor:'#7c3aed',fillOpacity:.86});
-    const nearby=state.project.features.filter(feature=>['checkpoint','hotel'].includes(feature.type)&&feature.geometry?.kind==='point').map(feature=>({feature,distance:haversine(cluster.center,feature.geometry.coordinates[0])})).filter(item=>item.distance<=500).sort((a,b)=>a.distance-b.distance)[0]?.feature;
-    marker.bindPopup(`<strong>${cluster.riders.length} competitors nearby</strong><br>${cluster.riders.map(r=>`${escapeHtml(r.name||r.id)} · ${escapeHtml(r.motion)} · ${escapeHtml(r.status)}`).join('<br>')}<br>Latest ${escapeHtml(cluster.latestUpdate||'Unavailable')}<br>Nearby checkpoint: ${escapeHtml(nearby?.name||'None within 500 m')}<br><small>Observed convergence only; cause unknown.</small>`);return marker;
+  const now=Date.now(),clusters=buildTacticalClusters(state.project.competitors,competitorAnalysisOptions(now));
+  const visible=state.settings.showCompetitorClusters!==false&&state.selectedCompetitorId==null&&shouldShowTacticalCluster({zoom:state.map?.getZoom(),riderCount:state.project.competitors.length});
+  if(!visible){mapEngine.layers.clear('competitorClusters');return;}
+  mapEngine.layers.reconcile('competitorClusters',clusters,{key:cluster=>cluster.id,fingerprint:cluster=>JSON.stringify(cluster),create:cluster=>{
+    const iconSpec=competitorClusterIconSpec(cluster);
+    const icon=L.divIcon({className:iconSpec.className,html:iconSpec.html,iconSize:[iconSpec.size,iconSpec.size],iconAnchor:[iconSpec.size/2,iconSpec.size/2],popupAnchor:[0,-iconSpec.size/2]});
+    const marker=L.marker([cluster.center.lat,cluster.center.lon],{pane:'stationaryPane',icon,riseOnHover:true,zIndexOffset:800});
+    marker._cannonLayerKind='competitor-cluster';marker._cannonRiderIds=cluster.riders.map(rider=>String(rider.id));
+    marker.bindPopup(competitorClusterPopupHtml(cluster,{escapeHtml}),{maxWidth:330});
+    marker.on('popupopen',()=>marker.getPopup()?.getElement()?.querySelectorAll('[data-rider-id]').forEach(button=>button.addEventListener('click',()=>{selectCompetitor(button.dataset.riderId);state.map.closePopup();})));
+    return marker;
   }});
 }
 function populateDaySelectors(){
@@ -1256,14 +1348,22 @@ async function importCompetitorJson(file) {
   try {
     const data=sanitizeEventPayload(JSON.parse(await file.text()),`competitor/event JSON ${file.name}`),entries=Array.isArray(data)?data:data.competitors;
     if(!Array.isArray(entries))throw new Error('Expected an array or a competitors array.');
-    snapshot();state.project.competitors=normalizeCompetitorPayload(data);
+    snapshot();state.project.competitors=normalizeCompetitorPayload(data);state.selectedCompetitorId=null;refreshCompetitorGapMetadata();
     saveProject(false);renderAll();fitIntelligence();setStatus(`Imported ${state.project.competitors.length} competitor trails.`);
   } catch(error){setStatus(`Competitor import failed: ${error.message}`,true);}
 }
 function renderCompetitorSummary() {
-  const box=$('competitorSummary');if(!box)return;if(!state.project.competitors.length){box.className='layer-list empty';box.textContent='No competitor data loaded.';return;}
-  box.className='layer-list';box.innerHTML=state.project.competitors.map(c=>{const fresh=competitorFreshness(c);const age=fresh.ageMinutes===null?'undated':`${Math.round(fresh.ageMinutes)} min`;return `<div class="layer-row"><span class="swatch" style="background:${fresh.fresh?COLORS.competitor:'#64748b'}"></span><button type="button" data-rider-id="${escapeHtml(c.id)}"><strong>${escapeHtml(c.name)}</strong><small>${c.points.length} breadcrumbs · ${age}</small></button><span class="fresh-dot ${fresh.fresh?'is-fresh':''}" title="${fresh.fresh?'Fresh':'Stale'}"></span></div>`;}).join('');
-  box.querySelectorAll('[data-rider-id]').forEach(button=>button.onclick=()=>zoomCompetitor(button.dataset.riderId));
+  const boxes=[$('competitorSummary'),$('mobileCompetitorSummary')].filter(Boolean);
+  if(!boxes.length)return;
+  if(!state.project.competitors.length){for(const box of boxes){box.className='tactical-rider-list empty';box.textContent='No competitor data loaded.';}return;}
+  const now=Date.now(),statusById=new Map(state.project.competitors.map((competitor,index)=>[String(competitor.id),competitorTacticalModel(competitor,index,now).tactical]));
+  const html=compactRiderListHtml(state.project.competitors,{selectedRiderId:state.selectedCompetitorId,statusForRider:rider=>statusById.get(String(rider.id))||{},escapeHtml});
+  for(const box of boxes){
+    box.className='tactical-competitor-summary';
+    box.innerHTML=html;
+    box.querySelectorAll('[data-rider-id]').forEach(button=>button.addEventListener('click',()=>selectCompetitor(button.dataset.riderId)));
+    box.querySelector('[data-rider-view-all]')?.addEventListener('click',clearCompetitorSelection);
+  }
 }
 
 function formatAge(minutes) {
@@ -1296,11 +1396,8 @@ function normalizeFeedPoint(source) {
   return validPoint(point)?point:null;
 }
 function competitorIdentity(entry,index=0) {
-  const props=entry?.properties||{};
-  const competitor=entry?.competitor||entry?.rider||{};
-  const id=stableCompetitorId(entry,index);
-  const name=entry?.name||entry?.riderName||entry?.competitorName||props.name||props.riderName||competitor.name||`Rider ${id}`;
-  return {id:String(id),name:String(name)};
+  const identity=stableCompetitorIdentity(entry,index);
+  return {id:String(identity.id),name:String(identity.name),...(identity.riderNumber?{number:String(identity.riderNumber)}:{})};
 }
 function normalizeCompetitorPayload(payload) {
   const entries=getNestedCandidates(payload);
@@ -1310,6 +1407,7 @@ function normalizeCompetitorPayload(payload) {
     if(!grouped.has(identity.id))grouped.set(identity.id,{...identity,points:[]});
     const target=grouped.get(identity.id);
     if(identity.name && !/^Rider rider-/.test(identity.name))target.name=identity.name;
+    if(identity.number)target.number=identity.number;
     const sourcePoints=entry?.points||entry?.positions||entry?.locations||entry?.history||entry?.trail||entry?.breadcrumbs;
     if(Array.isArray(sourcePoints))sourcePoints.forEach(raw=>{const point=normalizeFeedPoint(raw);if(point)target.points.push(point);});
     else {const point=normalizeFeedPoint(entry);if(point)target.points.push(point);}
@@ -1321,7 +1419,7 @@ function normalizeCompetitorPayload(payload) {
   }).filter(comp=>comp.points.length);
 }
 function mergeCompetitorData(incoming) {
-  const priorIds=new Set(state.project.competitors.map(item=>String(item.id))),result=mergeCompetitorSnapshots(state.project.competitors,incoming,{historyMs:Math.max(15,Number(state.settings.competitorTrailMinutes)||480)*60000,maxPoints:12000});state.project.competitors=result.competitors;return {added:result.added,riders:result.competitors.filter(item=>!priorIds.has(String(item.id))).length};
+  const now=Date.now(),priorIds=new Set(state.project.competitors.map(item=>String(item.id))),result=mergeCompetitorSnapshots(state.project.competitors,incoming,competitorAnalysisOptions(now));state.project.competitors=result.competitors;refreshCompetitorGapMetadata(now);return {added:result.added,gapsAdded:result.gapsAdded||0,riders:result.competitors.filter(item=>!priorIds.has(String(item.id))).length};
 }
 async function fetchWithTimeout(url,options={},timeout=15000) {
   const controller=new AbortController();
@@ -1405,6 +1503,7 @@ function saveIntegrationSettings() {
   state.settings.showCompetitorMarkers=$('showCompetitorMarkers')?.checked!==false;
   state.settings.showStationaryEvents=$('showStationaryEvents')?.checked!==false;
   state.settings.showCompetitorClusters=$('showCompetitorClusters')?.checked!==false;
+  state.settings.competitorGapSeconds=Math.max(15,Number($('competitorGapSeconds')?.value)||90);
   state.settings.competitorTrailMinutes=Number($('competitorTrailMinutes')?.value)||480;
   state.settings.competitorTrailOpacity=Number($('competitorTrailOpacity')?.value)||100;
   state.settings.trafficProvider=$('trafficProvider')?.value||'none';
@@ -1426,12 +1525,14 @@ function exportCompetitorData() {
 function clearCompetitors() {
   if(!state.project.competitors.length)return;
   if(!confirm('Clear all captured competitor trails from this project?'))return;
-  snapshot();state.project.competitors=[];stopRallyPolling();saveProject(false);renderAll();setStatus('Competitor trails cleared.');
+  snapshot();state.project.competitors=[];state.selectedCompetitorId=null;stopRallyPolling();saveProject(false);renderAll();setStatus('Competitor trails cleared.');
 }
 function zoomCompetitor(id) {
   const comp=state.project.competitors.find(item=>String(item.id)===String(id));
   if(!comp?.points?.length)return;
-  const bounds=L.latLngBounds(comp.points.map(point=>[point.lat,point.lon]));
+  const tactical=competitorTacticalModel(comp),points=tactical.segments.filter(segment=>segment.length>1).flat();
+  if(!points.length&&tactical.renderObservation)points.push(tactical.renderObservation);
+  const bounds=L.latLngBounds(points.map(point=>[point.lat,point.lon]));
   if(bounds.isValid())state.map.fitBounds(bounds,{padding:[35,35],maxZoom:14});
 }
 function fitIntelligence() {
@@ -1439,7 +1540,7 @@ function fitIntelligence() {
 }
 function clearIntelligenceLayers() {
   for(const type of ['competitors','stationaryEvents','traffic','weather'])mapEngine.layers.clear(type);
-  state.weatherData=null;state.weatherPoint=null;state.trafficIncidents=[];hideRadar();
+  state.selectedCompetitorId=null;state.weatherData=null;state.weatherPoint=null;state.trafficIncidents=[];hideRadar();
 }
 function currentIntelPoint() {
   if(state.lastGpsPosition)return {lat:state.lastGpsPosition.lat,lon:state.lastGpsPosition.lon,label:'GPS position'};
@@ -1702,7 +1803,7 @@ function openWazeAtMapCenter() {
 function renderIntelSummary() {
   const riders=state.project.competitors||[];const fresh=riders.filter(comp=>competitorFreshness(comp).fresh).length;const points=riders.reduce((sum,comp)=>sum+(comp.points?.length||0),0);
   if($('intelRiderCount'))$('intelRiderCount').textContent=riders.length;if($('intelFreshCount'))$('intelFreshCount').textContent=fresh;if($('intelPointCount'))$('intelPointCount').textContent=points;if($('intelLastSync'))$('intelLastSync').textContent=formatClock(state.rallySync.lastSync);
-  const running=Boolean(state.rallyPollTimer);const badge=$('feedBadge');if(badge){badge.textContent=state.rallySync.running?'SYNCING':running?'LIVE':state.rallySync.lastError?'CHECK':'READY';badge.className=`badge ${state.rallySync.lastError?'warning':running?'live':'neutral'}`;}
+  const running=Boolean(state.rallyLiveFeed||state.rallyPollTimer);const badge=$('feedBadge');if(badge){badge.textContent=state.rallySync.running?'SYNCING':running?'LIVE':state.rallySync.lastError?'CHECK':'READY';badge.className=`badge ${state.rallySync.lastError?'warning':running?'live':'neutral'}`;}
   if($('rallyFeedNotice')){$('rallyFeedNotice').textContent=state.rallySync.lastError?state.rallySync.lastError:state.settings.rallyEndpointUrl?`${running?'Polling':'Connector ready'} · ${riders.length} riders · ${points} breadcrumbs`:'The built-in official feed uses the Event ID. The custom JSON/location endpoint is optional. Live updates run only while CannonMap is open and active.';}
   if($('mobileRiderCount'))$('mobileRiderCount').textContent=riders.length;if($('mobileFreshCount'))$('mobileFreshCount').textContent=fresh;if($('mobileTrafficCount'))$('mobileTrafficCount').textContent=state.trafficIncidents.length;
   if($('mobileIntelStatus'))$('mobileIntelStatus').textContent=running?`Live · last ${formatClock(state.rallySync.lastSync)}`:state.rallySync.lastSync?`Last sync ${formatClock(state.rallySync.lastSync)}`:'No live feed';
@@ -1839,9 +1940,10 @@ function objectiveTrailIntel(next){
   const objective=next?.geometry?.coordinates?.[0];if(!objective)return '';
   const radius=1609.344,freshWindow=Math.max(5,Number(state.settings.competitorFreshMinutes)||15)*60000,cutoff=Date.now()-freshWindow;
   let nearby=0,recentTrails=0,newest=0;
-  for(const rider of state.project.competitors||[]){
-    const points=Array.isArray(rider.points)?rider.points:[],last=points.at(-1);if(last&&haversine(last,objective)<=radius)nearby++;
-    const recent=points.filter(point=>{const time=Date.parse(point.time||point.timestamp||point.updatedAt||'');return Number.isFinite(time)&&time>=cutoff&&haversine(point,objective)<=radius;});
+  for(const [index,rider] of (state.project.competitors||[]).entries()){
+    const model=competitorTacticalModel(rider,index),last=model.renderObservation;if(last&&haversine(last,objective)<=radius)nearby++;
+    const trustedTrailPoints=model.segments.filter(segment=>segment.length>1).flat();
+    const recent=trustedTrailPoints.filter(point=>{const time=Date.parse(point.time||point.timestamp||point.updatedAt||'');return Number.isFinite(time)&&time>=cutoff&&haversine(point,objective)<=radius;});
     if(recent.length){recentTrails++;for(const point of recent)newest=Math.max(newest,Date.parse(point.time||point.timestamp||point.updatedAt||'')||0);}
   }
   if(!nearby&&!recentTrails)return '';
@@ -2093,6 +2195,7 @@ function wireUi() {
   $('showCompetitorMarkers')?.addEventListener('change',()=>{state.settings.showCompetitorMarkers=$('showCompetitorMarkers').checked;saveProject(false);renderCompetitors();});
   $('showStationaryEvents')?.addEventListener('change',()=>{state.settings.showStationaryEvents=$('showStationaryEvents').checked;saveProject(false);renderStationaryEvents();});
   $('showCompetitorClusters')?.addEventListener('change',()=>{state.settings.showCompetitorClusters=$('showCompetitorClusters').checked;saveProject(false);renderCompetitorClusters();});
+  $('competitorGapSeconds')?.addEventListener('change',()=>{state.settings.competitorGapSeconds=Math.max(15,Number($('competitorGapSeconds').value)||90);refreshCompetitorGapMetadata();saveProject(false);renderCompetitors();renderCompetitorSummary();});
   $('competitorTrailMinutes')?.addEventListener('change',()=>{state.settings.competitorTrailMinutes=Number($('competitorTrailMinutes').value)||480;saveProject(false);renderCompetitors();});
   $('competitorTrailOpacity')?.addEventListener('input',()=>{state.settings.competitorTrailOpacity=Number($('competitorTrailOpacity').value)||100;renderCompetitors();});
   $('competitorTrailOpacity')?.addEventListener('change',()=>saveProject(false));
@@ -2185,11 +2288,12 @@ async function initializeApplication() {
   if(activeLifecycleProjectId)state.settings=loadSettingsForProject(activeLifecycleProjectId,state.settings);
   state.project.features.forEach(f=>{f.assignmentMethod ||= '';f.favorite ||= false;});
   state.settings.typeVisibility=Object.assign({track:true,route:true,backbone:true,waypoint:true,checkpoint:true,fuel:true,hotel:true},state.settings.typeVisibility||{});
-  state.settings=Object.assign({...RALLY_FEED_DEFAULTS,rallyPollSeconds:30,showCompetitorTrails:true,showCompetitorMarkers:true,showStationaryEvents:true,showCompetitorClusters:true,competitorTrailMinutes:480,competitorTrailOpacity:100,competitorFreshMinutes:15,trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:'',radarOpacity:65,radarCoverage:'active-day',radarEnabled:false,routeWeatherSpeed:45,usableFuelCapacity:0,expectedPavedRange:0,expectedMixedRange:0,reserveDistance:25,fuelProfile:'mixed',autoCompleteCheckpoints:true,checkpointArrivalRadius:500,checkpointMaxAccuracy:200,hideCompletedCheckpoints:true,preferredCamera:'front'},state.settings);
+  state.settings=Object.assign({...RALLY_FEED_DEFAULTS,rallyPollSeconds:30,showCompetitorTrails:true,showCompetitorMarkers:true,showStationaryEvents:true,showCompetitorClusters:true,competitorGapSeconds:90,competitorTrailMinutes:480,competitorTrailOpacity:100,competitorFreshMinutes:15,trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:'',radarOpacity:65,radarCoverage:'active-day',radarEnabled:false,routeWeatherSpeed:45,usableFuelCapacity:0,expectedPavedRange:0,expectedMixedRange:0,reserveDistance:25,fuelProfile:'mixed',autoCompleteCheckpoints:true,checkpointArrivalRadius:500,checkpointMaxAccuracy:200,hideCompletedCheckpoints:true,preferredCamera:'front'},state.settings);
   state.settings.preferredCamera=normalizeCameraPreference(state.settings.preferredCamera);applyCameraPreference();
   loadPersistedRestoredDayReview();
   defaultProjectSettings=deepClean(state.settings);
   state.project.competitors ||= [];
+  refreshCompetitorGapMetadata();
   state.project.stationaryEvents ||= [];
   rallyExecution();
   if(reconcileCompletedRallyDays())await saveProject(false);
@@ -2254,5 +2358,28 @@ function mapEngineDiagnostics(){
     groups:Object.fromEntries(types.map(type=>[type,mapEngine?.group(type).getLayers().length||0]))
   };
 }
-window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,resumeDeferredQueue,finishDayFromDeferredQueue,startNextRallyDay,finalizePendingPhotoCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival,moveCheckpointInOrder,makeCheckpointNext,restoreImportedCheckpointOrder,handleStationaryAction,renderStationaryEvents,updateStationaryDetection,renderMapFeatures,mapEngineDiagnostics,observationCaptureDiagnostics,captureGpsObservation,replaySecureObservations,observationContext,missionControlJournalEvents,missionControlAppendTestPhotoReference,rideExportSnapshot,missionMediaRecords:async()=>Promise.all((await missionMedia.listProjectPhotos(state.project.projectId)).map(async row=>({role:row.role,metadata:row.metadata,name:row.name,bytes:[...new Uint8Array(await row.blob.arrayBuffer())]}))),rallyDebugEntries:()=>rallyDebug.entries(),gpsFollowState:()=>gpsFollow?.state(),simulateManualMapPan:()=>state.map?.fire('dragstart',{originalEvent:{type:'field-test'}}),gpsMarkerBounds:()=>{if(!state.lastGpsPosition||!state.map)return null;const point=state.map.latLngToContainerPoint([state.lastGpsPosition.lat,state.lastGpsPosition.lon]),mapRect=$('map')?.getBoundingClientRect();return mapRect?{x:mapRect.left+point.x,y:mapRect.top+point.y}:null;},setCompetitorsForTest:competitors=>{state.project.competitors=structuredClone(competitors);renderCompetitors();return mapEngineDiagnostics();},openCompetitorPopupForTest:id=>mapEngine.layers.get('competitors',`marker:${id}`)?.openPopup(),competitorPopupState:()=>structuredClone(competitorPopupSelection),runtimeDependencyReport,startApplication,registerServiceWorker};
+function competitorPresentationForTest(){
+  const layers=mapEngine?.group('competitors')?.getLayers?.()||[],clusters=mapEngine?.group('competitorClusters')?.getLayers?.()||[];
+  return {
+    selectedRiderId:state.selectedCompetitorId??null,
+    gapSeconds:Number(state.settings.competitorGapSeconds)||90,
+    riders:state.project.competitors.map((rider,index)=>{
+      const tactical=competitorTacticalModel(rider,index),riderLayers=layers.filter(layer=>layer._cannonCompetitorId===String(rider.id));
+      return {
+        id:String(rider.id),number:rider.number??null,label:riderSourceLabel(rider),segments:tactical.segments.length,gaps:structuredClone(tactical.gaps),tactical:structuredClone(tactical.tactical),
+        markerText:riderLayers.find(layer=>layer._cannonLayerKind==='marker')?.getElement?.()?.textContent?.trim()||'',
+        markerClass:riderLayers.find(layer=>layer._cannonLayerKind==='marker')?.getElement?.()?.className||'',
+        markerPosition:(()=>{const point=riderLayers.find(layer=>layer._cannonLayerKind==='marker')?.getLatLng?.();return point?{lat:point.lat,lon:point.lng}:null;})(),
+        positionStatus:tactical.positionStatus,pendingObservation:tactical.pendingObservation?structuredClone(tactical.pendingObservation):null,
+        trailClasses:riderLayers.filter(layer=>layer._cannonLayerKind==='trail').map(layer=>layer.options?.className||''),
+        renderedTrailSegments:riderLayers.filter(layer=>layer._cannonLayerKind==='trail').map(layer=>layer.getLatLngs?.().map(point=>({lat:point.lat,lon:point.lng}))||[])
+      };
+    }),
+    clusterCount:clusters.length,
+    clusterPositions:clusters.map(layer=>{const point=layer.getLatLng?.();return point?{lat:point.lat,lon:point.lng,riderIds:[...(layer._cannonRiderIds||[])]}:null;}).filter(Boolean),
+    desktopRowCount:$('competitorSummary')?.querySelectorAll('[data-rider-id]').length||0,
+    mobileRowCount:$('mobileCompetitorSummary')?.querySelectorAll('[data-rider-id]').length||0
+  };
+}
+window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,resumeDeferredQueue,finishDayFromDeferredQueue,startNextRallyDay,finalizePendingPhotoCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival,moveCheckpointInOrder,makeCheckpointNext,restoreImportedCheckpointOrder,handleStationaryAction,renderStationaryEvents,updateStationaryDetection,renderMapFeatures,mapEngineDiagnostics,observationCaptureDiagnostics,captureGpsObservation,replaySecureObservations,observationContext,missionControlJournalEvents,missionControlAppendTestPhotoReference,rideExportSnapshot,missionMediaRecords:async()=>Promise.all((await missionMedia.listProjectPhotos(state.project.projectId)).map(async row=>({role:row.role,metadata:row.metadata,name:row.name,bytes:[...new Uint8Array(await row.blob.arrayBuffer())]}))),rallyDebugEntries:()=>rallyDebug.entries(),gpsFollowState:()=>gpsFollow?.state(),simulateManualMapPan:()=>state.map?.fire('dragstart',{originalEvent:{type:'field-test'}}),gpsMarkerBounds:()=>{if(!state.lastGpsPosition||!state.map)return null;const point=state.map.latLngToContainerPoint([state.lastGpsPosition.lat,state.lastGpsPosition.lon]),mapRect=$('map')?.getBoundingClientRect();return mapRect?{x:mapRect.left+point.x,y:mapRect.top+point.y}:null;},normalizeCompetitorPayload,mergeCompetitorData,saveProjectForTest:()=>saveProject(false),competitorsForTest:()=>structuredClone(state.project.competitors),setCompetitorsForTest:competitors=>{state.project.competitors=structuredClone(competitors);state.selectedCompetitorId=null;refreshCompetitorGapMetadata();renderCompetitors();renderCompetitorSummary();return {...mapEngineDiagnostics(),...competitorPresentationForTest()};},setCompetitorZoomForTest:zoom=>{const points=state.project.competitors.map((rider,index)=>competitorTacticalModel(rider,index).renderObservation).filter(Boolean);if(points.length){const center={lat:points.reduce((sum,point)=>sum+point.lat,0)/points.length,lon:points.reduce((sum,point)=>sum+point.lon,0)/points.length};state.map.setView([center.lat,center.lon],Number(zoom),{animate:false});}else state.map.setZoom(Number(zoom));renderCompetitors();return competitorPresentationForTest();},selectCompetitorForTest:selectCompetitor,clearCompetitorSelectionForTest:clearCompetitorSelection,competitorPresentationForTest,openCompetitorPopupForTest:id=>mapEngine.layers.get('competitors',`marker:${id}`)?.openPopup(),competitorPopupState:()=>structuredClone(competitorPopupSelection),runtimeDependencyReport,startApplication,registerServiceWorker};
 startApplication();

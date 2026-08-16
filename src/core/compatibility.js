@@ -7,7 +7,7 @@ import {RALLY_FEED_DEFAULTS,RALLY_FEED_DEFAULT_REVISION} from './rally-feed-defa
 export function createLegacyState(appVersion,clock){
   return {
     map:null,baseLayers:{},featureGroup:null,competitorGroup:null,stationaryEventGroup:null,trafficGroup:null,weatherGroup:null,
-    gpsLayer:null,gpsAccuracyLayer:null,gpsWatchId:null,lastGpsPosition:null,followedCompetitorId:null,
+    gpsLayer:null,gpsAccuracyLayer:null,gpsWatchId:null,lastGpsPosition:null,followedCompetitorId:null,selectedCompetitorId:null,
     arrivalCandidateId:null,arrivalEnteredAt:0,
     pendingLayer:null,pendingImport:null,selectedId:null,editingLayer:null,history:[],
     rallyPollTimer:null,rallyLiveFeed:null,rallySync:{running:false,lastSync:null,lastError:'',pointsAdded:0},
@@ -19,7 +19,7 @@ export function createLegacyState(appVersion,clock){
       dayFilter:'all',inreachUrl:'',baseLayer:'Streets',lineOpacity:90,
       typeVisibility:{track:true,route:true,backbone:true,waypoint:true,checkpoint:true,fuel:true,hotel:true},
       ...RALLY_FEED_DEFAULTS,rallyFeedDefaultRevision:RALLY_FEED_DEFAULT_REVISION,rallyPollSeconds:30,
-      showCompetitorTrails:true,showCompetitorMarkers:true,competitorFreshMinutes:15,preferredCamera:'front',
+      showCompetitorTrails:true,showCompetitorMarkers:true,competitorFreshMinutes:15,competitorGapSeconds:90,preferredCamera:'front',
       trafficProvider:'none',tomtomApiKey:'',wazeFeedUrl:'',radarOpacity:65,radarCoverage:'active-day',routeWeatherSpeed:45,
       usableFuelCapacity:0,expectedPavedRange:0,expectedMixedRange:0,reserveDistance:25,fuelProfile:'mixed'
     }

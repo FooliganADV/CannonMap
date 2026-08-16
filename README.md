@@ -1,6 +1,6 @@
-# CannonMap Planner — Beta 0.7.1 Rally Mode Reset
+# CannonMap Planner — Beta 0.7.7 Trail Intel Tactical Identity
 
-Build: `2026.07.21.08`
+Build: `2026.08.16.trail-intel-tactical-1`
 
 ## Purpose
 
@@ -8,6 +8,10 @@ CannonMap is a rally decision system. The primary live-rally function is display
 
 ## New in this release
 
+- Preserves GPS Checkpoints rider numbers across live markers, trails, clusters, and compact tactical rows
+- Separates each rider's observations, records telemetry gaps, and never draws or calculates motion across missing intervals
+- Derives geodesic recent speed, 3-minute pace, sustained pace, freshness, heading, and moving/stopped state
+- Adds selectable rider emphasis, an all-riders reset, and phone-dense Trail Intel rows without breadcrumb counts
 - Dedicated phone-first Rally Mode while preserving the desktop Planner
 - Checkpoint states, 10/21 point scoring, completion, defer, restore, skip, and sequence preservation
 - One-action hotel bailout that defers unfinished checkpoints and offers an immediate undo

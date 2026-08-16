@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260809-mission-alignment-1" />
+  <link rel="stylesheet" href="app.css?v=20260816-trail-intel-tactical-1" />
 </head>
 <body>
   <header class="topbar">
@@ -18,7 +18,7 @@
       <span class="brand-mark">CM</span>
       <div>
         <h1>CannonMap</h1>
-          <p>America 250 Planner · <span id="buildLabel">Beta 0.7.1</span></p>
+          <p>America 250 Planner · <span id="buildLabel">Beta 0.7.7</span></p>
       </div>
     </div>
     <div class="top-actions">
@@ -203,6 +203,7 @@
             <label><input id="showCompetitorClusters" type="checkbox" /> Show tactical clusters</label>
           </div>
           <label class="field"><span>Freshness threshold</span><select id="competitorFreshMinutes"><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option></select></label>
+          <label class="field"><span>Break trail after missing telemetry</span><select id="competitorGapSeconds"><option value="30">30 seconds</option><option value="60">60 seconds</option><option value="90" selected>90 seconds</option><option value="120">2 minutes</option></select></label>
           <label class="field"><span>Trail history</span><select id="competitorTrailMinutes"><option value="60">1 hour</option><option value="240">4 hours</option><option value="480">8 hours</option><option value="1440">24 hours</option></select></label>
           <label class="field"><span>Trail opacity</span><input id="competitorTrailOpacity" type="range" min="20" max="100" step="5" value="100" /></label>
           <div class="notice muted">A faded trail is stale. The backbone remains a separate optional reference layer and is never treated as the official route.</div>
@@ -386,7 +387,7 @@
       <div class="map-status">
         <span id="cursorCoordinates">—</span>
         <span id="gpsStatus">GPS off</span>
-        <span id="appVersion">v0.7.1</span>
+        <span id="appVersion">v0.7.7</span>
       </div>
       <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open planner" aria-expanded="false">Planner</button>
       <button id="intelButton" class="intel-toggle" aria-label="Open live intelligence" aria-expanded="false">Intel</button>
@@ -397,6 +398,7 @@
           <article><span>Fresh</span><strong id="mobileFreshCount">0</strong></article>
           <article><span>Traffic</span><strong id="mobileTrafficCount">0</strong></article>
         </div>
+        <div id="mobileCompetitorSummary" class="tactical-rider-list empty">No competitor data loaded.</div>
         <div id="mobileObjectiveIntel" class="mobile-objective-intel">No active objective context.</div>
         <div id="mobileWeatherSummary" class="mobile-weather">Weather not loaded</div>
         <div class="mobile-intel-actions">
@@ -481,8 +483,8 @@
   <script src="vendor/firebase/firebase-database.js"></script>
   <script src="vendor/firebase/firebase-auth.js"></script>
   <script src="vendor/firebase/firebase-app-check.js"></script>
-  <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
+  <script src="gps-checkpoints-feed.js?v=20260816-trail-intel-tactical-1"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260809-mission-alignment-1"></script>
+  <script type="module" src="app.js?v=20260816-trail-intel-tactical-1"></script>
 </body>
 </html>

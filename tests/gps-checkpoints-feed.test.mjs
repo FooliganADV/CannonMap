@@ -5,6 +5,7 @@ import feedModule from '../gps-checkpoints-feed.js';
 const {
   buildStandings,
   createGPSCheckpointsFeed,
+  normalizeLocations,
   sanitizeCompetitor,
   sanitizeEvent
 }=feedModule;
@@ -43,6 +44,49 @@ test('adapter remains event-agnostic and rejects nonnumeric event IDs',()=>{
   const firebase=fakeFirebase(),fetch=async()=>({ok:true,json:async()=>[]});
   for(const eventId of ['27','15','42'])assert.doesNotThrow(()=>createGPSCheckpointsFeed({eventId,firebase,fetch}));
   assert.throws(()=>createGPSCheckpointsFeed({eventId:'event-27',firebase,fetch}),/eventId must be numeric/);
+});
+
+test('normalized live locations carry the upstream competitor number',()=>{
+  const locations=normalizeLocations(
+    {'internal-7':{latitude:38.4,longitude:-105.2,date:1786914000000}},
+    [{id:'internal-7',competitor_number:246,name:'Rider 246'}]
+  );
+  assert.deepEqual(locations,[{
+    id:'internal-7',number:246,name:'Rider 246',lat:38.4,lon:-105.2,time:1786914000000
+  }]);
+});
+
+test('synchronized nearby riders 246 and 299 remain distinct location streams',async()=>{
+  const firebase=fakeFirebase();
+  const responses=[
+    {id:60,name:'Event 60'},
+    [],
+    [
+      {id:'internal-7',competitor_number:246,name:'Rider 246'},
+      {id:'internal-8',competitor_number:299,name:'Rider 299'}
+    ]
+  ];
+  const client=createGPSCheckpointsFeed({
+    eventId:60,
+    firebase,
+    fetch:async()=>({ok:true,json:async()=>responses.shift()}),
+    metadataRefreshMs:60000
+  });
+  await client.start();
+  const locations=firebase.refs.get('locations/60'),timestamp=1786914000000;
+  locations.emit('child_added','internal-7',{latitude:38.4,longitude:-105.2,date:timestamp});
+  locations.emit('child_added','internal-8',{latitude:38.40045,longitude:-105.2,date:timestamp});
+
+  const snapshot=client.snapshot();
+  assert.deepEqual(snapshot.locations.map(location=>({id:location.id,number:location.number})),[
+    {id:'internal-7',number:246},
+    {id:'internal-8',number:299}
+  ]);
+  assert.deepEqual(snapshot.locations.map(location=>[location.lat,location.lon]),[
+    [38.4,-105.2],
+    [38.40045,-105.2]
+  ]);
+  client.stop();
 });
 
 test('uses REST metadata plus Firebase subscriptions and preserves removed locations',async()=>{

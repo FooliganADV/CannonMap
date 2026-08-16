@@ -1,7 +1,7 @@
 {
   "name": "cannonmap",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.7.7",
   "scripts": {
     "vendor": "node scripts/vendor-dependencies.mjs",
     "validate:vendor": "node scripts/validate-vendor.mjs",

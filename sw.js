@@ -1,12 +1,12 @@
-const CACHE = 'cannonmap-v0.7.6-20260809-mission-alignment-1';
+const CACHE = 'cannonmap-v0.7.7-20260816-trail-intel-tactical-1';
 const RADAR_CACHE='cannonmap-radar-v1',RADAR_CACHE_LIMIT=96;
 const APP_SHELL = [
   './',
   './index.html',
-  './app.css?v=20260809-mission-alignment-1',
-  './gps-checkpoints-feed.js?v=20260725-02',
+  './app.css?v=20260816-trail-intel-tactical-1',
+  './gps-checkpoints-feed.js?v=20260816-trail-intel-tactical-1',
   './stationary-events.js?v=20260725-01',
-  './app.js?v=20260809-mission-alignment-1',
+  './app.js?v=20260816-trail-intel-tactical-1',
   './src/core/clock.js',
   './src/core/compatibility.js',
   './src/core/errors.js',
@@ -87,6 +87,7 @@ const APP_SHELL = [
   './src/infrastructure/indexeddb/journey-restore-repository.js',
   './src/ui/map/map-engine.js',
   './src/ui/map/layer-registry.js',
+  './src/ui/trail-intel/tactical-presentation.js',
   './src/ui/rally/presenter.js',
   './src/ui/rally/controller.js',
   './src/ui/project/controller.js',
