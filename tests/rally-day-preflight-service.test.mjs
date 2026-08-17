@@ -89,6 +89,20 @@ test('storage and offline setup remain explicit actions',async()=>{
   assert.equal(result.capabilities.offline.action,'PREPARE_OFFLINE');
 });
 
+test('iPhone refusal or inability to verify eviction protection is non-blocking after writable storage is proven',async()=>{
+  const refused=harness({storage:{persistenceStatus:'not-granted',persistenceRequestAttempted:true}});
+  const refusedState=await refused.service.inspect({projectId:'iphone',dayNumber:2});
+  assert.equal(refusedState.capabilities.storage.status,PREFLIGHT_STATUS.READY);assert.equal(refusedState.capabilities.storage.warning,true);assert.equal(refusedState.capabilities.storage.action,null);
+  const unverifiable=harness({storage:{persistenceStatus:'unsupported',persistenceRequestSupported:false}});
+  assert.equal((await unverifiable.service.inspect({projectId:'iphone',dayNumber:2})).capabilities.storage.status,PREFLIGHT_STATUS.READY);
+});
+
+test('genuine durable storage failure remains an explicit hard blocker',async()=>{
+  const {service}=harness({storage:{durableReady:false,persistenceStatus:'error',reasonCode:'indexeddb-write-failed'}});
+  const result=await service.inspect({projectId:'iphone',dayNumber:2});
+  assert.equal(result.capabilities.storage.status,PREFLIGHT_STATUS.BLOCKED);assert.equal(result.proceedAllowed,false);
+});
+
 test('capability actions require an explicit user gesture and re-inspect after direct invocation',async()=>{
   const {service,calls}=harness({gps:{permission:'prompt',active:false,fixReceived:false}});
   const scope={projectId:'america-250',dayNumber:1};

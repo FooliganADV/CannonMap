@@ -50,6 +50,7 @@ test('storage inspection never requests persistence and reports quota separately
   assert.equal(persistCalls,0);
   assert.equal(await adapter.requestStoragePersistenceFromUserGesture(),true);
   assert.equal(persistCalls,1);
+  assert.equal((await adapter.inspectStorage()).persistenceRequestAttempted,true);
 });
 
 test('storage API failures are returned as readiness facts instead of trapping startup',async()=>{

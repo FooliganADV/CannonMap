@@ -1,12 +1,12 @@
-const CACHE = 'cannonmap-v0.7.10-20260817-persistent-camera-current-1';
+const CACHE = 'cannonmap-v0.7.10-20260817-trail-intel-field-recovery-1';
 const RADAR_CACHE='cannonmap-radar-v1',RADAR_CACHE_LIMIT=96;
 const APP_SHELL = [
   './',
   './index.html',
-  './app.css?v=20260817-persistent-camera-current-1',
+  './app.css?v=20260817-trail-intel-field-recovery-1',
   './gps-checkpoints-feed.js?v=20260725-02',
   './stationary-events.js?v=20260725-01',
-  './app.js?v=20260817-persistent-camera-current-1',
+  './app.js?v=20260817-trail-intel-field-recovery-1',
   './src/core/clock.js',
   './src/core/compatibility.js',
   './src/core/errors.js',
@@ -22,6 +22,7 @@ const APP_SHELL = [
   './src/domain/projects/errors.js',
   './src/domain/projects/finalized.js',
   './src/domain/competitors/trails.js',
+  './src/domain/competitors/target-intelligence.js',
   './src/domain/media/camera-preference.js',
   './src/domain/templates/model.js',
   './src/domain/templates/errors.js',
@@ -101,6 +102,7 @@ const APP_SHELL = [
   './src/ui/rally/presenter.js',
   './src/ui/rally/controller.js',
   './src/ui/project/controller.js',
+  './src/ui/trail-intel/tactical-presentation.js',
   './src/infrastructure/firebase/authentication.js',
   './src/infrastructure/firebase/observation-ingress-client.js',
   './shared/contracts/confidence-vector.js',

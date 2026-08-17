@@ -1,0 +1,51 @@
+name: Deploy Trail Intel field recovery preview
+
+on:
+  push:
+    branches:
+      - agent/trail-intel-field-recovery
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: cannonmap-trail-intel-field-recovery-preview
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy exact commit to Cloudflare Pages preview
+    runs-on: ubuntu-latest
+    environment:
+      name: cannonmap-trail-intel-field-recovery-preview
+      url: ${{ steps.deploy.outputs.pages-deployment-alias-url || steps.deploy.outputs.deployment-url }}
+    steps:
+      - name: Check out the triggering commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify deployment inputs
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing CLOUDFLARE_API_TOKEN"; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing CLOUDFLARE_ACCOUNT_ID"; exit 1; }
+          test "$GITHUB_REF_NAME" = "agent/trail-intel-field-recovery" || { echo "::error::Unexpected preview branch"; exit 1; }
+      - name: Deploy repository root to cannonmap preview
+        id: deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          packageManager: npm
+          command: >-
+            pages deploy .
+            --project-name=cannonmap
+            --branch=agent/trail-intel-field-recovery
+            --commit-hash=${{ github.sha }}
+            --commit-dirty=false

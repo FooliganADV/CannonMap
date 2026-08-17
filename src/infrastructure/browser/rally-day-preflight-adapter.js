@@ -43,6 +43,7 @@ export function createBrowserRallyDayPreflightAdapter({
   prepareOffline=null,
   serviceWorkerUrl='./sw.js'
 }={}){
+  let persistenceRequestAttempted=false;
   async function inspectGps(){
     const permission=await permissionState(permissions,'geolocation');
     let runtime={};
@@ -73,6 +74,7 @@ export function createBrowserRallyDayPreflightAdapter({
       ...durable,
       persistenceStatus,
       persistenceRequestSupported:Boolean(storageManager&&typeof storageManager.persist==='function'),
+      persistenceRequestAttempted,
       persistenceError:persisted.error?errorText(persisted.error):null,
       quotaBytes:finiteOrNull(estimate.value?.quota),
       usageBytes:finiteOrNull(estimate.value?.usage),
@@ -133,6 +135,7 @@ export function createBrowserRallyDayPreflightAdapter({
       return Promise.resolve(startGps());
     },
     requestStoragePersistenceFromUserGesture(){
+      persistenceRequestAttempted=true;
       if(!storageManager||typeof storageManager.persist!=='function')throw new Error('Persistent storage requests are unavailable.');
       return Promise.resolve(storageManager.persist());
     },

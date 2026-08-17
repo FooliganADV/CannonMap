@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260817-persistent-camera-current-1" />
+  <link rel="stylesheet" href="app.css?v=20260817-trail-intel-field-recovery-1" />
 </head>
 <body>
   <header class="topbar">
@@ -275,6 +275,7 @@
             <section id="rallyRouteIntelligenceSection" hidden><p id="rallyRouteIntelligence"></p></section>
             <section id="rallyObjectiveIntelSection" hidden><h3>Trail Intel</h3><p id="rallyObjectiveIntel"></p></section>
             <section id="rallyWarningsSection" hidden><ul id="rallyWarnings"></ul></section>
+            <button id="rallyLiveFeedControl" class="rally-live-feed-control" type="button" data-state="OFF" aria-label="Trail Intel live feed off">OFF</button>
           </div>
         </div>
         <section id="rallyDeferredPrompt" class="rally-deferred-prompt" hidden>
@@ -410,7 +411,7 @@
       <div class="map-status">
         <span id="cursorCoordinates">—</span>
         <span id="gpsStatus">GPS off</span>
-        <span id="appVersion">v0.7.10 · 2026.08.17.persistent-camera-current-1</span>
+        <span id="appVersion">v0.7.10 · 2026.08.17.trail-intel-field-recovery-1</span>
       </div>
       <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open planner" aria-expanded="false">Planner</button>
       <button id="intelButton" class="intel-toggle" aria-label="Open live intelligence" aria-expanded="false">Intel</button>
@@ -507,6 +508,6 @@
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260817-persistent-camera-current-1"></script>
+  <script type="module" src="app.js?v=20260817-trail-intel-field-recovery-1"></script>
 </body>
 </html>

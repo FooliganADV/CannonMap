@@ -23,8 +23,8 @@ function buildStandings(competitors,checkpoints,achievements){
   return competitors.map(c=>{const id=String(c.id);return{id,number:c.competitor_number,name:c.name,team:c.team||'',vehicle:c.vehicle||'',points:totals[id]||0,countAchieved:counts[id]||0,lastDate:last[id]?.date||0,lastCheckpoint:last[id]?names.get(String(last[id].checkpointId))||'':''};}).sort((a,b)=>b.points-a.points||b.lastDate-a.lastDate||Number(a.number||0)-Number(b.number||0));
 }
 function normalizeLocations(locations,competitors){
-  const names=new Map(competitors.map(x=>[String(x.id),x.name]));
-  return Object.entries(locations||{}).flatMap(([id,d])=>{const lat=Number(d?.latitude),lon=Number(d?.longitude);return Number.isFinite(lat)&&Number.isFinite(lon)?[{id,name:names.get(id)||`Rider ${id}`,lat,lon,time:d.date||''}]:[];});
+  const metadata=new Map(competitors.map(x=>[String(x.id),{name:x.name,number:x.competitor_number}]));
+  return Object.entries(locations||{}).flatMap(([id,d])=>{const lat=Number(d?.latitude),lon=Number(d?.longitude),rider=metadata.get(id)||{};return Number.isFinite(lat)&&Number.isFinite(lon)?[{id,...(rider.number!==undefined&&rider.number!==null?{number:rider.number}:{}),name:rider.name||`Rider ${id}`,lat,lon,time:d.date||''}]:[];});
 }
 function getFirebaseApp(firebaseImpl,config){
   const name='cannonmap-gps-checkpoints';

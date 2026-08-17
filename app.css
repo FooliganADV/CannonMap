@@ -553,3 +553,10 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
   .rally-actions{left:calc(max(8px,env(safe-area-inset-left)) + min(486px,58vw));right:max(72px,calc(8px + env(safe-area-inset-right)));grid-template-columns:repeat(4,minmax(48px,1fr))}
   .rally-actions button{min-width:0;white-space:normal;overflow-wrap:normal}
 }
+.rally-live-feed-control{min-width:72px;min-height:36px;padding:6px 10px;border-radius:999px;border:1px solid #64748b;background:#172033;color:#dbeafe;font-size:.72rem;font-weight:900;letter-spacing:.06em}
+.rally-live-feed-control[data-state="LIVE"]{border-color:#22c55e;color:#86efac}
+.rally-live-feed-control[data-state="ERROR"]{border-color:#f97316;color:#fed7aa}
+.competitor-rider-marker.is-selected{filter:saturate(1.25)}.competitor-rider-marker.is-dimmed{opacity:.42}
+.tactical-rider-row{width:100%;min-height:50px}.tactical-rider-reset{width:100%;min-height:48px}
+.checkpoint-recent-activity>div{animation:checkpoint-recent-halo 2.4s ease-out infinite}
+@keyframes checkpoint-recent-halo{0%,100%{box-shadow:0 0 0 0 #38bdf877,0 2px 8px #0008}50%{box-shadow:0 0 0 8px #38bdf800,0 2px 8px #0008}}

@@ -76,12 +76,14 @@ function storageCapability(raw={}){
   const requestSupported=raw.persistenceRequestSupported===true;
   const quotaBytes=finiteOrNull(raw.quotaBytes);
   const usageBytes=finiteOrNull(raw.usageBytes);
-  const extra={durableReady,persistenceStatus:persistence,persistenceRequestSupported:requestSupported,quotaBytes,usageBytes};
+  const requestAttempted=raw.persistenceRequestAttempted===true;
+  const extra={durableReady,persistenceStatus:persistence,persistenceRequestSupported:requestSupported,persistenceRequestAttempted:requestAttempted,quotaBytes,usageBytes};
   if(durableReady===false)return capability('storage',PREFLIGHT_STATUS.BLOCKED,text(raw.reasonCode,'durable-storage-unavailable'),'Local durable storage is unavailable. Rally evidence may not survive restart.',null,extra);
   if(durableReady===true&&persistence==='granted')return capability('storage',PREFLIGHT_STATUS.READY,'durable-storage-ready','Local storage is writable and protected from routine browser eviction.',null,extra);
+  if(durableReady===true&&persistence==='not-granted'&&requestAttempted)return capability('storage',PREFLIGHT_STATUS.READY,'storage-persistence-not-granted','Local storage is writable. This browser did not grant eviction protection; keep current backups.',null,{...extra,warning:true});
   if(durableReady===true&&persistence==='not-granted'&&requestSupported)return capability('storage',PREFLIGHT_STATUS.ACTION_REQUIRED,'storage-persistence-requestable','Local storage works, but browser persistence has not been granted.','PROTECT_STORAGE',extra);
-  if(durableReady===true&&persistence==='error')return capability('storage',PREFLIGHT_STATUS.BLOCKED,text(raw.reasonCode,'storage-persistence-error'),'Local storage works, but persistence readiness failed.',requestSupported?'PROTECT_STORAGE':null,extra);
-  if(durableReady===true)return capability('storage',PREFLIGHT_STATUS.UNKNOWN,text(raw.reasonCode,'storage-persistence-unknown'),'Local storage works, but this browser cannot verify eviction protection.',null,extra);
+  if(durableReady===true&&persistence==='error')return capability('storage',PREFLIGHT_STATUS.READY,text(raw.reasonCode,'storage-persistence-unverifiable'),'Local storage is writable, but this browser cannot verify eviction protection.',null,{...extra,warning:true});
+  if(durableReady===true)return capability('storage',PREFLIGHT_STATUS.READY,text(raw.reasonCode,'storage-persistence-unverifiable'),'Local storage is writable. Eviction protection is unavailable or cannot be verified.',null,{...extra,warning:true});
   return capability('storage',PREFLIGHT_STATUS.UNKNOWN,text(raw.reasonCode,'durable-storage-not-verified'),'Local durable storage readiness has not been verified.',null,extra);
 }
 

@@ -42,6 +42,8 @@ import {createWeatherMaintenance} from './src/application/weather-maintenance.js
 import {createFinalizedProjectService} from './src/application/finalized-project-service.js';
 import {createFinalizedProjectRepository} from './src/infrastructure/indexeddb/finalized-project-repository.js';
 import {stableCompetitorId,normalizeTrailPoints,segmentTrail,trailStatus,mergeCompetitorSnapshots,buildTacticalClusters} from './src/domain/competitors/trails.js';
+import {buildTargetActivity,mergeRecentTargetActivity} from './src/domain/competitors/target-intelligence.js';
+import {riderVisualIdentity} from './src/ui/trail-intel/tactical-presentation.js';
 import {
   createAnalyticsRepository,createJournalRepository,createLegacyCurrentProjectRepository,
   createObservationCaptureRepository,createProjectDeletionRepository,createProjectLifecycleRepository,
@@ -51,12 +53,12 @@ import {createFirebaseAuthentication} from './src/infrastructure/firebase/authen
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
 const APP_VERSION = '0.7.10';
-const BUILD_ID = '2026.08.17.persistent-camera-current-1';
+const BUILD_ID = '2026.08.17.trail-intel-field-recovery-1';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const CAMERA_SETUP_HINT_KEY = 'cannonmap.camera-setup-succeeded.v1';
-const APP_SHELL_CACHE = 'cannonmap-v0.7.10-20260817-persistent-camera-current-1';
-const PREFLIGHT_SHELL_ASSETS = Object.freeze(['./index.html','./app.js?v=20260817-persistent-camera-current-1','./app.css?v=20260817-persistent-camera-current-1']);
+const APP_SHELL_CACHE = 'cannonmap-v0.7.10-20260817-trail-intel-field-recovery-1';
+const PREFLIGHT_SHELL_ASSETS = Object.freeze(['./index.html','./app.js?v=20260817-trail-intel-field-recovery-1','./app.css?v=20260817-trail-intel-field-recovery-1']);
 const DB_NAME = 'CannonMapDB';
 const DB_STORE = 'projects';
 const PROHIBITED_FEATURE_NAMES = new Set(['old coast road']);
@@ -139,6 +141,7 @@ let rallyScopeGeneration=0;
 let rallyScopeSuspended=false;
 let projectSaveQueue=Promise.resolve();
 let defaultProjectSettings=null;
+let rallyPollingStartPromise=null;
 
 function performProgrammaticMapChange(reason,operation){
   if(gpsFollow?.performProgrammaticMapChange)return gpsFollow.performProgrammaticMapChange(operation,{reason});
@@ -312,7 +315,8 @@ function featureStyle(feature) {
 function markerIcon(feature) {
   const color = ['checkpoint','hotel'].includes(feature.type)?checkpoints.CHECKPOINT_COLOR[checkpoints.checkpointState(feature.status)]:(COLORS[feature.type] || COLORS.waypoint);
   const label = feature.type === 'fuel' ? 'F' : feature.type === 'hotel' ? 'H' : feature.type === 'checkpoint' ? 'C' : '•';
-  return L.divIcon({ className:'', html:`<div style="width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:${color};color:#07111f;border:2px solid white;font-weight:900;font-size:12px;box-shadow:0 2px 8px #0008">${label}</div>`, iconSize:[24,24], iconAnchor:[12,12] });
+  const recent=(state.project.recentTargetActivity||[]).some(item=>item.objectiveId===feature.id&&Date.now()-Date.parse(item.closestApproachTimestamp)<=30*60*1000);
+  return L.divIcon({ className:recent?'checkpoint-recent-activity':'', html:`<div style="width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:${color};color:#07111f;border:2px solid white;font-weight:900;font-size:12px;box-shadow:0 2px 8px #0008">${label}</div>`, iconSize:[24,24], iconAnchor:[12,12] });
 }
 function createLeafletLayer(feature) {
   let layer;
@@ -350,7 +354,7 @@ function renderMapFeatures() {
   ).map(feature=>({feature,key:feature.id||`legacy-index:${state.project.features.indexOf(feature)}`}));
   const layers=mapEngine.layers.reconcile('features',visible,{
     key:model=>model.key,
-    fingerprint:model=>JSON.stringify({feature:deepClean(model.feature),lineOpacity:state.settings.lineOpacity}),
+    fingerprint:model=>JSON.stringify({feature:deepClean(model.feature),lineOpacity:state.settings.lineOpacity,recentTargetActivity:(state.project.recentTargetActivity||[]).some(item=>item.objectiveId===model.feature.id&&Date.now()-Date.parse(item.closestApproachTimestamp)<=30*60*1000)}),
     create:model=>createLeafletLayer(model.feature)
   });
   visible.forEach(model=>model.feature._layer=layers.get(String(model.key)));
@@ -390,12 +394,12 @@ function renderCompetitors() {
     }),
     create:model=>{
       if(model.kind==='trail'){
-        const line=L.polyline(model.points.map(p=>[p.lat,p.lon]),{pane:'competitorTrailsPane',color:COLORS.competitor,weight:model.freshness.fresh?4:3,dashArray:model.freshness.fresh?null:'7 7',opacity:model.opacity});
+        const line=L.polyline(model.points.map(p=>[p.lat,p.lon]),{pane:'competitorTrailsPane',color:riderVisualIdentity(model.comp).color,weight:model.freshness.fresh?4:3,dashArray:model.freshness.fresh?null:'7 7',opacity:model.opacity});
         line.bindTooltip(`${model.comp.name||model.comp.id} · ${model.freshness.ageMinutes===null?'unknown age':`${Math.round(model.freshness.ageMinutes)} min old`}`);
         return line;
       }
       const last=model.points.at(-1);
-      const marker=L.circleMarker([last.lat,last.lon],{pane:'competitorTrailsPane',radius:model.freshness.fresh?7:5,color:'#fff',weight:2,fillColor:COLORS.competitor,fillOpacity:model.opacity});
+      const marker=L.circleMarker([last.lat,last.lon],{pane:'competitorTrailsPane',radius:model.freshness.fresh?7:5,color:'#fff',weight:2,fillColor:riderVisualIdentity(model.comp).color,fillOpacity:model.opacity});
       const speed=model.freshness.speedMph===null?'Unavailable':`${model.freshness.speedMph.toFixed(1)} mph`,direction=model.freshness.direction===null?'Unavailable':`${Math.round(model.freshness.direction)}°`;
       marker.bindPopup(`<strong>${escapeHtml(model.comp.name||model.comp.id)}</strong><br>${escapeHtml(last.time||'Time unavailable')}<br>${escapeHtml(model.freshness.status)} · ${escapeHtml(model.freshness.motion)}<br>Speed ${speed} · Direction ${direction}`);
       marker.on('popupopen',()=>competitorPopupSelection={type:'competitor',id:String(model.comp.id),openedAt:Date.now()});marker.on('popupclose',()=>{if(competitorPopupSelection?.id===String(model.comp.id))competitorPopupSelection=null;});
@@ -1690,7 +1694,13 @@ function normalizeCompetitorPayload(payload) {
   }).filter(comp=>comp.points.length);
 }
 function mergeCompetitorData(incoming) {
-  const priorIds=new Set(state.project.competitors.map(item=>String(item.id))),result=mergeCompetitorSnapshots(state.project.competitors,incoming,{historyMs:Math.max(15,Number(state.settings.competitorTrailMinutes)||480)*60000,maxPoints:12000});state.project.competitors=result.competitors;return {added:result.added,riders:result.competitors.filter(item=>!priorIds.has(String(item.id))).length};
+  const priorIds=new Set(state.project.competitors.map(item=>String(item.id))),result=mergeCompetitorSnapshots(state.project.competitors,incoming,{historyMs:Math.max(15,Number(state.settings.competitorTrailMinutes)||480)*60000,maxPoints:12000});state.project.competitors=result.competitors;refreshTargetActivity();return {added:result.added,riders:result.competitors.filter(item=>!priorIds.has(String(item.id))).length};
+}
+function refreshTargetActivity(now=Date.now()){
+  const objective=currentCheckpoint();if(!objective)return [];
+  const activity=buildTargetActivity(state.project.competitors,objective,{now,vicinityRadiusMeters:Math.max(30,Number(state.settings.checkpointArrivalRadius||500)*0.3048)});
+  state.project.recentTargetActivity=mergeRecentTargetActivity(state.project.recentTargetActivity,activity,{now});
+  return activity;
 }
 async function fetchWithTimeout(url,options={},timeout=15000) {
   const controller=new AbortController();
@@ -1728,14 +1738,22 @@ async function syncRallyFeed() {
     setStatus(`Trail sync failed: ${state.rallySync.lastError}`,true);renderIntelSummary();
   }finally{state.rallySync.running=false;renderIntelSummary();}
 }
-function stopRallyPolling() {
+function persistLivePollingPreference(enabled){state.settings.rallyPollingEnabled=Boolean(enabled);persistCurrentSettings();}
+function stopRallyPolling({intentional=false,reason='stopped'}={}) {
+  if(intentional)persistLivePollingPreference(false);
   if(state.rallyLiveFeed){state.rallyLiveFeed.stop();state.rallyLiveFeed=null;}
   if(state.rallyPollTimer){clearInterval(state.rallyPollTimer);state.rallyPollTimer=null;}
+  state.rallySync.running=false;if(intentional)state.rallySync.lastError='';
   if($('toggleRallyPollingButton'))$('toggleRallyPollingButton').textContent='Start live polling';
+  rallyDebug.record('trail_live_feed_stopped',{intentional,reason});
   renderIntelSummary();
 }
-async function toggleRallyPolling() {
-  if(state.rallyLiveFeed||state.rallyPollTimer){stopRallyPolling();setStatus('Live trail sync stopped.');return;}
+async function startRallyPolling({reason='user-enabled'}={}) {
+  if(state.rallyLiveFeed||state.rallyPollTimer)return true;
+  if(rallyPollingStartPromise)return rallyPollingStartPromise;
+  persistLivePollingPreference(true);state.rallySync.running=true;state.rallySync.lastError='';renderIntelSummary();
+  rallyDebug.record('trail_live_feed_reconnecting',{reason,eventId:String(state.settings.rallyEventId||''),hasEndpoint:Boolean(state.settings.rallyEndpointUrl)});
+  rallyPollingStartPromise=(async()=>{try{
   if(!state.settings.rallyEndpointUrl&&window.GPSCheckpointsFeed&&state.settings.rallyEventId){
     const feed=window.GPSCheckpointsFeed.createGPSCheckpointsFeed({eventId:state.settings.rallyEventId});
     feed.on('snapshot',async payload=>{
@@ -1749,19 +1767,25 @@ async function toggleRallyPolling() {
       state.rallySync.lastSync=new Date().toISOString();state.rallySync.pointsAdded=result.added;state.rallySync.lastError='';
       await saveProject(false);renderMapFeatures();renderCompetitorSummary();renderIntelSummary();
     });
-    feed.on('error',detail=>{state.rallySync.lastError=detail.error?.message||'Live feed error.';renderIntelSummary();});
+    feed.on('error',detail=>{const message=detail.error?.message||'Live feed error.';stopRallyPolling({reason:'live-feed-error'});state.rallySync.lastError=message;renderIntelSummary();});
     state.rallyLiveFeed=feed;state.rallySync.running=true;renderIntelSummary();
     await feed.start();
     state.rallySync.running=false;if($('toggleRallyPollingButton'))$('toggleRallyPollingButton').textContent='Stop live sync';
-    setStatus('Official GPS Checkpoints live feed connected.');renderIntelSummary();return;
+    setStatus('Official GPS Checkpoints live feed connected.');rallyDebug.record('trail_live_feed_connected',{reason,eventId:String(state.settings.rallyEventId)});renderIntelSummary();return true;
   }
-  if(!state.settings.rallyEndpointUrl)return syncRallyFeed();
+  if(!state.settings.rallyEndpointUrl){await syncRallyFeed();if(state.rallySync.lastError)throw new Error(state.rallySync.lastError);return true;}
   await syncRallyFeed();
-  if(state.rallySync.lastError)return;
+  if(state.rallySync.lastError)throw new Error(state.rallySync.lastError);
   const seconds=Math.max(10,Number(state.settings.rallyPollSeconds)||30);
   state.rallyPollTimer=setInterval(syncRallyFeed,seconds*1000);
   if($('toggleRallyPollingButton'))$('toggleRallyPollingButton').textContent='Stop live polling';
-  setStatus(`Live trail polling started every ${seconds} seconds.`);renderIntelSummary();
+  setStatus(`Live trail polling started every ${seconds} seconds.`);rallyDebug.record('trail_live_feed_connected',{reason,eventId:String(state.settings.rallyEventId||''),pollSeconds:seconds});renderIntelSummary();return true;
+  }catch(error){stopRallyPolling({reason:'connection-failed'});state.rallySync.lastError=error?.message||String(error);rallyDebug.record('trail_live_feed_error',{reason,error:state.rallySync.lastError});renderIntelSummary();return false;}finally{rallyPollingStartPromise=null;}})();
+  return rallyPollingStartPromise;
+}
+async function toggleRallyPolling() {
+  if(state.settings.rallyPollingEnabled||state.rallyLiveFeed||state.rallyPollTimer){stopRallyPolling({intentional:true,reason:'rider-disabled'});setStatus('Live trail sync stopped.');return;}
+  await startRallyPolling({reason:'rider-enabled'});
 }
 function saveIntegrationSettings() {
   state.settings.inreachUrl=$('inreachUrl')?.value.trim()||'';
@@ -2071,10 +2095,11 @@ function openWazeAtMapCenter() {
 function renderIntelSummary() {
   const riders=state.project.competitors||[];const fresh=riders.filter(comp=>competitorFreshness(comp).fresh).length;const points=riders.reduce((sum,comp)=>sum+(comp.points?.length||0),0);
   if($('intelRiderCount'))$('intelRiderCount').textContent=riders.length;if($('intelFreshCount'))$('intelFreshCount').textContent=fresh;if($('intelPointCount'))$('intelPointCount').textContent=points;if($('intelLastSync'))$('intelLastSync').textContent=formatClock(state.rallySync.lastSync);
-  const running=Boolean(state.rallyPollTimer);const badge=$('feedBadge');if(badge){badge.textContent=state.rallySync.running?'SYNCING':running?'LIVE':state.rallySync.lastError?'CHECK':'READY';badge.className=`badge ${state.rallySync.lastError?'warning':running?'live':'neutral'}`;}
+  const running=Boolean(state.rallyLiveFeed||state.rallyPollTimer),liveState=running?'LIVE':state.rallySync.running?'RECONNECTING':state.rallySync.lastError?'ERROR':'OFF';const badge=$('feedBadge');if(badge){badge.textContent=liveState;badge.className=`badge ${liveState==='ERROR'?'warning':liveState==='LIVE'?'live':'neutral'}`;}
+  const liveControl=$('rallyLiveFeedControl');if(liveControl){liveControl.textContent=liveState==='ERROR'?'RECONNECT LIVE FEED':liveState;liveControl.dataset.state=liveState;liveControl.disabled=liveState==='RECONNECTING';liveControl.setAttribute('aria-label',liveState==='ERROR'?'Reconnect live Trail Intel feed':`Trail Intel live feed ${liveState.toLowerCase()}`);}
   if($('rallyFeedNotice')){$('rallyFeedNotice').textContent=state.rallySync.lastError?state.rallySync.lastError:state.settings.rallyEndpointUrl?`${running?'Polling':'Connector ready'} · ${riders.length} riders · ${points} breadcrumbs`:'The built-in official feed uses the Event ID. The custom JSON/location endpoint is optional. Live updates run only while CannonMap is open and active.';}
   if($('mobileRiderCount'))$('mobileRiderCount').textContent=riders.length;if($('mobileFreshCount'))$('mobileFreshCount').textContent=fresh;if($('mobileTrafficCount'))$('mobileTrafficCount').textContent=state.trafficIncidents.length;
-  if($('mobileIntelStatus'))$('mobileIntelStatus').textContent=running?`Live · last ${formatClock(state.rallySync.lastSync)}`:state.rallySync.lastSync?`Last sync ${formatClock(state.rallySync.lastSync)}`:'No live feed';
+  if($('mobileIntelStatus'))$('mobileIntelStatus').textContent=liveState==='LIVE'?`Live · last ${formatClock(state.rallySync.lastSync)}`:liveState==='RECONNECTING'?'Reconnecting live feed':liveState==='ERROR'?'Live feed error':state.rallySync.lastSync?`Off · last ${formatClock(state.rallySync.lastSync)}`:'Live feed off';
   if($('mobileObjectiveIntel'))$('mobileObjectiveIntel').textContent=objectiveTrailIntel(currentCheckpoint())||'No recent competitor activity near the active objective.';
   if($('mobileWeatherSummary')){if(state.weatherData){const c=state.weatherData.current||{};$('mobileWeatherSummary').textContent=`${Math.round(c.temperature_2m??0)}°F · ${WEATHER_CODES[c.weather_code]||'Weather'} · Gusts ${Math.round(weatherMaxGustMph(state.weatherData))} mph`;}else $('mobileWeatherSummary').textContent='Weather not loaded';}
 }
@@ -2215,7 +2240,7 @@ function contextualGpsLabel(){
   const maximum=Math.max(25,Number(state.settings.checkpointMaxAccuracy)||200);
   return accuracy>maximum?`GPS POOR · ±${Math.round(accuracy)} ft`:'GPS ✓';
 }
-function objectiveTrailIntel(next){
+function legacyObjectiveTrailIntel(next){
   const objective=next?.geometry?.coordinates?.[0];if(!objective)return '';
   const radius=1609.344,freshWindow=Math.max(5,Number(state.settings.competitorFreshMinutes)||15)*60000,cutoff=Date.now()-freshWindow;
   let nearby=0,recentTrails=0,newest=0;
@@ -2227,6 +2252,15 @@ function objectiveTrailIntel(next){
   if(!nearby&&!recentTrails)return '';
   const age=newest?Math.max(0,Math.round((Date.now()-newest)/60000)):null;
   return `${nearby} rider${nearby===1?'':'s'} near objective · ${recentTrails} recent trail${recentTrails===1?'':'s'} within 1 mi${age===null?'':` · Newest activity ${age} min ago`}`;
+}
+function objectiveTrailIntel(next){
+  if(!next)return '';
+  const now=Date.now(),current=buildTargetActivity(state.project.competitors,next,{now,vicinityRadiusMeters:Math.max(30,Number(state.settings.checkpointArrivalRadius||500)*0.3048)});
+  const persisted=(state.project.recentTargetActivity||[]).filter(item=>item.objectiveId===next.id&&now-Date.parse(item.closestApproachTimestamp)<=30*60*1000);
+  const rows=mergeRecentTargetActivity(persisted,current,{now,retentionMs:30*60*1000,maxRecords:8});if(!rows.length)return legacyObjectiveTrailIntel(next);
+  const labels={'approaching-target':'APPROACHING TARGET','passed-target-vicinity':'PASSED TARGET VICINITY','stopped-near-target':'STOPPED NEAR TARGET','departed-target':'DEPARTED TARGET','recent-target-activity':'RECENT TARGET ACTIVITY',nearby:'RECENT TARGET ACTIVITY'};
+  const approaching=rows.filter(item=>item.state==='approaching-target');const heading=approaching.length>1?`TARGET ACTIVITY · ${approaching.length} riders approaching ${next.name||next.id}\n`:'';
+  return heading+rows.slice(0,3).map(item=>{const age=Math.max(0,Math.round((now-Date.parse(item.closestApproachTimestamp))/60000)),feet=Math.round(item.closestApproachMeters*3.28084),speed=item.speedAtClosestMph===null?'':` · ~${Math.round(item.speedAtClosestMph)} mph`,dwell=item.stoppedNearTarget&&item.dwellDurationMs?` · stopped ${Math.round(item.dwellDurationMs/60000)}m`:'';return `${item.riderNumber} · ${labels[item.state]||labels.nearby} · ${age}m ago · closest ${feet} ft${speed}${dwell}`;}).join('\n');
 }
 function rallyEmptyState(rows,dayState,reviewMode){
   const day=activeRallyDay();
@@ -2695,6 +2729,7 @@ function wireUi() {
   $('openLeaderboardButton')?.addEventListener('click',openLeaderboard);
   $('syncRallyButton')?.addEventListener('click',syncRallyFeed);
   $('toggleRallyPollingButton')?.addEventListener('click',toggleRallyPolling);
+  $('rallyLiveFeedControl')?.addEventListener('click',()=>{if(state.settings.rallyPollingEnabled&&(state.rallyLiveFeed||state.rallyPollTimer))stopRallyPolling({intentional:true,reason:'rally-control-disabled'});else void startRallyPolling({reason:'rally-control-reconnect'});});
   $('exportCompetitorButton')?.addEventListener('click',exportCompetitorData);
   $('clearCompetitorButton')?.addEventListener('click',clearCompetitors);
   $('showCompetitorTrails')?.addEventListener('change',()=>{state.settings.showCompetitorTrails=$('showCompetitorTrails').checked;saveProject(false);renderCompetitors();});
@@ -2798,6 +2833,7 @@ async function initializeApplication() {
   loadPersistedRestoredDayReview();
   defaultProjectSettings=deepClean(state.settings);
   state.project.competitors ||= [];
+  state.project.recentTargetActivity ||= [];
   state.project.stationaryEvents ||= [];
   rallyExecution();
   if(reconcileCompletedRallyDays())await saveProject(false);
@@ -2815,10 +2851,11 @@ async function initializeApplication() {
   if($('buildLabel'))$('buildLabel').textContent=`Beta ${APP_VERSION}`;
   if($('appVersion'))$('appVersion').textContent=`v${APP_VERSION} · ${BUILD_ID}`;
   renderAll();
+  if(state.settings.rallyPollingEnabled)void startRallyPolling({reason:'application-restored'});
   weatherMaintenance.onGps(currentIntelPoint(),{moving:false}).catch(error=>console.warn(`[CannonMap weather] Background refresh failed: ${error?.message||error}`));
-  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){weatherMaintenance?.onGps(currentIntelPoint(),{moving:false}).catch(()=>{});void refreshCameraReadiness();if(!pendingMediaObjective)void reconcilePendingCheckpointEvidence({interactive:false});}else automaticCaptureAbortController?.abort();},{passive:true});
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){weatherMaintenance?.onGps(currentIntelPoint(),{moving:false}).catch(()=>{});void refreshCameraReadiness();if(state.settings.rallyPollingEnabled)void startRallyPolling({reason:'foreground-resume'});if(!pendingMediaObjective)void reconcilePendingCheckpointEvidence({interactive:false});}else{automaticCaptureAbortController?.abort();if(state.settings.rallyPollingEnabled)stopRallyPolling({reason:'background-interruption'});}},{passive:true});
   window.addEventListener('pagehide',()=>{automaticCaptureAbortController?.abort();cameraSession?.teardown('page-unloaded');void screenWakeLock?.stop('page-hidden');},{passive:true});
-  window.addEventListener('pageshow',()=>{void refreshCameraReadiness();if(!pendingMediaObjective)void reconcilePendingCheckpointEvidence({interactive:false});if(state.gpsWatchId!==null)void screenWakeLock?.start('page-restored');},{passive:true});
+  window.addEventListener('pageshow',()=>{void refreshCameraReadiness();if(state.settings.rallyPollingEnabled)void startRallyPolling({reason:'pageshow-resume'});if(!pendingMediaObjective)void reconcilePendingCheckpointEvidence({interactive:false});if(state.gpsWatchId!==null)void screenWakeLock?.start('page-restored');},{passive:true});
   window.addEventListener('online',()=>{if(!pendingMediaObjective)void reconcilePendingCheckpointEvidence({interactive:false});},{passive:true});
   if(state.settings.radarEnabled)showRadar({silent:true});
   const recovery=await reconcilePendingCheckpointEvidence({interactive:false});
@@ -2875,5 +2912,6 @@ function observeCheckpointDetectionsForTest(input={}){
   return checkpointArrivalCoordinator?.observe({...input,detections});
 }
 function checkpointEvidenceStateForTest(id){const checkpoint=state.project.features.find(feature=>feature.id===id);return checkpoint?structuredClone(checkpointEvidenceSnapshot(checkpoint)):null;}
-window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,resumeDeferredQueue,finishDayFromDeferredQueue,startNextRallyDay,finalizePendingPhotoCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival,moveCheckpointInOrder,makeCheckpointNext,restoreImportedCheckpointOrder,handleStationaryAction,renderStationaryEvents,updateStationaryDetection,renderMapFeatures,mapEngineDiagnostics,observationCaptureDiagnostics,captureGpsObservation,replaySecureObservations,observationContext,missionControlJournalEvents,missionControlAppendTestPhotoReference,rideExportSnapshot,missionMediaRecords:async()=>Promise.all((await missionMedia.listProjectPhotos(state.project.projectId)).map(async row=>({role:row.role,metadata:row.metadata,name:row.name,bytes:[...new Uint8Array(await row.blob.arrayBuffer())]}))),rallyDebugEntries:()=>rallyDebug.entries(),gpsFollowState:()=>gpsFollow?.state(),simulateManualMapPan:()=>state.map?.fire('dragstart',{originalEvent:{type:'field-test'}}),gpsMarkerBounds:()=>{if(!state.lastGpsPosition||!state.map)return null;const point=state.map.latLngToContainerPoint([state.lastGpsPosition.lat,state.lastGpsPosition.lon]),mapRect=$('map')?.getBoundingClientRect();return mapRect?{x:mapRect.left+point.x,y:mapRect.top+point.y}:null;},setCompetitorsForTest:competitors=>{state.project.competitors=structuredClone(competitors);renderCompetitors();return mapEngineDiagnostics();},openCompetitorPopupForTest:id=>mapEngine.layers.get('competitors',`marker:${id}`)?.openPopup(),competitorPopupState:()=>structuredClone(competitorPopupSelection),setAutomaticCameraCaptureForTest:handler=>{automaticCaptureOverride=typeof handler==='function'?handler:null;},cameraReadinessState:()=>structuredClone(cameraReadinessState()),cameraSessionState:()=>structuredClone(cameraSession?.state?.()||null),refreshCameraReadinessForTest:refreshCameraReadiness,dayPreflightState:()=>structuredClone(currentPreflightState()),refreshDayPreflightForTest:refreshDayPreflight,proceedFromDayPreflightForTest:proceedFromDayPreflight,checkpointEvidenceStateForTest,reconcilePendingCheckpointEvidenceForTest:options=>reconcilePendingCheckpointEvidence(options),observeCheckpointDetectionsForTest,awaitFieldMediaIdle:()=>checkpointArrivalCoordinator?.whenIdle(),expireManualFallbackForTest:expireManualFallback,fieldMediaState,missionStorageEstimate:()=>missionStorage?.estimate(state.project.projectId),wakeLockState:()=>screenWakeLock?.state()||null,setGpsPositionForTest,runtimeDependencyReport,startApplication,registerServiceWorker};
+function trailIntelStateForTest(){return structuredClone({pollingEnabled:Boolean(state.settings.rallyPollingEnabled),live:Boolean(state.rallyLiveFeed||state.rallyPollTimer),running:Boolean(state.rallySync.running),lastError:state.rallySync.lastError||'',eventId:String(state.settings.rallyEventId||''),competitors:state.project.competitors,recentTargetActivity:state.project.recentTargetActivity||[]});}
+window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,resumeDeferredQueue,finishDayFromDeferredQueue,startNextRallyDay,finalizePendingPhotoCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival,moveCheckpointInOrder,makeCheckpointNext,restoreImportedCheckpointOrder,handleStationaryAction,renderStationaryEvents,updateStationaryDetection,renderMapFeatures,mapEngineDiagnostics,observationCaptureDiagnostics,captureGpsObservation,replaySecureObservations,observationContext,missionControlJournalEvents,missionControlAppendTestPhotoReference,rideExportSnapshot,missionMediaRecords:async()=>Promise.all((await missionMedia.listProjectPhotos(state.project.projectId)).map(async row=>({role:row.role,metadata:row.metadata,name:row.name,bytes:[...new Uint8Array(await row.blob.arrayBuffer())]}))),rallyDebugEntries:()=>rallyDebug.entries(),gpsFollowState:()=>gpsFollow?.state(),simulateManualMapPan:()=>state.map?.fire('dragstart',{originalEvent:{type:'field-test'}}),gpsMarkerBounds:()=>{if(!state.lastGpsPosition||!state.map)return null;const point=state.map.latLngToContainerPoint([state.lastGpsPosition.lat,state.lastGpsPosition.lon]),mapRect=$('map')?.getBoundingClientRect();return mapRect?{x:mapRect.left+point.x,y:mapRect.top+point.y}:null;},setCompetitorsForTest:competitors=>{state.project.competitors=structuredClone(competitors);refreshTargetActivity();renderMapFeatures();return mapEngineDiagnostics();},trailIntelStateForTest,openCompetitorPopupForTest:id=>mapEngine.layers.get('competitors',`marker:${id}`)?.openPopup(),competitorPopupState:()=>structuredClone(competitorPopupSelection),setAutomaticCameraCaptureForTest:handler=>{automaticCaptureOverride=typeof handler==='function'?handler:null;},cameraReadinessState:()=>structuredClone(cameraReadinessState()),cameraSessionState:()=>structuredClone(cameraSession?.state?.()||null),refreshCameraReadinessForTest:refreshCameraReadiness,dayPreflightState:()=>structuredClone(currentPreflightState()),refreshDayPreflightForTest:refreshDayPreflight,proceedFromDayPreflightForTest:proceedFromDayPreflight,checkpointEvidenceStateForTest,reconcilePendingCheckpointEvidenceForTest:options=>reconcilePendingCheckpointEvidence(options),observeCheckpointDetectionsForTest,awaitFieldMediaIdle:()=>checkpointArrivalCoordinator?.whenIdle(),expireManualFallbackForTest:expireManualFallback,fieldMediaState,missionStorageEstimate:()=>missionStorage?.estimate(state.project.projectId),wakeLockState:()=>screenWakeLock?.state()||null,setGpsPositionForTest,runtimeDependencyReport,startApplication,registerServiceWorker};
 startApplication();
