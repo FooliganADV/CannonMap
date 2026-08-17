@@ -252,6 +252,12 @@ test('every direct project and day replacement suspends then resets the arrival 
   assertScopeTransition(unassignedHandler,/state\.settings\.dayFilter\s*=/,'Unassigned-day selection');
 });
 
+test('every project/day scope suspension disposes the scoped camera session before async preservation',()=>{
+  const source=functionSource('suspendPendingEvidenceRuntime'),teardown=source.indexOf('cameraSession?.teardown(reason)'),preservation=source.indexOf('await preserveIncompletePhotoEvidence');
+  assert.ok(teardown>=0,'scope suspension must dispose retained camera streams');
+  assert.ok(preservation<0||teardown<preservation,'camera teardown must invalidate late acquisitions before asynchronous evidence preservation');
+});
+
 test('trustworthy flag without the required GPS facts is never authoritative',async()=>{
   const malformed={
     id:'cp-1',type:'checkpoint',day:1,status:'photo_required',photoRequired:true,

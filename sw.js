@@ -1,12 +1,12 @@
-const CACHE = 'cannonmap-v0.7.10-20260817-rally-day-readiness-1';
+const CACHE = 'cannonmap-v0.7.10-20260817-persistent-camera-current-1';
 const RADAR_CACHE='cannonmap-radar-v1',RADAR_CACHE_LIMIT=96;
 const APP_SHELL = [
   './',
   './index.html',
-  './app.css?v=20260817-rally-day-readiness-1',
+  './app.css?v=20260817-persistent-camera-current-1',
   './gps-checkpoints-feed.js?v=20260725-02',
   './stationary-events.js?v=20260725-01',
-  './app.js?v=20260817-rally-day-readiness-1',
+  './app.js?v=20260817-persistent-camera-current-1',
   './src/core/clock.js',
   './src/core/compatibility.js',
   './src/core/errors.js',
@@ -94,6 +94,7 @@ const APP_SHELL = [
   './src/infrastructure/indexeddb/journey-restore-repository.js',
   './src/infrastructure/browser/native-camera-still-capture.js',
   './src/infrastructure/browser/camera-readiness-adapter.js',
+  './src/infrastructure/browser/camera-session.js',
   './src/infrastructure/browser/rally-day-preflight-adapter.js',
   './src/ui/map/map-engine.js',
   './src/ui/map/layer-registry.js',

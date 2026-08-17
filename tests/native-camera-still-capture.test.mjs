@@ -27,3 +27,10 @@ test('native still bytes are returned unchanged',async()=>{
   assert.deepEqual([...new Uint8Array(await result.blob.arrayBuffer())],[...bytes]);
   assert.equal(result.provenance.nativeStill,true);assert.equal(result.provenance.upscaled,false);
 });
+
+test('session-owned capture reuses and retains its authorized track',async()=>{
+  let stopped=0;const track={kind:'video',readyState:'live',stop(){stopped++;},getSettings:()=>({facingMode:'environment'})},stream={getTracks:()=>[track]};
+  const cameraSession={acquire:async()=>({stream,track,imageCapture:{takePhoto:async()=>nativeBlob()},actualCamera:'rear',reused:true})};
+  const result=await captureNativeCameraStill('rear',{cameraSession,scopeToken:'project-a:1',inspect:async()=>({width:4032,height:3024}),wait:async()=>{}});
+  assert.equal(stopped,0);assert.equal(result.tracksStopped,false);assert.equal(result.streamReused,true);
+});

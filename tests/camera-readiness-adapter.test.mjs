@@ -147,3 +147,11 @@ test('a stream resolving after readiness timeout is stopped immediately',async()
   await new Promise(resolve=>setTimeout(resolve,0));
   assert.equal(lateStream.track.stopped,true);
 });
+
+test('persistent session owns readiness probes and is disposed on revocation and adapter destroy',async()=>{
+  const status=new FakePermissionStatus('granted'),reasons=[];let initialized=0,destroyed=0;
+  const cameraSession={initialize:async input=>{initialized++;assert.deepEqual(input,{scopeToken:'project-a:1'});return {ready:true,probes:[]};},state:()=>({retainedStreamCount:2}),teardown:reason=>reasons.push(reason),destroy:()=>{destroyed++;}};
+  const adapter=createBrowserCameraReadinessAdapter({permissions:{async query(){return status;}},mediaDevices:{getUserMedia:async()=>{throw new Error('session owns acquisition');}},imageCaptureFactory:()=>({takePhoto(){}}),cameraSession,sessionScopeProvider:()=> 'project-a:1'});
+  await adapter.queryPermission();await adapter.probeCameras();assert.equal(initialized,1);assert.equal(adapter.cameraSessionReady(),true);
+  status.change('denied');assert.deepEqual(reasons,['camera-permission-denied']);adapter.destroy();assert.equal(destroyed,1);
+});

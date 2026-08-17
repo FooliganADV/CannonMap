@@ -115,7 +115,8 @@ export function createCameraReadinessService({
 
   async function inspect({force=false}={}){
     if(destroyed)return current;
-    if(current.automaticCaptureEligible&&current.capability==='ready'&&!force)return current;
+    const sessionReady=adapter.cameraSessionReady?.()!==false;
+    if(current.automaticCaptureEligible&&current.capability==='ready'&&!force&&sessionReady)return current;
     if(inspectionPromise)return inspectionPromise;
     inspectionPromise=(async()=>{
       const wasEligible=current.automaticCaptureEligible&&current.capability==='ready';
@@ -128,7 +129,7 @@ export function createCameraReadinessService({
       emit('camera_permission_state',{permission:permissionState,reasonCode:permission?.reasonCode||null,priorSetupSucceeded:current.priorSetupSucceeded});
       if(permissionState==='denied')return failFromClassification({code:'CAMERA_PERMISSION_DENIED',permissionState:'denied',capabilityState:'manual-only'},{eventType:'camera_readiness_permission_denied'});
       if(permissionState==='granted'){
-        if(force&&wasEligible){
+        if(force&&wasEligible&&adapter.cameraSessionReady?.()!==false){
           const state=publish({permission:'granted',capability:'ready',automaticCaptureEligible:true,reasonCode:null});
           emit('camera_permission_reverified',{permission:'granted',cameraProbeSkipped:true});return state;
         }
@@ -160,7 +161,8 @@ export function createCameraReadinessService({
     state:()=>current,
     assertAutomaticCaptureEligible(){if(!current.automaticCaptureEligible)throw new AutomaticCameraNotReadyError(current);return current;},
     async prepareAutomaticCapture(){
-      if(current.automaticCaptureEligible&&current.capability==='ready')return current;
+      if(current.automaticCaptureEligible&&current.capability==='ready'&&adapter.cameraSessionReady?.()!==false)return current;
+      if(current.automaticCaptureEligible&&current.capability==='ready'&&adapter.cameraSessionReady?.()===false)publish({capability:'interrupted',automaticCaptureEligible:false,reasonCode:'camera-session-not-active',lastVerifiedAt:null});
       // A transient stream interruption is the only automatic recovery case.
       // Permission prompt/unknown/denied and platform manual-only states must
       // never discover camera access by initiating getUserMedia at a checkpoint.

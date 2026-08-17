@@ -65,6 +65,8 @@ export function createBrowserCameraReadinessAdapter({
   probeTimeoutMs=5000,
   setTimer=globalThis.setTimeout,
   clearTimer=globalThis.clearTimeout,
+  cameraSession=null,
+  sessionScopeProvider=()=>null,
   onDiagnostic=null
 }={}){
   let permissionStatus=null,destroyed=false;
@@ -79,6 +81,7 @@ export function createBrowserCameraReadinessAdapter({
 
   const notifyPermissionChange=()=>{
     const state=normalizePermissionState(permissionStatus?.state);
+    if(state!=='granted')cameraSession?.teardown?.(`camera-permission-${state}`);
     diagnostic('camera_permission_changed',{permissionState:state});
     for(const listener of [...permissionListeners]){
       try{listener(state);}catch{/* One observer must not block the others. */}
@@ -161,6 +164,7 @@ export function createBrowserCameraReadinessAdapter({
     if(!secureContext)throw new BrowserCameraReadinessError('Camera access requires a secure context.',{code:'INSECURE_CONTEXT'});
     if(!getUserMediaSupported)throw new BrowserCameraReadinessError('Camera media access is unavailable.',{code:'GET_USER_MEDIA_UNAVAILABLE'});
     if(!imageCaptureSupported)throw new BrowserCameraReadinessError('Native ImageCapture is unavailable.',{code:'IMAGE_CAPTURE_UNAVAILABLE'});
+    if(cameraSession)return cameraSession.initialize({scopeToken:sessionScopeProvider?.()});
     const probes=[];
     for(const camera of CAMERA_PROBES)probes.push(await probeOne(camera));
     return Object.freeze({ready:true,probes:Object.freeze(probes)});
@@ -168,6 +172,7 @@ export function createBrowserCameraReadinessAdapter({
 
   return Object.freeze({
     capabilities:Object.freeze({permissionQuerySupported,getUserMediaSupported,imageCaptureSupported,secureContext:Boolean(secureContext)}),
+    cameraSessionReady:()=>cameraSession?cameraSession.state?.().retainedStreamCount===2:true,
     queryPermission,
     probeCameras,
     classifyError:classifyCameraReadinessError,
@@ -178,7 +183,7 @@ export function createBrowserCameraReadinessAdapter({
     },
     destroy(){
       if(destroyed)return;
-      destroyed=true;permissionListeners.clear();detachPermissionStatus();
+      destroyed=true;cameraSession?.destroy?.('camera-readiness-destroyed');permissionListeners.clear();detachPermissionStatus();
     }
   });
 }

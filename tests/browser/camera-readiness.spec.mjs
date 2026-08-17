@@ -38,7 +38,7 @@ async function installCameraPlatform(page,{
       }
     };
     const telemetry={queryCalls:0,getUserMediaCalls:[],trackStops:[],takePhotoCalls:[],imageCaptureInstances:0};
-    const failures={next:null,facings:new Set()};
+    const failures={next:null,facings:new Set()},tracksByFacing=new Map();
     const setPermission=next=>{
       permissionState=next;
       permissionStatus.dispatchEvent(new Event('change'));
@@ -68,6 +68,7 @@ async function installCameraPlatform(page,{
           stop(){readyState='ended';telemetry.trackStops.push({facingMode});},
           getSettings(){return {facingMode,width:1920,height:1080,deviceId:`mock-${facingMode}`};}
         };
+        tracksByFacing.set(facingMode,{track,end:()=>{readyState='ended';}});
         return {getTracks:()=>[track],getVideoTracks:()=>[track]};
       }
     };
@@ -104,6 +105,7 @@ async function installCameraPlatform(page,{
       }),
       setPermission,
       failNext:(name='NotReadableError',message='Camera reopen failed.')=>{failures.next={name,message};},
+      endFacing:facingMode=>tracksByFacing.get(facingMode)?.end(),
       failFacing:facingMode=>failures.facings.add(facingMode),
       clearFailures:()=>{failures.next=null;failures.facings.clear();}
     };
@@ -184,8 +186,9 @@ test('fresh Android permission requires one setup gesture, then two checkpoints 
   const afterSetup=await platform(page);
   expect(afterSetup.getUserMediaCalls.map(call=>call.facingMode)).toEqual(['environment','user']);
   expect(afterSetup.getUserMediaCalls[0]).toMatchObject({permissionAtCall:'prompt',userActivation:true});
-  expect(afterSetup.trackStops.map(call=>call.facingMode)).toEqual(['environment','user']);
+  expect(afterSetup.trackStops).toHaveLength(0);
   expect(afterSetup.takePhotoCalls).toHaveLength(0);
+  await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.cameraSessionState())).toMatchObject({retainedStreamCount:2,getUserMediaCallCount:2});
   await continueDayPreflight(page);
   await expect(page.locator('#rallyCameraSetup')).toBeHidden();
   await expect(warningRow(page,'camera')).toHaveCount(0);
@@ -207,7 +210,9 @@ test('fresh Android permission requires one setup gesture, then two checkpoints 
   result=await page.evaluate(async()=>({media:await window.CannonMapTest.missionMediaRecords(),events:await window.CannonMapTest.missionControlJournalEvents()}));
   expect(result.media).toHaveLength(8);
   expect(result.events.filter(event=>event.eventType==='checkpoint_completed').map(event=>event.references.checkpointId)).toEqual(expect.arrayContaining(['cp-1','cp-2']));
-  expect((await platform(page)).getUserMediaCalls.length).toBeGreaterThan(callsBeforeSecond);
+  expect((await platform(page)).getUserMediaCalls).toHaveLength(callsBeforeSecond);
+  expect((await platform(page)).getUserMediaCalls).toHaveLength(2);
+  await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.cameraSessionState())).toMatchObject({retainedStreamCount:2,getUserMediaCallCount:2});
   expect(await readiness(page)).toMatchObject({permission:'granted',capability:'ready',automaticCaptureEligible:true,setupAttemptedThisSession:true,priorSetupSucceeded:true});
 });
 
@@ -380,6 +385,7 @@ test('permission revocation removes automatic eligibility without another acquis
   const before=(await platform(page)).getUserMediaCalls.length;
   await page.evaluate(()=>globalThis.__cameraPlatform.setPermission('denied'));
   await expect.poll(()=>readiness(page)).toMatchObject({permission:'denied',capability:'manual-only',automaticCaptureEligible:false,reasonCode:'permission-denied'});
+  await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.cameraSessionState())).toMatchObject({retainedStreamCount:0});
   await page.evaluate(()=>window.CannonMapTest.refreshCameraReadinessForTest());
   expect((await platform(page)).getUserMediaCalls).toHaveLength(before);
   const debug=await page.evaluate(()=>window.CannonMapTest.rallyDebugEntries());
@@ -393,6 +399,7 @@ test('a granted stream reopen failure preserves high-speed continuation and the 
   await enableCameraFromPreflight(page);
   await expect.poll(()=>readiness(page)).toMatchObject({permission:'granted',capability:'ready',automaticCaptureEligible:true});
   await continueDayPreflight(page);
+  await page.evaluate(()=>globalThis.__cameraPlatform.endFacing('environment'));
   await page.evaluate(()=>globalThis.__cameraPlatform.failNext('NotReadableError','Camera is busy after setup.'));
   await triggerCheckpoint(page,{checkpointId:'cp-1',latitude:30,speedMph:25,priorTargetId:'cp-1'});
   await expect(page.locator('#rallyCameraWorkflow')).toBeHidden();
@@ -411,7 +418,7 @@ test('a granted stream reopen failure preserves high-speed continuation and the 
   result=await page.evaluate(async()=>({media:await window.CannonMapTest.missionMediaRecords(),events:await window.CannonMapTest.missionControlJournalEvents()}));
   expect(result.media).toHaveLength(4);
   expect(result.events.some(event=>event.eventType==='checkpoint_completed'&&event.references.checkpointId==='cp-2')).toBeTruthy();
-  expect((await platform(page)).getUserMediaCalls.length).toBeGreaterThanOrEqual(callsBeforeRecovery+4);
+  expect((await platform(page)).getUserMediaCalls).toHaveLength(callsBeforeRecovery+1);
 });
 
 test('unsupported ImageCapture is declared manual-only instead of falsely attempting automatic capture',async({page},testInfo)=>{

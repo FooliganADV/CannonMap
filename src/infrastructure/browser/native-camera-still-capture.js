@@ -53,22 +53,21 @@ function highestResolutionSettings(capabilities={}){
 export async function captureNativeCameraStill(requestedCamera,{signal,mediaDevices=globalThis.navigator?.mediaDevices,imageCaptureFactory=track=>{
   if(typeof globalThis.ImageCapture!=='function')throw new NativeStillUnavailableError();
   return new globalThis.ImageCapture(track);
-},inspect=decodedDimensions,wait=waitFor,stabilizationMs=180,readinessTimeoutMs=1500,onPhase=()=>{}}={}){
+},cameraSession=null,scopeToken=null,inspect=decodedDimensions,wait=waitFor,stabilizationMs=180,readinessTimeoutMs=1500,onPhase=()=>{}}={}){
   const facingMode=CAMERA_ROLE_TO_FACING[requestedCamera];
   if(!facingMode)throw new TypeError(`Unsupported camera role: ${requestedCamera}`);
-  if(!mediaDevices?.getUserMedia)throw new NativeStillUnavailableError('Camera media access is unavailable.',{code:'GET_USER_MEDIA_UNAVAILABLE'});
+  if(!cameraSession&&!mediaDevices?.getUserMedia)throw new NativeStillUnavailableError('Camera media access is unavailable.',{code:'GET_USER_MEDIA_UNAVAILABLE'});
   if(signal?.aborted)throw abortError();
 
-  let stream=null,track=null,result=null;
+  let stream=null,track=null,result=null,sessionOwned=false,streamWasReused=false,imageCapture=null;
   try{
-    await onPhase('permission-requested',{requestedCamera:cameraRole(facingMode)});
-    stream=await mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:facingMode},width:{ideal:4096},height:{ideal:3072}}});
-    track=stream?.getVideoTracks?.()[0]||stream?.getTracks?.().find(item=>item.kind==='video');
+    if(cameraSession){const acquired=await cameraSession.acquire(cameraRole(facingMode),{reason:'native-still-capture',scopeToken});stream=acquired.stream;track=acquired.track;imageCapture=acquired.imageCapture;sessionOwned=true;streamWasReused=acquired.reused;await onPhase(acquired.reused?'stream-reused':'stream-created',{requestedCamera:cameraRole(facingMode),actualCamera:acquired.actualCamera});}
+    else{await onPhase('permission-requested',{requestedCamera:cameraRole(facingMode)});stream=await mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:facingMode},width:{ideal:4096},height:{ideal:3072}}});}
+    track=track||stream?.getVideoTracks?.()[0]||stream?.getTracks?.().find(item=>item.kind==='video');
     if(!track)throw new NativeStillUnavailableError('The selected camera did not provide a video track.',{code:'CAMERA_TRACK_UNAVAILABLE'});
     if(signal?.aborted)throw abortError();
 
-    let imageCapture;
-    try{imageCapture=imageCaptureFactory(track);}catch(error){
+    try{imageCapture=imageCapture||imageCaptureFactory(track);}catch(error){
       if(error instanceof NativeStillUnavailableError)throw error;
       throw new NativeStillUnavailableError('Native ImageCapture is unavailable.',{cause:error});
     }
@@ -106,7 +105,7 @@ export async function captureNativeCameraStill(requestedCamera,{signal,mediaDevi
       })
     };
   }finally{
-    stopMediaStream(stream);
+    if(!sessionOwned)stopMediaStream(stream);
   }
-  return Object.freeze({...result,tracksStopped:true});
+  return Object.freeze({...result,tracksStopped:!sessionOwned,streamReused:streamWasReused});
 }

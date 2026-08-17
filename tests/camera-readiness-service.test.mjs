@@ -2,15 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {AutomaticCameraNotReadyError,createCameraReadinessService} from '../src/application/camera-readiness-service.js';
 
-function fakeAdapter({permission='prompt',capabilities={},probeError=null}={}){
+function fakeAdapter({permission='prompt',capabilities={},probeError=null,sessionReady=true}={}){
   let permissionListener=null,probeCalls=0,queryCalls=0;const callOrder=[];
   const adapter={
     capabilities:{permissionQuerySupported:true,getUserMediaSupported:true,imageCaptureSupported:true,...capabilities},
     async queryPermission(){queryCalls++;callOrder.push('query');return {state:permission};},
-    async probeCameras(){probeCalls++;callOrder.push('probe');if(probeError)throw probeError;return {ready:true,probes:[{cameraRole:'rear'},{cameraRole:'front'}]};},
+    async probeCameras(){probeCalls++;callOrder.push('probe');if(probeError)throw probeError;sessionReady=true;return {ready:true,probes:[{cameraRole:'rear'},{cameraRole:'front'}]};},
+    cameraSessionReady(){return sessionReady;},
     classifyError(error){return error.classification||{code:error.code||'CAMERA_STREAM_INTERRUPTED',capabilityState:'interrupted',retryable:true};},
     subscribePermissionChange(listener){permissionListener=listener;return ()=>{permissionListener=null;};},
-    setPermission(value){permission=value;permissionListener?.(value);},
+    setPermission(value){permission=value;permissionListener?.(value);},setSessionReady(value){sessionReady=value;},
     calls(){return {probeCalls,queryCalls,callOrder:[...callOrder]};}
   };
   return adapter;
@@ -182,6 +183,12 @@ test('prepareAutomaticCapture performs one bounded reprobe after a transient int
   assert.equal(state.capability,'ready');
   assert.equal(after.probeCalls,before.probeCalls+1);
   assert.equal(after.queryCalls,before.queryCalls+2,'recovery queries before and after its single readiness probe');
+});
+
+test('ready permission with a disposed Rally camera session is re-probed before capture',async()=>{
+  const adapter=fakeAdapter({permission:'granted'}),service=createCameraReadinessService({adapter});await service.inspect();adapter.setSessionReady(false);
+  const before=adapter.calls(),state=await service.prepareAutomaticCapture(),after=adapter.calls();
+  assert.equal(state.automaticCaptureEligible,true);assert.equal(after.probeCalls,before.probeCalls+1);assert.equal(state.reasonCode,null);
 });
 
 test('prepareAutomaticCapture never retries getUserMedia from prompt, denied, or unknown states',async()=>{
