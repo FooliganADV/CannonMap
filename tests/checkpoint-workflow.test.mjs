@@ -101,6 +101,49 @@ test('photo requirement aliases normalize to one durable boolean contract',()=>{
   assert.equal(workflow.normalizeCheckpoint({id:'required-hotel',name:'Hotel',type:'hotel',photoRequired:true}).photoRequired,true);
 });
 
+test('legacy collected required-photo checkpoint with pending incomplete evidence normalizes to photo required without an arrival',()=>{
+  const feature=workflow.normalizeCheckpoint({
+    id:'legacy-photo-missing',name:'1.4 Blvd',type:'checkpoint',day:1,status:'collected',points:10,
+    photoRequired:true,photoStatus:'failed',finalCompletionState:'pending',
+    completedAt:'2026-08-17T15:05:00.000Z',scoreAwarded:10,
+    checkpointEvidence:{photo:{required:true,state:'failed'},completion:{state:'pending'}}
+  });
+
+  assert.equal(feature.arrivalState,'not_confirmed');
+  assert.equal(feature.photoEvidenceState,'failed');
+  assert.equal(feature.finalCompletionState,'pending');
+  assert.equal(feature.status,workflow.CHECKPOINT_STATE.PHOTO_REQUIRED);
+  assert.equal(feature.completedAt,null);
+  assert.equal(feature.scoreAwarded,0);
+});
+
+test('normalization preserves valid completed photo pairs and collected non-photo checkpoints',()=>{
+  const completedPair=workflow.normalizeCheckpoint({
+    id:'valid-photo-pair',name:'1.5 Hwy',type:'checkpoint',day:1,status:'collected',points:10,
+    photoRequired:true,photoStatus:'recorded',finalCompletionState:'completed',
+    completedAt:'2026-08-17T15:06:00.000Z',scoreAwarded:10,
+    checkpointEvidence:{
+      photo:{required:true,state:'complete',pairId:'pair-1'},
+      completion:{state:'completed',completedAt:'2026-08-17T15:06:00.000Z',pointsAwarded:10}
+    }
+  });
+  const nonPhoto=workflow.normalizeCheckpoint({
+    id:'non-photo',name:'Reference objective',type:'checkpoint',day:1,status:'collected',points:10,
+    photoRequirement:'exempt',completedAt:'2026-08-17T15:07:00.000Z',scoreAwarded:10,
+    checkpointEvidence:{completion:{state:'completed',completedAt:'2026-08-17T15:07:00.000Z',pointsAwarded:10}}
+  });
+
+  assert.equal(completedPair.status,workflow.CHECKPOINT_STATE.COLLECTED);
+  assert.equal(completedPair.completedAt,'2026-08-17T15:06:00.000Z');
+  assert.equal(completedPair.scoreAwarded,10);
+  assert.equal(completedPair.photoEvidenceState,'complete');
+  assert.equal(completedPair.finalCompletionState,'completed');
+  assert.equal(nonPhoto.photoRequired,false);
+  assert.equal(nonPhoto.status,workflow.CHECKPOINT_STATE.COLLECTED);
+  assert.equal(nonPhoto.completedAt,'2026-08-17T15:07:00.000Z');
+  assert.equal(nonPhoto.scoreAwarded,10);
+});
+
 test('checkpoint colors have exactly one authoritative meaning',()=>{
   assert.equal(new Set(Object.values(workflow.CHECKPOINT_COLOR)).size,Object.keys(workflow.CHECKPOINT_COLOR).length);
   assert.equal(workflow.CHECKPOINT_COLOR.deferred,'#f59e0b');
@@ -167,14 +210,25 @@ test('marking an out-of-order photo objective failed preserves the prior active 
   assert.deepEqual(rows.filter(item=>item.status===workflow.CHECKPOINT_STATE.ACTIVE).map(item=>item.id),['CP 37']);
 });
 
-test('camera failure dispositions credit truthfully without fabricating media',()=>{
+test('camera failure dispositions preserve GPS arrival without collecting or scoring',()=>{
   for(const photoDisposition of ['camera_unavailable_high_speed','manual_fallback_expired']){
     const rows=[checkpoint(`cp-${photoDisposition}`,1,'next',{photoRequired:true})],item=rows[0];
+    workflow.recordCheckpointArrivalEvidence(item,{timestamp:'2026-08-13T12:00:00.000Z',latitude:38.1,longitude:-105.2,gpsAccuracyFeet:14,source:'gps-radius-dwell'});
     workflow.recordArrival(item,'2026-08-13T12:00:00.000Z');
-    workflow.completeCheckpoint(rows,item,'2026-08-13T12:01:00.000Z',{photoDisposition});
-    assert.equal(item.status,workflow.CHECKPOINT_STATE.COLLECTED);
-    assert.equal(item.photoStatus,photoDisposition);
-    assert.equal(item.photoFailureDisposition,photoDisposition);
+    workflow.transitionCheckpointPhotoEvidence(item,workflow.CHECKPOINT_PHOTO_EVIDENCE_STATE.FAILED,{
+      reasonCode:photoDisposition,updatedAt:'2026-08-13T12:01:00.000Z'
+    });
+    const next=workflow.completeCheckpoint(rows,item,'2026-08-13T12:01:00.000Z',{photoDisposition});
+    assert.equal(next,null,'missing required photo evidence cannot advance the route');
+    assert.equal(item.status,workflow.CHECKPOINT_STATE.PHOTO_REQUIRED);
+    assert.equal(item.photoStatus,workflow.CHECKPOINT_PHOTO_EVIDENCE_STATE.FAILED);
+    assert.equal(item.photoEvidenceState,workflow.CHECKPOINT_PHOTO_EVIDENCE_STATE.FAILED);
+    assert.equal(item.checkpointEvidence.photo.reasonCode,photoDisposition);
+    assert.equal(item.checkpointEvidence.arrival.trustworthy,true);
+    assert.equal(item.checkpointEvidence.arrival.latitude,38.1);
+    assert.equal(item.finalCompletionState,workflow.CHECKPOINT_FINAL_COMPLETION_STATE.PENDING);
+    assert.equal(item.scoreAwarded,0);
+    assert.equal(workflow.rallyScore({features:rows}),0);
     assert.equal(item.photoPair,undefined);
   }
 });

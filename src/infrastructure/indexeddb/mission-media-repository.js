@@ -102,6 +102,22 @@ export function createMissionMediaRepository({database,createId,clock}={}){
       const update={...record,evidenceStatus:'failed',evidenceError:String(error||'Evidence generation failed.')};
       const transaction=database.transaction(STORE,'readwrite'),done=transactionDone(transaction);await requestResult(transaction.objectStore(STORE).put(update));await done;return hydrateMissionMediaRecord(update);
     },
+    async reattachRecoveredEvidencePair({originalMediaId,evidenceMediaId,pairId,cameraRole=null,pairJournalEventId=null}={}){
+      if(!originalMediaId||!evidenceMediaId||!pairId)throw new TypeError('Recovered Original, Evidence, and capture pair identities are required.');
+      const original=hydrateMissionMediaRecord(await readStored(database,String(originalMediaId))),evidence=hydrateMissionMediaRecord(await readStored(database,String(evidenceMediaId)));
+      if(!original||original.role!=='original'||!evidence||evidence.role!=='evidence')throw new Error('Recovered media assets are unavailable.');
+      if(String(original.projectId)!==String(evidence.projectId)||String(original.checkpointId)!==String(evidence.checkpointId))throw new Error('Recovered media assets do not belong to the same checkpoint.');
+      if(evidence.derivedFromMediaId&&String(evidence.derivedFromMediaId)!==String(original.mediaId))throw new Error('Recovered Evidence does not derive from the selected Original.');
+      const priorPair=original.pairId||original.abandonedPairId||original.metadata?.abandonedPairId||null;
+      if(priorPair&&String(priorPair)!==String(pairId))throw new Error('Recovered Original belongs to a different capture pair.');
+      const recoveredAt=clock.iso(),role=cameraRole||original.cameraRole||original.metadata?.cameraRole||evidence.cameraRole||evidence.metadata?.cameraRole||null;
+      const recoveryMetadata=record=>({...record.metadata,pairId:String(pairId),pairStatus:'pending',cameraRole:role,evidenceStatus:'complete',evidenceRecoveredAt:recoveredAt,recoveredFromAbandonedPairId:record.abandonedPairId||record.metadata?.abandonedPairId||null});
+      const common={pairId:String(pairId),pairStatus:'pending',cameraRole:role,pairJournalEventId:pairJournalEventId?String(pairJournalEventId):null,abandonedPairId:null,evidenceStatus:'complete',evidenceError:null};
+      const originalUpdate={...original,...common,pairedMediaId:evidence.mediaId,metadata:recoveryMetadata(original)};
+      const evidenceUpdate={...evidence,...common,pairedMediaId:original.mediaId,derivedFromMediaId:original.mediaId,metadata:recoveryMetadata(evidence)};
+      await commit({records:[],updates:[originalUpdate,evidenceUpdate]});
+      return Object.freeze({original:hydrateMissionMediaRecord(await readStored(database,original.mediaId)),evidence:hydrateMissionMediaRecord(await readStored(database,evidence.mediaId))});
+    },
     async abandonIncompleteOriginal(mediaId,error){
       const record=await readStored(database,String(mediaId));if(!record||record.role!=='original')return hydrateMissionMediaRecord(record);
       const abandonedPairId=record.pairId||record.metadata?.pairId||null,metadata={...(record.metadata||{}),pairId:null,pairStatus:'abandoned',abandonedPairId,evidenceStatus:'failed'};

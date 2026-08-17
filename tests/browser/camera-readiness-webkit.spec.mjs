@@ -27,6 +27,10 @@ async function open(page){
   await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true'&&typeof window.CannonMapTest?.cameraReadinessState==='function');
   await page.locator('#projectInput').setInputFiles({name:'camera-readiness-webkit.cmap',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(payload))});
   await page.evaluate(()=>{const day=document.getElementById('dayFilter');day.value='1';day.dispatchEvent(new Event('change',{bubbles:true}));});
+  await expect(page.locator('#rallyDayPreflight')).toBeVisible();
+  await expect(page.locator('#rallyDayPreflightOverall')).not.toHaveText('CHECKING');
+  await page.locator('#rallyDayPreflightDegraded').click();
+  await expect(page.locator('#rallyDayPreflight')).toBeHidden();
 }
 
 test('WebKit declares intentional manual-only capture in portrait and landscape',async({page})=>{

@@ -68,20 +68,37 @@ function compareArrivals(a,b){
 
 /**
  * Keeps independent dwell state for every nearby checkpoint and serializes
- * accepted arrivals. The caller supplies distance calculations so this module
- * can remain independent of the map engine and UI.
+ * accepted arrivals. Optional persistArrival(arrival) starts at acceptance;
+ * its resolved value is passed to processArrival(arrival, persistenceResult)
+ * only after persistence succeeds. The caller supplies distance calculations
+ * so this module can remain independent of the map engine and UI.
  */
 export function createCheckpointArrivalCoordinator({
   dwellMs=2000,
   maxAccuracyFeet=200,
   clock=()=>Date.now(),
+  persistArrival=null,
   processArrival=null,
   onError=null
 }={}){
   const dwell=Math.max(0,finite(dwellMs)??2000);
   const defaultMaxAccuracy=Math.max(0,finite(maxAccuracyFeet)??200);
-  const candidates=new Map(),queuedIds=new Set(),handledIds=new Set(),queue=[];
+  const candidates=new Map(),queuedIds=new Set(),handledIds=new Set(),queue=[],persistenceBySequence=new Map();
   let nextSequence=1,processing=false,destroyed=false,pumpPromise=Promise.resolve();
+
+  const beginPersistence=arrival=>{
+    if(typeof persistArrival!=='function')return;
+    let pending;
+    try{pending=Promise.resolve(persistArrival(arrival));}
+    catch(error){pending=Promise.reject(error);}
+    // Convert rejection to data immediately. A later arrival can fail while an
+    // earlier one is still in a long media workflow without causing an
+    // unhandled rejection before the serialized pump reaches it.
+    persistenceBySequence.set(arrival.arrivalSequence,pending.then(
+      value=>Object.freeze({ok:true,value}),
+      error=>Object.freeze({ok:false,error})
+    ));
+  };
 
   const schedule=()=>{
     if(destroyed||processing||typeof processArrival!=='function'||queue.length===0)return;
@@ -91,11 +108,18 @@ export function createCheckpointArrivalCoordinator({
         queue.sort(compareArrivals);
         const arrival=queue.shift();
         try{
-          await processArrival(arrival);
+          let persistenceResult;
+          if(persistenceBySequence.has(arrival.arrivalSequence)){
+            const persisted=await persistenceBySequence.get(arrival.arrivalSequence);
+            if(!persisted.ok)throw persisted.error;
+            persistenceResult=persisted.value;
+          }
+          await processArrival(arrival,persistenceResult);
           handledIds.add(arrival.checkpointId);
         }catch(error){
           if(typeof onError==='function')await onError(error,arrival);
         }finally{
+          persistenceBySequence.delete(arrival.arrivalSequence);
           queuedIds.delete(arrival.checkpointId);
         }
       }
@@ -132,6 +156,7 @@ export function createCheckpointArrivalCoordinator({
     });
     queuedIds.add(item.checkpointId);
     queue.push(event);
+    beginPersistence(event);
     queue.sort(compareArrivals);
     return event;
   };
@@ -219,6 +244,7 @@ export function createCheckpointArrivalCoordinator({
       if(typeof processArrival==='function'||processing||queue.length===0)return null;
       queue.sort(compareArrivals);
       const arrival=queue.shift();
+      persistenceBySequence.delete(arrival.arrivalSequence);
       queuedIds.delete(arrival.checkpointId);
       handledIds.add(arrival.checkpointId);
       return arrival;
@@ -235,7 +261,7 @@ export function createCheckpointArrivalCoordinator({
       candidates.delete(id);
       handledIds.delete(id);
       const index=queue.findIndex(item=>item.checkpointId===id);
-      if(index>=0)queue.splice(index,1);
+      if(index>=0){const [arrival]=queue.splice(index,1);persistenceBySequence.delete(arrival.arrivalSequence);}
       queuedIds.delete(id);
     },
 
@@ -253,6 +279,7 @@ export function createCheckpointArrivalCoordinator({
       candidates.clear();
       queue.length=0;
       queuedIds.clear();
+      persistenceBySequence.clear();
     }
   });
 }

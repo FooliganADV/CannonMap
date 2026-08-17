@@ -1,3 +1,5 @@
+import {CHECKPOINT_EVIDENCE_SCHEMA_VERSION,checkpointEvidenceState} from '../domain/checkpoints/evidence.js';
+
 const encoder=new TextEncoder();
 const table=(()=>{const values=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?0xedb88320^(c>>>1):c>>>1;values[n]=c>>>0;}return values;})();
 const crc32=bytes=>{let crc=0xffffffff;for(const byte of bytes)crc=table[(crc^byte)&255]^(crc>>>8);return (crc^0xffffffff)>>>0;};
@@ -12,6 +14,19 @@ export function checkpointPhotoFilename({dayNumber,checkpointNumber,role}){
 
 const binaryValue=value=>typeof Blob!=='undefined'&&value instanceof Blob||typeof ArrayBuffer!=='undefined'&&(value instanceof ArrayBuffer||ArrayBuffer.isView(value));
 const durable=value=>JSON.parse(JSON.stringify(value,(key,current)=>key==='_layer'||typeof current==='function'||typeof current==='symbol'||binaryValue(current)?undefined:current));
+const checkpointEvidenceProjection=feature=>durable(checkpointEvidenceState(feature));
+const checkpointManifestState=feature=>{
+  const evidence=checkpointEvidenceProjection(feature);
+  return {id:feature.id,type:feature.type,status:feature.status,order:feature.checkpointOrder??feature.importOrder??null,points:feature.points??null,pointsAwarded:evidence.completion.pointsAwarded,
+    photoRequired:evidence.photo.required,pairId:evidence.photo.pairId||feature.photoPairId||feature.photoPair?.pairId||feature.pendingPhotoPair?.pairId||null,
+    arrivalState:evidence.arrival.state,photoEvidenceState:evidence.photo.state,finalCompletionState:evidence.completion.state,checkpointEvidence:evidence};
+};
+const journalEvidenceCounts=journal=>({
+  arrival:journal.filter(event=>event?.eventType==='checkpoint_arrival').length,
+  photoIncomplete:journal.filter(event=>event?.eventType==='checkpoint_photo_evidence_incomplete').length,
+  photoRecovered:journal.filter(event=>event?.eventType==='checkpoint_photo_evidence_recovered').length,
+  completed:journal.filter(event=>['checkpoint_completed','hotel_arrival'].includes(event?.eventType)&&event?.metadata?.objectiveCompletion!==false).length
+});
 const referenceMediaIds=(value,key='',ids=[])=>{
   if(value==null||binaryValue(value))return ids;
   if(Array.isArray(value)){for(const item of value)referenceMediaIds(item,key,ids);return ids;}
@@ -95,8 +110,8 @@ export function createPhotoExportService({repository}={}){
       if(rows.some(row=>!row.blob||Number(row.blob.size)<1))throw exportError('DAY_BACKUP_MEDIA_EMPTY','Day backup failed verification because stored media contain no readable bytes.');
       const used=new Map(),mediaFiles=[],mediaIndex=[];
       for(const row of rows){const category=photoArchiveCategory(row),base=`media/${category}/${row.name}`,count=used.get(base)||0;used.set(base,count+1);const archivePath=count?base.replace(/(?=\.[^.]+$)/,`_${String(count+1).padStart(2,'0')}`):base,checksum=await sha256(row.blob),{blob,...record}=row;mediaFiles.push({name:archivePath,blob});mediaIndex.push({...record,archivePath,checksum:{algorithm:'SHA-256',value:checksum}});}
-      const exportedJournal=durable(journal),dayFeatures=durable((project.features||[]).filter(item=>Number(item.day)===day)),durableProject=durable(project),createdAt=new Date().toISOString(),projectMetadata={projectId:String(projectId),projectName:project.name||null,executionId:project.executionId||project.rallyExecution?.executionId||null,finalizedMasterId:project.finalizedMasterId||project.sourceMasterId||null,dayNumber:day,project:durableProject,dayFeatures,settings:durable(settings),createdAt};
-      const manifest={format:'cannonmap-day-backup',version:2,projectId:String(projectId),projectName:project.name||null,executionId:projectMetadata.executionId,finalizedMasterId:projectMetadata.finalizedMasterId,dayNumber:day,createdAt,applicationVersion,buildId,mediaCount:rows.length,originalCount:rows.filter(item=>item.role==='original').length,evidenceCount:rows.filter(item=>item.role==='evidence').length,pairCount:new Set(rows.map(item=>item.pairId).filter(Boolean)).size,journalEventCount:exportedJournal.length,checkpointStates:dayFeatures.map(feature=>({id:feature.id,type:feature.type,status:feature.status,order:feature.checkpointOrder??feature.importOrder??null,points:feature.points??null,pairId:feature.photoPairId||feature.pendingPhotoPair?.pairId||null})),dayState:project.rallyExecution?.days?.[day]||settings.rallyDays?.[day]||null};
+      const exportedJournal=durable(journal),dayFeatures=durable((project.features||[]).filter(item=>Number(item.day)===day)),durableProject=durable(project),createdAt=new Date().toISOString(),checkpointStates=dayFeatures.map(checkpointManifestState),checkpointEvidence=checkpointStates.map(item=>({id:item.id,...item.checkpointEvidence})),projectMetadata={projectId:String(projectId),projectName:project.name||null,executionId:project.executionId||project.rallyExecution?.executionId||null,finalizedMasterId:project.finalizedMasterId||project.sourceMasterId||null,dayNumber:day,project:durableProject,dayFeatures,checkpointEvidenceSchemaVersion:CHECKPOINT_EVIDENCE_SCHEMA_VERSION,checkpointEvidence,settings:durable(settings),createdAt};
+      const manifest={format:'cannonmap-day-backup',version:2,checkpointEvidenceSchemaVersion:CHECKPOINT_EVIDENCE_SCHEMA_VERSION,projectId:String(projectId),projectName:project.name||null,executionId:projectMetadata.executionId,finalizedMasterId:projectMetadata.finalizedMasterId,dayNumber:day,createdAt,applicationVersion,buildId,mediaCount:rows.length,originalCount:rows.filter(item=>item.role==='original').length,evidenceCount:rows.filter(item=>item.role==='evidence').length,pairCount:new Set(rows.map(item=>item.pairId).filter(Boolean)).size,journalEventCount:exportedJournal.length,journalEvidenceCounts:journalEvidenceCounts(exportedJournal),checkpointStates,dayState:project.rallyExecution?.days?.[day]||settings.rallyDays?.[day]||null};
       const files=[...mediaFiles,jsonFile('manifest/day-manifest.json',manifest),jsonFile('manifest/project-metadata.json',projectMetadata),jsonFile('manifest/media-index.json',mediaIndex),jsonFile('journal/Daily_Journal.json',exportedJournal)];
       const blob=await createStoredZip(files),reopened=await readStoredZipBinary(blob),required=['manifest/day-manifest.json','manifest/project-metadata.json','manifest/media-index.json','journal/Daily_Journal.json'];
       for(const name of required)if(!reopened.has(name))throw exportError('DAY_BACKUP_REQUIRED_FILE_MISSING',`Day backup failed verification: ${name} is missing.`);

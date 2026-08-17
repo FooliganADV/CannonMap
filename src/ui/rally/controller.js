@@ -31,6 +31,12 @@ export function wireRallyController({getElement,actions,windowTarget=window}){
   on('rallyCompleteButton','click',actions.complete);
   on('rallyResumeDeferredButton','click',actions.resumeDeferred);
   on('rallyFinishDayButton','click',actions.finishDay);
+  on('rallyPreflightGpsAction','click',actions.enableGps);
+  on('rallyPreflightCameraAction','click',actions.enableCamera);
+  on('rallyPreflightStorageAction','click',actions.prepareStorage);
+  on('rallyPreflightOfflineAction','click',actions.prepareOffline);
+  on('rallyDayPreflightStart','click',actions.startReadyDay);
+  on('rallyDayPreflightDegraded','click',actions.continueDegradedDay);
   on('rallyEnableCameraButton','click',actions.enableCamera);
   on('rallyCameraContinueManualButton','click',actions.continueManualCamera);
   on('rallyCameraTapSurface','click',actions.capturePhoto);

@@ -5,6 +5,7 @@ import {wireRallyController} from '../src/ui/rally/controller.js';
 
 const fakeElement=()=>({
   textContent:'',innerHTML:'',disabled:false,hidden:false,value:'',checked:false,listeners:{},
+  dataset:{},
   classList:{values:new Set(),toggle(name,enabled){if(enabled)this.values.add(name);else this.values.delete(name);}},
   attributes:{},addEventListener(name,handler){this.listeners[name]=handler;},
   setAttribute(name,value){this.attributes[name]=String(value);}
@@ -143,4 +144,65 @@ test('Rally controller delegates camera enable directly and preserves generic wa
   assert.equal(enabled,1);assert.deepEqual(warningCalls,[]);
   getElement('rallyWarnings').listeners.click(delegated('construction','10'));
   assert.equal(enabled,1);assert.deepEqual(warningCalls,[['construction','10']]);
+});
+
+test('Rally day preflight renders each capability state and only its relevant setup action',()=>{
+  const elements=new Map(),getElement=id=>{if(!elements.has(id))elements.set(id,fakeElement());return elements.get(id);};
+  renderRally({getElement,escapeHtml:String,model:{
+    day:1,online:true,score:0,next:null,distance:null,warnings:[],checkpoints:[],hasHotel:true,
+    showDayPreflight:true,
+    dayPreflight:{
+      status:'USER_GESTURE',ready:false,checking:false,resume:false,
+      notice:'Resolve available actions before riding, or deliberately continue in degraded mode.',
+      capabilities:{
+        gps:{status:'READY',detail:'GPS has a trustworthy fix.'},
+        camera:{status:'USER_GESTURE',detail:'Tap once before riding.',actionLabel:'ENABLE CAMERA'},
+        storage:{status:'ACTION_REQUIRED',detail:'Protect local evidence storage.',actionLabel:'PROTECT STORAGE'},
+        offline:{status:'BLOCKED',detail:'Offline app shell is unavailable.'}
+      }
+    }
+  }});
+  assert.equal(getElement('rallyDayPreflight').hidden,false);
+  assert.equal(getElement('rallyDayPreflightTitle').textContent,'Day 1 readiness');
+  assert.equal(getElement('rallyDayPreflightOverall').textContent,'USER GESTURE');
+  assert.equal(getElement('rallyDayPreflightOverall').dataset.state,'user-gesture');
+  assert.equal(getElement('rallyPreflightGpsState').textContent,'READY');
+  assert.equal(getElement('rallyPreflightCameraState').textContent,'USER GESTURE');
+  assert.equal(getElement('rallyPreflightCameraDetail').textContent,'Tap once before riding.');
+  assert.equal(getElement('rallyPreflightCameraAction').hidden,false);
+  assert.equal(getElement('rallyPreflightCameraAction').textContent,'ENABLE CAMERA');
+  assert.equal(getElement('rallyPreflightStorageAction').hidden,false);
+  assert.equal(getElement('rallyPreflightStorageAction').textContent,'PROTECT STORAGE');
+  assert.equal(getElement('rallyPreflightOfflineAction').hidden,true);
+  assert.equal(getElement('rallyDayPreflightStart').disabled,true);
+  assert.equal(getElement('rallyDayPreflightDegraded').hidden,false);
+  assert.equal(getElement('rallyPrimaryCard').hidden,true);
+});
+
+test('Rally day preflight clears stale actions and enables a ready resumed day',()=>{
+  const elements=new Map(),getElement=id=>{if(!elements.has(id))elements.set(id,fakeElement());return elements.get(id);};
+  const base={day:2,online:true,score:10,next:null,distance:null,warnings:[],checkpoints:[],hasHotel:true,showDayPreflight:true};
+  renderRally({getElement,escapeHtml:String,model:{...base,dayPreflight:{status:'ACTION_REQUIRED',ready:false,checking:false,resume:true,capabilities:{camera:{status:'ACTION_REQUIRED',actionLabel:'RETRY CAMERA'}}}}});
+  assert.equal(getElement('rallyPreflightCameraAction').hidden,false);
+  renderRally({getElement,escapeHtml:String,model:{...base,dayPreflight:{
+    status:'READY',ready:true,checking:false,resume:true,
+    capabilities:Object.fromEntries(['gps','camera','storage','offline'].map(id=>[id,{status:'READY',detail:`${id} ready`}]))
+  }}});
+  assert.equal(getElement('rallyDayPreflightOverall').textContent,'READY');
+  assert.equal(getElement('rallyPreflightCameraAction').hidden,true);
+  assert.equal(getElement('rallyDayPreflightStart').disabled,false);
+  assert.equal(getElement('rallyDayPreflightStart').textContent,'RESUME DAY');
+  assert.equal(getElement('rallyDayPreflightDegraded').hidden,true);
+});
+
+test('Rally controller delegates every day-preflight action without generic warning routing',()=>{
+  const elements=new Map(),getElement=id=>{if(!elements.has(id))elements.set(id,fakeElement());return elements.get(id);};
+  const calls=[];
+  const actions=new Proxy({
+    enableGps:()=>calls.push('gps'),enableCamera:()=>calls.push('camera'),prepareStorage:()=>calls.push('storage'),
+    prepareOffline:()=>calls.push('offline'),startReadyDay:()=>calls.push('start'),continueDegradedDay:()=>calls.push('degraded'),render:()=>{}
+  },{get:(target,key)=>target[key]||(()=>{})});
+  wireRallyController({getElement,actions,windowTarget:{addEventListener(){}}});
+  for(const id of ['rallyPreflightGpsAction','rallyPreflightCameraAction','rallyPreflightStorageAction','rallyPreflightOfflineAction','rallyDayPreflightStart','rallyDayPreflightDegraded'])getElement(id).listeners.click();
+  assert.deepEqual(calls,['gps','camera','storage','offline','start','degraded']);
 });

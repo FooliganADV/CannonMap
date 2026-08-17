@@ -3,9 +3,26 @@ const fixture=path.resolve('tests/fixtures/two-day-stabilization.cmap');
 const mandevilleFixture=path.resolve('tests/fixtures/mandeville-field-test.gpx');
 const photoBuffer=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64');
 
+async function continueSelectedRallyDay(page){
+  const preflight=page.locator('#rallyDayPreflight');
+  await expect.poll(async()=>await preflight.isVisible()||await page.locator('#rallyDayComplete').isVisible()).toBeTruthy();
+  if(!await preflight.isVisible())return;
+  await expect(page.locator('#rallyDayPreflightOverall')).not.toHaveText('CHECKING');
+  const start=page.locator('#rallyDayPreflightStart');
+  if(await start.isEnabled())await start.click();
+  else{
+    const degraded=page.locator('#rallyDayPreflightDegraded');
+    await expect(degraded).toBeVisible();
+    await expect(degraded).toBeEnabled();
+    await degraded.click();
+  }
+  await expect(preflight).toBeHidden();
+}
+
 async function selectDay(page,day=1){
   await page.evaluate(value=>{const select=document.getElementById('dayFilter');select.value=String(value);select.dispatchEvent(new Event('change',{bubbles:true}));},day);
   await expect(page.locator('#rallyDay')).toHaveText(`Day ${day}`);
+  await continueSelectedRallyDay(page);
 }
 
 async function load(page){
@@ -39,13 +56,15 @@ test('required photo gates collection, supports retry, and Journal remains idemp
   await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));
   await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();
   const before=await page.evaluate(()=>window.CannonMapTest.missionControlJournalEvents());
-  expect(before.filter(event=>event.eventType==='checkpoint_arrival'&&event.references.checkpointId==='photo-1')).toHaveLength(1);
+  expect(before.filter(event=>event.eventType==='checkpoint_arrival'&&event.references.checkpointId==='photo-1')).toHaveLength(0);
+  expect(before.filter(event=>event.eventType==='checkpoint_photo_capture_started'&&event.references.checkpointId==='photo-1')).toHaveLength(1);
   await page.locator('#rallyCameraInput').dispatchEvent('cancel');await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();
   await expect(page.locator('#rallyCameraTapSurface')).toBeVisible();await expect(page.locator('#rallyCameraRetry')).toHaveCount(0);
   await page.locator('#rallyCameraInput').setInputFiles({name:'required.jpg',mimeType:'image/jpeg',buffer:photoBuffer});
   await expect(page.locator('#rallyNextName')).toContainText('1.3 Defer');
   const events=await page.evaluate(()=>window.CannonMapTest.missionControlJournalEvents());
-  expect(events.filter(event=>event.eventType==='checkpoint_arrival'&&event.references.checkpointId==='photo-1')).toHaveLength(1);
+  expect(events.filter(event=>event.eventType==='checkpoint_arrival'&&event.references.checkpointId==='photo-1')).toHaveLength(0);
+  expect(events.filter(event=>event.eventType==='checkpoint_photo_capture_started'&&event.references.checkpointId==='photo-1')).toHaveLength(1);
   expect(events.some(event=>event.eventType==='photo_added'&&event.references.checkpointId==='photo-1')).toBeTruthy();
   expect(events.some(event=>event.eventType==='checkpoint_completed'&&event.references.checkpointId==='photo-1')).toBeTruthy();
   expect(events.some(event=>event.eventType==='photo_canceled'&&event.references.checkpointId==='photo-1')).toBeTruthy();
@@ -73,7 +92,7 @@ test('photo evidence survives reload, opens in the viewer, and exports stable fi
   await page.locator('#rallyCameraInput').setInputFiles({name:'checkpoint-1.1.jpg',mimeType:'image/jpeg',buffer:photoBuffer});await expect(page.locator('#rallyCameraWorkflow')).toBeHidden();
   const before=await page.evaluate(()=>window.CannonMapTest.missionMediaRecords());expect(before.map(row=>row.role).sort()).toEqual(['evidence','evidence','original','original']);expect(before.filter(row=>row.role==='original').every(row=>JSON.stringify(row.bytes)===JSON.stringify([...photoBuffer]))).toBeTruthy();expect(before.filter(row=>row.role==='evidence').every(row=>row.metadata.rallyName)).toBeTruthy();
   const events=await page.evaluate(()=>window.CannonMapTest.missionControlJournalEvents()),photoEvent=events.find(event=>event.eventType==='photo_added');expect(photoEvent.references.frontOriginalMediaId).toBeTruthy();expect(photoEvent.references.frontEvidenceMediaId).toBeTruthy();expect(photoEvent.references.rearOriginalMediaId).toBeTruthy();expect(photoEvent.references.rearEvidenceMediaId).toBeTruthy();await context.setOffline(false);
-  await page.reload();await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');await page.locator('#rallyMoreButton').click();await expect(page.locator('#rallyPhotoViewerButton')).toBeVisible();await page.locator('#rallyPhotoViewerButton').click();await expect(page.locator('.rally-photo-group')).toHaveCount(1);await expect(page.locator('.rally-photo-card')).toHaveCount(2);await expect(page.locator('.rally-photo-storage-warning')).toContainText('stored locally on this device');await page.screenshot({path:testInfo.outputPath('checkpoint-photos-gallery.png')});await page.locator('.rally-photo-card').first().click();
+  await page.reload();await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');await continueSelectedRallyDay(page);await page.locator('#rallyMoreButton').click();await expect(page.locator('#rallyPhotoViewerButton')).toBeVisible();await page.locator('#rallyPhotoViewerButton').click();await expect(page.locator('.rally-photo-group')).toHaveCount(1);await expect(page.locator('.rally-photo-card')).toHaveCount(2);await expect(page.locator('.rally-photo-storage-warning')).toContainText('stored locally on this device');await page.screenshot({path:testInfo.outputPath('checkpoint-photos-gallery.png')});await page.locator('.rally-photo-card').first().click();
   await expect(page.locator('#rallyPhotoImage')).toBeVisible();await expect(page.locator('#rallyPhotoMetadata')).toContainText('America 250');await page.locator('#rallyPhotoOriginal').click();await page.locator('#rallyPhotoZoomIn').click();
   let download=page.waitForEvent('download');await page.locator('#rallyExportOriginal').click();expect((await download).suggestedFilename()).toBe('Day01_CP1.1_Front_Original.jpg');
   download=page.waitForEvent('download');await page.locator('#rallyExportEvidence').click();expect((await download).suggestedFilename()).toBe('Day01_CP1.1_Front_Evidence.jpg');
@@ -118,7 +137,7 @@ test('deferred resume and finish, hotel completion, reload, and explicit Day 2 s
   await page.locator('#rallyBackupToday').click();const journalDownload=page.waitForEvent('download');await page.locator('#rallyBackupDayJournal').click();expect((await journalDownload).suggestedFilename()).toBe('Day01_Journal.json');await expect(page.locator('#rallyBackupSheetStatus')).toHaveText('Journal exported');await page.locator('#rallyBackupClose').click();
   await page.reload();await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');await expect(page.locator('#rallyDayBackupStatus')).toHaveText('Journal exported');
   await page.locator('#rallyMoreButton').click();await expect(page.locator('#rallyPhotoViewerButton')).toBeVisible();await page.locator('#rallyPhotoViewerButton').click();await expect(page.locator('#rallyPhotoViewer')).toBeVisible();await expect(page.locator('.rally-photo-kind')).toContainText(['Checkpoints','Hotels']);await page.locator('#rallyPhotoViewerClose').click();
-  await expect(page.locator('#rallyStartNextDay')).toHaveText('Start Day 2');await page.locator('#rallyStartNextDay').click();await expect(page.locator('#rallyNextName')).toContainText('2.1 Normal');
+  await expect(page.locator('#rallyStartNextDay')).toHaveText('Start Day 2');await page.locator('#rallyStartNextDay').click();await continueSelectedRallyDay(page);await expect(page.locator('#rallyNextName')).toContainText('2.1 Normal');
   events=await page.evaluate(()=>window.CannonMapTest.missionControlJournalEvents());expect(events.filter(event=>event.eventType==='day_finished')).toHaveLength(1);expect(events.some(event=>event.eventType==='day_started'&&event.metadata.dayNumber===2)).toBeTruthy();expect(pageErrors).toEqual([]);
 });
 
@@ -132,8 +151,8 @@ test('stale persisted next-day state is reconciled and final day has no invalid 
   ]}};
   await page.goto('/?e2e=stale-day');await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
   await page.locator('#projectInput').setInputFiles({name:'stale.cmap',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(project))});
-  await expect(page.locator('#rallyStartNextDay')).toHaveText('Start Day 2');await page.locator('#rallyStartNextDay').click();await expect(page.locator('#rallyNextName')).toHaveText('2.1');
-  await page.reload();await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');await expect(page.locator('#rallyNextName')).toHaveText('2.1');
+  await expect(page.locator('#rallyStartNextDay')).toHaveText('Start Day 2');await page.locator('#rallyStartNextDay').click();await continueSelectedRallyDay(page);await expect(page.locator('#rallyNextName')).toHaveText('2.1');
+  await page.reload();await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');await continueSelectedRallyDay(page);await expect(page.locator('#rallyNextName')).toHaveText('2.1');
   await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();await page.locator('#rallyCameraInput').setInputFiles({name:'day-2-checkpoint.jpg',mimeType:'image/jpeg',buffer:photoBuffer});await expect(page.locator('#rallyNextName')).toContainText('Hotel');
   await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();await page.locator('#rallyCameraInput').setInputFiles({name:'day-2-hotel.jpg',mimeType:'image/jpeg',buffer:photoBuffer});
   await expect(page.locator('#rallyDayComplete')).toBeVisible();await expect(page.locator('#rallyDayCompleteTitle')).toHaveText('✓ Rally Complete');await expect(page.locator('#rallyStartNextDay')).toBeHidden();await page.locator('#rallyBackupToday').scrollIntoViewIfNeeded();await expect(page.locator('#rallyBackupToday')).toBeVisible();await page.locator('#rallyBackupToday').click();await expect(page.locator('#rallyBackupSheet')).toBeVisible();await page.locator('#rallyBackupClose').click();

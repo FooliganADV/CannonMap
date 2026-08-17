@@ -4,11 +4,26 @@ const photo=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR
 const point=(id,name,type,sequence)=>({id,name,type,day:1,sequence,status:'planned',photoRequirement:'required',visible:true,geometry:{kind:'point',coordinates:[{lat:30+sequence/100,lon:-90}]}});
 const payload={format:'CannonMap Project',project:{projectId:'camera-objectives',name:'Camera Objectives',features:[point('cp','1.1 Camera','checkpoint',1),point('hotel','1.2 Hotel','hotel',2)],competitors:[]}};
 
+async function proceedPastReadiness(page){
+  const preflight=page.locator('#rallyDayPreflight');
+  if(await preflight.isVisible()){
+    await expect(page.locator('#rallyDayPreflightOverall')).not.toHaveText('CHECKING');
+    await expect(page.locator('#rallyDayPreflightDegraded')).toBeEnabled();
+    await page.locator('#rallyDayPreflightDegraded').click();
+    await expect(preflight).toBeHidden();
+  }
+  if(await page.locator('#rallyCameraSetup').isVisible()){
+    await page.locator('#rallyCameraContinueManualButton').click();
+    await expect(page.locator('#rallyCameraSetup')).toBeHidden();
+  }
+}
+
 async function open(page){
   await page.goto('/?e2e=camera-pair');await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
   await page.locator('#projectInput').setInputFiles({name:'camera-objectives.cmap',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(payload))});
   await page.evaluate(()=>{const day=document.getElementById('dayFilter');day.value='1';day.dispatchEvent(new Event('change',{bubbles:true}));});
   await expect(page.locator('#rallyDay')).toHaveText('Day 1');
+  await proceedPastReadiness(page);
 }
 
 test('PHOTO_REQUIRED exposes one full-view fallback shutter and no legacy camera controls',async({page},testInfo)=>{

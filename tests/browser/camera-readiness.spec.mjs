@@ -127,6 +127,28 @@ async function platform(page){return page.evaluate(()=>globalThis.__cameraPlatfo
 const warningRow=(page,id)=>page.locator(`#rallyWarnings [data-warning-id="${id}"]`);
 const genericWarningActions=row=>row.locator('[data-warning-action="dismiss"], [data-warning-action="10"], [data-warning-action="30"], [data-warning-action="checkpoint"]');
 
+async function expectDayPreflight(page){
+  await expect(page.locator('#rallyDayPreflight')).toBeVisible();
+  await expect(page.locator('#rallyDayPreflightOverall')).not.toHaveText('CHECKING');
+}
+
+async function enableCameraFromPreflight(page){
+  await expectDayPreflight(page);
+  const action=page.locator('#rallyPreflightCameraAction');
+  await expect(action).toBeVisible();
+  await expect(action).toHaveText('ENABLE CAMERA');
+  await expect(page.locator('#rallyEnableCameraButton')).toBeHidden();
+  await action.click();
+}
+
+async function continueDayPreflight(page){
+  const preflight=page.locator('#rallyDayPreflight');
+  if(!await preflight.isVisible())return;
+  await expect(page.locator('#rallyDayPreflightDegraded')).toBeEnabled();
+  await page.locator('#rallyDayPreflightDegraded').click();
+  await expect(preflight).toBeHidden();
+}
+
 async function triggerCheckpoint(page,{checkpointId,latitude,observedAt=1000,speedMph=22,priorTargetId=null,awaitIdle=true}={}){
   const detection={checkpointId,distanceFeet:4,accuracyFeet:7,radiusFeet:100};
   const gpsEvidence={latitude,longitude:-90,accuracyFeet:7};
@@ -150,29 +172,23 @@ test('fresh Android permission requires one setup gesture, then two checkpoints 
   await openProject(page,{query:'camera-readiness-fresh'});
 
   await expect.poll(()=>readiness(page)).toMatchObject({permission:'prompt',capability:'setup-required',automaticCaptureEligible:false,permissionQuerySupported:true,getUserMediaSupported:true,imageCaptureSupported:true,setupAttemptedThisSession:false,priorSetupSucceeded:false});
-  await expect(page.locator('#rallyCameraSetup')).toBeVisible();
-  await expect(page.locator('#rallyCameraSetupMessage')).toContainText(/camera/i);
-  await expect(page.locator('#rallyEnableCameraButton')).toBeVisible();
-  const cameraWarning=warningRow(page,'camera'),gpsWarning=warningRow(page,'gps');
-  await expect(cameraWarning).toHaveCount(1);
-  await expect(cameraWarning.locator('[data-camera-action="enable"]')).toHaveCount(1);
-  await expect(cameraWarning).toContainText('ENABLE CAMERA');
-  await expect(genericWarningActions(cameraWarning)).toHaveCount(0);
-  await expect(genericWarningActions(gpsWarning)).toHaveCount(4);
+  await expectDayPreflight(page);
+  await expect(page.locator('#rallyPreflightCameraState')).toHaveText('USER GESTURE');
+  await expect(page.locator('#rallyPreflightCameraAction')).toHaveText('ENABLE CAMERA');
+  await expect(page.locator('#rallyCameraSetup')).toBeHidden();
   expect((await platform(page)).getUserMediaCalls).toHaveLength(0);
-  await page.evaluate(()=>document.getElementById('gpsButton').click());
-  await expect(page.locator('#status')).toContainText(/enable the camera once/i);
   expect(await page.evaluate(()=>globalThis.__cameraReadinessGps.watchCalls)).toBe(0);
 
-  await page.locator('#rallyEnableCameraButton').click();
+  await enableCameraFromPreflight(page);
   await expect.poll(()=>readiness(page)).toMatchObject({permission:'granted',capability:'ready',automaticCaptureEligible:true,permissionQuerySupported:true,getUserMediaSupported:true,imageCaptureSupported:true,setupAttemptedThisSession:true,priorSetupSucceeded:true});
-  await expect(page.locator('#rallyCameraSetup')).toBeHidden();
-  await expect(cameraWarning).toHaveCount(0);
   const afterSetup=await platform(page);
   expect(afterSetup.getUserMediaCalls.map(call=>call.facingMode)).toEqual(['environment','user']);
   expect(afterSetup.getUserMediaCalls[0]).toMatchObject({permissionAtCall:'prompt',userActivation:true});
   expect(afterSetup.trackStops.map(call=>call.facingMode)).toEqual(['environment','user']);
   expect(afterSetup.takePhotoCalls).toHaveLength(0);
+  await continueDayPreflight(page);
+  await expect(page.locator('#rallyCameraSetup')).toBeHidden();
+  await expect(warningRow(page,'camera')).toHaveCount(0);
   expect(await page.evaluate(()=>globalThis.__cameraReadinessGps.watchCalls)).toBe(1);
 
   await triggerCheckpoint(page,{checkpointId:'cp-2',latitude:30.0001,priorTargetId:'cp-1'});
@@ -235,8 +251,9 @@ test('an active GPS session exposes camera setup as a dedicated Mission action',
   await page.evaluate(()=>{
     const day=document.getElementById('dayFilter');
     day.value='all';day.dispatchEvent(new Event('change',{bubbles:true}));
-    document.getElementById('gpsButton').click();
   });
+  await expect(page.locator('#rallyDayPreflight')).toBeHidden();
+  await page.evaluate(()=>document.getElementById('gpsButton').click());
   await expect.poll(()=>page.evaluate(()=>globalThis.__cameraReadinessMissionGps.watchCalls)).toBe(1);
   await page.evaluate(()=>{
     const day=document.getElementById('dayFilter');
@@ -244,7 +261,10 @@ test('an active GPS session exposes camera setup as a dedicated Mission action',
   });
 
   await expect.poll(()=>readiness(page)).toMatchObject({permission:'prompt',capability:'setup-required',automaticCaptureEligible:false});
+  await expectDayPreflight(page);
+  await expect(page.locator('#rallyPreflightCameraAction')).toHaveText('ENABLE CAMERA');
   await expect(page.locator('#rallyCameraSetup')).toBeHidden();
+  await continueDayPreflight(page);
   const cameraWarning=warningRow(page,'camera');
   await expect(cameraWarning).toBeVisible();
   await expect(cameraWarning.locator('[data-camera-action="enable"]')).toHaveCount(1);
@@ -272,6 +292,7 @@ test('previously granted Android permission verifies both cameras without showin
   await installCameraPlatform(page,{permission:'granted'});
   await openProject(page,{query:'camera-readiness-granted'});
   await expect.poll(()=>readiness(page)).toMatchObject({permission:'granted',capability:'ready',automaticCaptureEligible:true,permissionQuerySupported:true,getUserMediaSupported:true,imageCaptureSupported:true,setupAttemptedThisSession:false,priorSetupSucceeded:true});
+  await continueDayPreflight(page);
   await expect(page.locator('#rallyCameraSetup')).toBeHidden();
   await expect(warningRow(page,'camera')).toHaveCount(0);
   const state=await platform(page);
@@ -289,9 +310,11 @@ test('denied camera permission is explicit and refresh does not loop permission 
   await installCameraPlatform(page,{permission:'denied'});
   await openProject(page,{query:'camera-readiness-denied'});
   await expect.poll(()=>readiness(page)).toMatchObject({permission:'denied',capability:'manual-only',automaticCaptureEligible:false,reasonCode:'permission-denied',permissionQuerySupported:true,getUserMediaSupported:true,imageCaptureSupported:true});
-  await expect(page.locator('#rallyCameraSetup')).toBeVisible();
-  await expect(page.locator('#rallyCameraSetupMessage')).toContainText(/denied|blocked|settings/i);
-  await expect(page.locator('#rallyCameraContinueManualButton')).toBeVisible();
+  await expectDayPreflight(page);
+  await expect(page.locator('#rallyPreflightCameraState')).toHaveText('BLOCKED');
+  await expect(page.locator('#rallyPreflightCameraAction')).toBeHidden();
+  await expect(page.locator('#rallyCameraSetup')).toBeHidden();
+  await continueDayPreflight(page);
   await expect(genericWarningActions(warningRow(page,'camera'))).toHaveCount(0);
   await expect(warningRow(page,'camera').locator('[data-camera-action="enable"]')).toHaveCount(0);
   await expect(warningRow(page,'camera').locator('[data-camera-action="manual"]')).toHaveCount(1);
@@ -313,11 +336,12 @@ test('denying the one-time setup prompt becomes intentional manual mode without 
   await expect.poll(()=>readiness(page)).toMatchObject({permission:'prompt',capability:'setup-required',automaticCaptureEligible:false});
   expect((await platform(page)).getUserMediaCalls).toHaveLength(0);
 
-  await page.locator('#rallyEnableCameraButton').click();
+  await enableCameraFromPreflight(page);
   await expect.poll(()=>readiness(page)).toMatchObject({permission:'denied',capability:'manual-only',automaticCaptureEligible:false,reasonCode:'permission-denied',setupAttemptedThisSession:true,priorSetupSucceeded:false});
-  await expect(page.locator('#rallyCameraSetup')).toBeVisible();
-  await expect(page.locator('#rallyCameraSetupMessage')).toContainText(/denied|blocked|settings/i);
-  await expect(page.locator('#rallyCameraContinueManualButton')).toBeVisible();
+  await expect(page.locator('#rallyPreflightCameraState')).toHaveText('BLOCKED');
+  await expect(page.locator('#rallyPreflightCameraAction')).toBeHidden();
+  await expect(page.locator('#rallyCameraSetup')).toBeHidden();
+  await continueDayPreflight(page);
   await expect(genericWarningActions(warningRow(page,'camera'))).toHaveCount(0);
   await expect(warningRow(page,'camera').locator('[data-camera-action="enable"]')).toHaveCount(0);
   await expect(warningRow(page,'camera').locator('[data-camera-action="manual"]')).toHaveCount(1);
@@ -340,17 +364,19 @@ test('unsupported Permissions query still offers one controlled setup and become
   await openProject(page,{query:'camera-readiness-query-unsupported'});
   await expect.poll(()=>readiness(page)).toMatchObject({permission:'unknown',capability:'setup-required',automaticCaptureEligible:false,permissionQuerySupported:false,getUserMediaSupported:true,imageCaptureSupported:true});
   expect((await platform(page)).getUserMediaCalls).toHaveLength(0);
-  await page.locator('#rallyEnableCameraButton').click();
+  await enableCameraFromPreflight(page);
   await expect.poll(()=>readiness(page)).toMatchObject({permission:'granted',capability:'ready',automaticCaptureEligible:true,permissionQuerySupported:false,getUserMediaSupported:true,imageCaptureSupported:true,setupAttemptedThisSession:true,priorSetupSucceeded:true});
   expect((await platform(page)).getUserMediaCalls.map(call=>call.facingMode)).toEqual(['environment','user']);
+  await continueDayPreflight(page);
 });
 
 test('permission revocation removes automatic eligibility without another acquisition attempt',async({page},testInfo)=>{
   test.skip(testInfo.project.name!=='Android portrait');
   await installCameraPlatform(page,{permission:'prompt'});
   await openProject(page,{query:'camera-readiness-revoked'});
-  await page.locator('#rallyEnableCameraButton').click();
+  await enableCameraFromPreflight(page);
   await expect.poll(()=>readiness(page)).toMatchObject({permission:'granted',capability:'ready',automaticCaptureEligible:true});
+  await continueDayPreflight(page);
   const before=(await platform(page)).getUserMediaCalls.length;
   await page.evaluate(()=>globalThis.__cameraPlatform.setPermission('denied'));
   await expect.poll(()=>readiness(page)).toMatchObject({permission:'denied',capability:'manual-only',automaticCaptureEligible:false,reasonCode:'permission-denied'});
@@ -364,19 +390,23 @@ test('a granted stream reopen failure preserves high-speed continuation and the 
   test.skip(testInfo.project.name!=='Android portrait');
   await installCameraPlatform(page,{permission:'prompt'});
   await openProject(page,{query:'camera-readiness-reopen-failure'});
-  await page.locator('#rallyEnableCameraButton').click();
+  await enableCameraFromPreflight(page);
   await expect.poll(()=>readiness(page)).toMatchObject({permission:'granted',capability:'ready',automaticCaptureEligible:true});
+  await continueDayPreflight(page);
   await page.evaluate(()=>globalThis.__cameraPlatform.failNext('NotReadableError','Camera is busy after setup.'));
   await triggerCheckpoint(page,{checkpointId:'cp-1',latitude:30,speedMph:25,priorTargetId:'cp-1'});
   await expect(page.locator('#rallyCameraWorkflow')).toBeHidden();
   await expect.poll(()=>readiness(page)).toMatchObject({permission:'granted',capability:'interrupted',automaticCaptureEligible:false});
-  let result=await page.evaluate(async()=>({media:await window.CannonMapTest.missionMediaRecords(),events:await window.CannonMapTest.missionControlJournalEvents(),debug:window.CannonMapTest.rallyDebugEntries()}));
+  let result=await page.evaluate(async()=>({media:await window.CannonMapTest.missionMediaRecords(),events:await window.CannonMapTest.missionControlJournalEvents(),debug:window.CannonMapTest.rallyDebugEntries(),evidence:window.CannonMapTest.checkpointEvidenceStateForTest('cp-1')}));
   expect(result.media).toHaveLength(0);
   expect(result.events.some(event=>event.eventType==='camera_failure'&&Number(event.metadata.speedAtFailureMph)>10)).toBeTruthy();
-  expect(result.events.some(event=>event.eventType==='checkpoint_completed'&&event.references.checkpointId==='cp-1')).toBeTruthy();
+  expect(result.events.some(event=>event.eventType==='checkpoint_photo_evidence_incomplete'&&event.references.checkpointId==='cp-1')).toBeTruthy();
+  expect(result.events.some(event=>event.eventType==='checkpoint_completed'&&event.references.checkpointId==='cp-1')).toBe(false);
+  expect(result.evidence).toMatchObject({arrival:{state:'confirmed',trustworthy:true},completion:{state:'pending',pointsAwarded:0}});
+  expect(result.evidence.photo.state).not.toBe('complete');
   expect(result.debug.some(entry=>['camera_capture_failure_revoked_readiness','camera_stream_acquisition_failed'].includes(entry.type))).toBeTruthy();
   const callsBeforeRecovery=(await platform(page)).getUserMediaCalls.length;
-  await triggerCheckpoint(page,{checkpointId:'cp-2',latitude:30.0001,observedAt:9000,speedMph:22,priorTargetId:'cp-2'});
+  await triggerCheckpoint(page,{checkpointId:'cp-2',latitude:30.0001,observedAt:9000,speedMph:22,priorTargetId:'cp-1'});
   await expect.poll(()=>readiness(page)).toMatchObject({permission:'granted',capability:'ready',automaticCaptureEligible:true});
   result=await page.evaluate(async()=>({media:await window.CannonMapTest.missionMediaRecords(),events:await window.CannonMapTest.missionControlJournalEvents()}));
   expect(result.media).toHaveLength(4);
@@ -390,6 +420,9 @@ test('unsupported ImageCapture is declared manual-only instead of falsely attemp
   await openProject(page,{query:'camera-readiness-imagecapture-unsupported'});
   await expect.poll(()=>readiness(page)).toMatchObject({capability:'manual-only',automaticCaptureEligible:false,imageCaptureSupported:false,reasonCode:'image-capture-unsupported'});
   expect((await platform(page)).getUserMediaCalls).toHaveLength(0);
+  await expectDayPreflight(page);
+  await expect(page.locator('#rallyPreflightCameraAction')).toBeHidden();
+  await continueDayPreflight(page);
   await expect(genericWarningActions(warningRow(page,'camera'))).toHaveCount(0);
   await expect(warningRow(page,'camera').locator('[data-camera-action="enable"]')).toHaveCount(0);
   await expect(warningRow(page,'camera').locator('[data-camera-action="manual"]')).toHaveCount(1);
@@ -401,15 +434,16 @@ test('unsupported ImageCapture is declared manual-only instead of falsely attemp
   expect(debug.some(entry=>entry.type==='camera_fallback_selected'&&entry.reason==='image-capture-unsupported')).toBeTruthy();
 });
 
-test('camera setup stays inside Android portrait and landscape safe areas',async({page},testInfo)=>{
+test('camera preflight setup stays inside Android portrait and landscape safe areas',async({page},testInfo)=>{
   test.skip(!androidProjectNames.has(testInfo.project.name));
   await installCameraPlatform(page,{permission:'prompt'});
   await openProject(page,{query:'camera-readiness-layout'});
-  await expect(page.locator('#rallyCameraSetup')).toBeVisible();
+  await expectDayPreflight(page);
+  await expect(page.locator('#rallyCameraSetup')).toBeHidden();
   const viewport=page.viewportSize();
-  const setup=await page.locator('#rallyCameraSetup').boundingBox();
-  const enable=await page.locator('#rallyEnableCameraButton').boundingBox();
-  const manual=await page.locator('#rallyCameraContinueManualButton').boundingBox();
+  const setup=await page.locator('#rallyDayPreflight').boundingBox();
+  const enable=await page.locator('#rallyPreflightCameraAction').boundingBox();
+  const manual=await page.locator('#rallyDayPreflightDegraded').boundingBox();
   expect(setup).not.toBeNull();expect(enable).not.toBeNull();expect(manual).not.toBeNull();
   expect(setup.x).toBeGreaterThanOrEqual(0);expect(setup.y).toBeGreaterThanOrEqual(0);
   expect(setup.x+setup.width).toBeLessThanOrEqual(viewport.width);expect(setup.y+setup.height).toBeLessThanOrEqual(viewport.height);
@@ -422,6 +456,4 @@ test('camera setup stays inside Android portrait and landscape safe areas',async
   const horizontalOverlap=Math.min(enable.x+enable.width,manual.x+manual.width)-Math.max(enable.x,manual.x);
   const verticalOverlap=Math.min(enable.y+enable.height,manual.y+manual.height)-Math.max(enable.y,manual.y);
   expect(horizontalOverlap>0&&verticalOverlap>0).toBe(false);
-  await expect(genericWarningActions(warningRow(page,'camera'))).toHaveCount(0);
-  await expect(genericWarningActions(warningRow(page,'gps'))).toHaveCount(4);
 });

@@ -112,21 +112,29 @@ test('closely spaced out-of-order arrivals are serialized and retain the origina
   assert.ok(processed.every(event=>event.speedMph===24));
 });
 
-test('camera-unavailable policy credits truthfully and preserves a prior active target without fake media',()=>{
+test('camera-unavailable policy preserves arrival and the prior target without false credit or fake media',()=>{
   for(const disposition of ['camera_unavailable_high_speed','manual_fallback_expired']){
     const prior=checkpointWorkflow.normalizeCheckpoint({id:'cp-37',name:'CP 37',type:'checkpoint',day:1,sequence:1,status:'active',photoRequired:true});
     const detected=checkpointWorkflow.normalizeCheckpoint({id:'cp-42',name:'CP 42',type:'checkpoint',day:1,sequence:2,status:'upcoming',photoRequired:true});
     const rows=[prior,detected];
+    checkpointWorkflow.recordCheckpointArrivalEvidence(detected,{timestamp:'2026-08-13T18:00:00.000Z',latitude:38.1,longitude:-105.2,gpsAccuracyFeet:12,speedMph:32,source:'gps-radius-dwell'});
     checkpointWorkflow.recordDetectedArrival(detected,'2026-08-13T18:00:00.000Z');
+    checkpointWorkflow.transitionCheckpointPhotoEvidence(detected,checkpointWorkflow.CHECKPOINT_PHOTO_EVIDENCE_STATE.FAILED,{
+      reasonCode:disposition,updatedAt:'2026-08-13T18:00:02.000Z'
+    });
     const next=checkpointWorkflow.completeCheckpoint(rows,detected,'2026-08-13T18:00:02.000Z',{
       photoDisposition:disposition,
       preserveActiveTarget:true
     });
-    assert.equal(detected.status,checkpointWorkflow.CHECKPOINT_STATE.COLLECTED);
-    assert.equal(detected.photoStatus,disposition);
-    assert.equal(detected.photoFailureDisposition,disposition);
+    assert.equal(next,null,'missing required photo evidence cannot advance or replace the active target');
+    assert.equal(detected.status,checkpointWorkflow.CHECKPOINT_STATE.PHOTO_REQUIRED);
+    assert.equal(detected.photoStatus,checkpointWorkflow.CHECKPOINT_PHOTO_EVIDENCE_STATE.FAILED);
+    assert.equal(detected.checkpointEvidence.photo.reasonCode,disposition);
+    assert.equal(detected.checkpointEvidence.arrival.trustworthy,true);
+    assert.equal(detected.finalCompletionState,checkpointWorkflow.CHECKPOINT_FINAL_COMPLETION_STATE.PENDING);
+    assert.equal(detected.scoreAwarded,0);
+    assert.equal(checkpointWorkflow.rallyScore({features:rows}),0);
     assert.equal(detected.photoPair,undefined,'failure policy must not fabricate a media pair');
-    assert.equal(next,prior);
     assert.equal(prior.status,checkpointWorkflow.CHECKPOINT_STATE.ACTIVE);
   }
 });

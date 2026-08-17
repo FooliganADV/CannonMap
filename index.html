@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260813-camera-readiness-2" />
+  <link rel="stylesheet" href="app.css?v=20260817-rally-day-readiness-1" />
 </head>
 <body>
   <header class="topbar">
@@ -18,7 +18,7 @@
       <span class="brand-mark">CM</span>
       <div>
         <h1>CannonMap</h1>
-          <p>America 250 Planner · <span id="buildLabel">Beta 0.7.9</span></p>
+          <p>America 250 Planner · <span id="buildLabel">Beta 0.7.10</span></p>
       </div>
     </div>
     <div class="top-actions">
@@ -281,6 +281,23 @@
           <strong id="rallyDeferredMessage">Deferred checkpoints remain.</strong>
           <div><button id="rallyResumeDeferredButton" type="button">Resume Deferred</button><button id="rallyFinishDayButton" type="button">Finish Day</button></div>
         </section>
+        <section id="rallyDayPreflight" class="rally-day-preflight" hidden aria-live="polite" role="dialog" aria-modal="true" aria-labelledby="rallyDayPreflightTitle">
+          <header>
+            <div><strong id="rallyDayPreflightTitle">Day readiness</strong><small>Check once before riding.</small></div>
+            <span id="rallyDayPreflightOverall">CHECKING</span>
+          </header>
+          <div id="rallyDayPreflightCapabilities" class="rally-day-preflight-capabilities">
+            <article data-preflight-capability="gps"><div><strong>GPS</strong><small id="rallyPreflightGpsDetail"></small></div><span id="rallyPreflightGpsState">CHECKING</span><button id="rallyPreflightGpsAction" type="button" hidden>ENABLE GPS</button></article>
+            <article data-preflight-capability="camera"><div><strong>Camera</strong><small id="rallyPreflightCameraDetail"></small></div><span id="rallyPreflightCameraState">CHECKING</span><button id="rallyPreflightCameraAction" type="button" hidden>ENABLE CAMERA</button></article>
+            <article data-preflight-capability="storage"><div><strong>Local storage</strong><small id="rallyPreflightStorageDetail"></small></div><span id="rallyPreflightStorageState">CHECKING</span><button id="rallyPreflightStorageAction" type="button" hidden>PREPARE</button></article>
+            <article data-preflight-capability="offline"><div><strong>Offline app</strong><small id="rallyPreflightOfflineDetail"></small></div><span id="rallyPreflightOfflineState">CHECKING</span><button id="rallyPreflightOfflineAction" type="button" hidden>PREPARE</button></article>
+          </div>
+          <p id="rallyDayPreflightNotice" class="rally-day-preflight-notice">No permission is requested until you choose the matching action.</p>
+          <div class="rally-day-preflight-actions">
+            <button id="rallyDayPreflightStart" type="button">START / RESUME DAY</button>
+            <button id="rallyDayPreflightDegraded" type="button">CONTINUE DEGRADED</button>
+          </div>
+        </section>
         <section id="rallyCameraSetup" class="rally-camera-setup" hidden aria-live="polite" role="dialog" aria-modal="true" aria-labelledby="rallyCameraSetupTitle">
           <strong id="rallyCameraSetupTitle">Camera setup</strong>
           <p id="rallyCameraSetupMessage">Enable the camera once before riding so checkpoint photos can be captured automatically.</p>
@@ -393,7 +410,7 @@
       <div class="map-status">
         <span id="cursorCoordinates">—</span>
         <span id="gpsStatus">GPS off</span>
-        <span id="appVersion">v0.7.9 · 2026.08.13.camera-readiness-2</span>
+        <span id="appVersion">v0.7.10 · 2026.08.17.rally-day-readiness-1</span>
       </div>
       <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open planner" aria-expanded="false">Planner</button>
       <button id="intelButton" class="intel-toggle" aria-label="Open live intelligence" aria-expanded="false">Intel</button>
@@ -490,6 +507,6 @@
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260813-camera-readiness-2"></script>
+  <script type="module" src="app.js?v=20260817-rally-day-readiness-1"></script>
 </body>
 </html>

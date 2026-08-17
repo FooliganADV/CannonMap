@@ -29,11 +29,13 @@ test('automatic finalization propagates both completed sides to fallback without
   assert.doesNotMatch(body,/markPairComplete/);
 });
 
-test('camera-failure journaling is best effort and cannot block high-speed credit or fallback expiry',()=>{
-  const helper=functionBody('appendFailureJournalBestEffort'),arrival=functionBody('processDetectedCheckpointArrival'),expiry=functionBody('expireManualFallback');
+test('camera-failure journaling preserves incomplete evidence without bypassing the completion gate',()=>{
+  const helper=functionBody('appendFailureJournalBestEffort'),arrival=functionBody('processDetectedCheckpointArrival'),expiry=functionBody('expireManualFallback'),completion=functionBody('completeCurrentCheckpoint');
+  const highSpeedStart=arrival.indexOf("if(disposition==='camera_unavailable_high_speed')"),highSpeedEnd=arrival.indexOf('}else{',highSpeedStart),highSpeedBranch=arrival.slice(highSpeedStart,highSpeedEnd);
   assert.match(helper,/try\{return await appendRallyJournalEvent/);assert.match(helper,/catch\(error\)/);assert.match(helper,/return null/);
-  assert.match(arrival,/await appendFailureJournalBestEffort\('camera_failure'/);assert.match(arrival,/camera_unavailable_high_speed/);assert.match(arrival,/completeCurrentCheckpoint/);
-  assert.match(expiry,/await appendFailureJournalBestEffort\('camera_failure'/);assert.match(expiry,/resolveManualFallback\(\{status:'expired'\}\)/);
+  assert.match(arrival,/await appendFailureJournalBestEffort\('camera_failure'/);assert.match(highSpeedBranch,/preserveIncompletePhotoEvidence/);assert.doesNotMatch(highSpeedBranch,/completeCurrentCheckpoint/);
+  assert.match(expiry,/await appendFailureJournalBestEffort\('camera_failure'/);assert.match(expiry,/preserveIncompletePhotoEvidence/);assert.match(expiry,/resolveManualFallback\(\{status:'expired'\}\)/);
+  assert.match(completion,/checkpointCompletionInFlight/);assert.match(completion,/photoComplete/);assert.doesNotMatch(completion,/acceptedPhotoFailure/);
 });
 
 test('unsafe Evidence cleanup starts a fresh pair before manual fallback',()=>{

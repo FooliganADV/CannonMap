@@ -33,8 +33,11 @@ test('camera readiness is device-local and cannot mutate portable project settin
 });
 
 test('camera setup gates active Rally GPS without blocking Planner GPS',()=>{
-  const startGps=app.slice(app.indexOf('function startGps()'),app.indexOf('function stopGps()'));
-  assert.match(startGps,/if\(activeRallyDay\(\)&&cameraSetupRequired\(\)&&!cameraSetupDismissed\)/);
+  const startGps=app.slice(app.indexOf('function startGps('),app.indexOf('function stopGps('));
+  assert.match(startGps,/if\(activeRallyDay\(\)&&showDayPreflight\(\)&&!preflightAction\)/);
+  assert.match(startGps,/activeDayNeedsSetup=Boolean\(rallyDay&&rallyDayState\(rallyDay\)\.status!==['"]complete['"]&&!restoredDayReview\)/);
+  assert.match(startGps,/if\(activeDayNeedsSetup&&cameraSetupRequired\(\)&&!cameraSetupDismissed&&!preflightAction\)/);
+  assert.match(startGps,/const preflightAction=options\?\.preflightAction===true/);
 });
 
 test('only native camera-stage failures revoke automatic camera readiness',()=>{

@@ -4,12 +4,30 @@ import path from 'node:path';
 const fixture=path.resolve('tests/fixtures/rally-project.cmap');
 const photoBuffer=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64');
 
+async function continueSelectedRallyDay(page){
+  const preflight=page.locator('#rallyDayPreflight');
+  await expect.poll(async()=>await preflight.isVisible()||await page.locator('#rallyDayComplete').isVisible()).toBeTruthy();
+  if(!await preflight.isVisible())return;
+  await expect(page.locator('#rallyDayPreflightOverall')).not.toHaveText('CHECKING');
+  const start=page.locator('#rallyDayPreflightStart');
+  if(await start.isEnabled())await start.click();
+  else{
+    const degraded=page.locator('#rallyDayPreflightDegraded');
+    await expect(degraded).toBeVisible();
+    await expect(degraded).toBeEnabled();
+    await degraded.click();
+  }
+  await expect(preflight).toBeHidden();
+}
+
 async function loadProject(page){
   await page.goto('/?e2e=1');
   await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
   await page.locator('#projectInput').setInputFiles(fixture);
   await expect(page.locator('#status')).toContainText('Opened rally-project.cmap');
   await page.evaluate(()=>{const select=document.getElementById('dayFilter');select.value='1';select.dispatchEvent(new Event('change',{bubbles:true}));});
+  await expect(page.locator('#rallyDay')).toHaveText('Day 1');
+  await continueSelectedRallyDay(page);
 }
 async function completeWithEvidence(page,name='objective.jpg'){
   const before=await page.locator('#rallyNextName').textContent();await page.locator('#rallyCompleteButton').click();
@@ -75,6 +93,7 @@ test('hotel completion persists Day Complete and requires explicit next-day star
   await page.waitForTimeout(100);
   await page.reload();
   await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
+  await continueSelectedRallyDay(page);
   await completeWithEvidence(page,'checkpoint-one.jpg');
   await completeWithEvidence(page,'checkpoint-two.jpg');
   await completeWithEvidence(page,'hotel.jpg');
@@ -91,6 +110,7 @@ test('hotel completion persists Day Complete and requires explicit next-day star
   await expect(page.locator('#rallyDayComplete')).toBeVisible();
   await expect(page.locator('#rallyStartNextDay')).toHaveText('Start Day 2');
   await page.locator('#rallyStartNextDay').click();
+  await continueSelectedRallyDay(page);
   await expect(page.locator('#rallyNextName')).toContainText('Day 2 Checkpoint');
 });
 

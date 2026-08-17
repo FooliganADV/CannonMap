@@ -57,6 +57,60 @@ test('deduplicates accepted checkpoints and serializes asynchronous processing',
   assert.deepEqual(coordinator.state().handledCheckpointIds,['cp-1','cp-2','cp-10']);
 });
 
+test('starts persistence for every accepted hit before serialized media processing finishes',async()=>{
+  const persistenceStarted=[],processed=[];
+  let releaseFirst;
+  const firstBlocked=new Promise(resolve=>{releaseFirst=resolve;});
+  let firstStarted;
+  const processingStarted=new Promise(resolve=>{firstStarted=resolve;});
+  const coordinator=createCheckpointArrivalCoordinator({
+    dwellMs:0,
+    persistArrival(arrival){
+      persistenceStarted.push(arrival.checkpointId);
+      return {arrivalRecordId:`arrival:${arrival.checkpointId}`};
+    },
+    async processArrival(arrival,persistenceResult){
+      processed.push({checkpointId:arrival.checkpointId,persistenceResult});
+      if(arrival.checkpointId==='cp-1'){firstStarted();await firstBlocked;}
+    }
+  });
+
+  coordinator.observe({
+    observedAt:6000,
+    detections:[detection('cp-2',10),detection('cp-1',10),detection('cp-3',10)]
+  });
+  assert.deepEqual(persistenceStarted,['cp-2','cp-1','cp-3'],'all accepted arrivals begin persistence synchronously at enqueue time');
+  await processingStarted;
+  assert.deepEqual(processed.map(item=>item.checkpointId),['cp-1'],'media processing remains serialized while later persistence has already started');
+  releaseFirst();
+  await coordinator.whenIdle();
+  assert.deepEqual(processed,[
+    {checkpointId:'cp-1',persistenceResult:{arrivalRecordId:'arrival:cp-1'}},
+    {checkpointId:'cp-2',persistenceResult:{arrivalRecordId:'arrival:cp-2'}},
+    {checkpointId:'cp-3',persistenceResult:{arrivalRecordId:'arrival:cp-3'}}
+  ]);
+});
+
+test('persistence failure reports the arrival and never enters its media processor',async()=>{
+  const processed=[],errors=[];
+  const coordinator=createCheckpointArrivalCoordinator({
+    dwellMs:0,
+    persistArrival(arrival){
+      if(arrival.checkpointId==='cp-2')return Promise.reject(new Error('arrival storage unavailable'));
+      return `persisted:${arrival.checkpointId}`;
+    },
+    async processArrival(arrival,persistenceResult){processed.push([arrival.checkpointId,persistenceResult]);},
+    async onError(error,arrival){errors.push([arrival.checkpointId,error.message]);}
+  });
+
+  coordinator.observe({observedAt:7000,detections:[detection('cp-1',10),detection('cp-2',10),detection('cp-3',10)]});
+  await coordinator.whenIdle();
+
+  assert.deepEqual(processed,[['cp-1','persisted:cp-1'],['cp-3','persisted:cp-3']]);
+  assert.deepEqual(errors,[['cp-2','arrival storage unavailable']]);
+  assert.deepEqual(coordinator.state().handledCheckpointIds,['cp-1','cp-3'],'an unpersisted hit is not marked handled or credited');
+});
+
 test('poor accuracy preserves each candidate while leaving the radius clears only that checkpoint',()=>{
   const coordinator=createCheckpointArrivalCoordinator({dwellMs:1000,maxAccuracyFeet:100});
   coordinator.observe({observedAt:1000,detections:[detection('a',20),detection('b',20)]});

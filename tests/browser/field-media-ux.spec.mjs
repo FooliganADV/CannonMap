@@ -31,6 +31,17 @@ async function installAutomaticCapture(page,{failure=false}={}){
   },{png:pngBase64,failure});
 }
 
+async function proceedPastReadiness(page){
+  await expect(page.locator('#rallyMode')).toBeVisible();
+  const preflight=page.locator('#rallyDayPreflight');
+  if(await preflight.isVisible()){
+    await expect(page.locator('#rallyDayPreflightDegraded')).toBeEnabled();
+    await page.locator('#rallyDayPreflightDegraded').click();
+    await expect(preflight).toBeHidden();
+  }
+  if(await page.locator('#rallyCameraSetup').isVisible())await page.locator('#rallyCameraContinueManualButton').click();
+}
+
 async function open(page,input=payload){
   await page.goto('/?e2e=field-media-ux');
   await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
@@ -46,9 +57,36 @@ async function open(page,input=payload){
     day.dispatchEvent(new Event('change',{bubbles:true}));
   });
   // This suite validates field-media behavior rather than permission setup.
-  // Make the pre-ride choice explicit so the readiness overlay cannot conceal
+  // Make the pre-ride degraded choice explicit so readiness cannot conceal
   // unrelated Rally controls in a fresh browser context.
-  if(await page.locator('#rallyCameraSetup').isVisible())await page.locator('#rallyCameraContinueManualButton').click();
+  await proceedPastReadiness(page);
+}
+
+async function checkpointEvidenceSummary(page,checkpointId='cp-42'){
+  return page.evaluate(async id=>{
+    const events=await window.CannonMapTest.missionControlJournalEvents(),media=await window.CannonMapTest.missionMediaRecords();
+    const forCheckpoint=events.filter(event=>event.references?.checkpointId===id||event.metadata?.checkpointId===id);
+    return {
+      arrivals:forCheckpoint.filter(event=>event.eventType==='checkpoint_arrival'),
+      incomplete:forCheckpoint.filter(event=>event.eventType==='checkpoint_photo_evidence_incomplete'),
+      completions:forCheckpoint.filter(event=>event.eventType==='checkpoint_completed'),
+      mediaCount:media.length,
+      score:window.CannonMapTest.rallyScore()
+    };
+  },checkpointId);
+}
+
+function expectArrivalConfirmedPhotoMissing(result,{failureDisposition}={}){
+  expect(result.arrivals).toHaveLength(1);
+  expect(result.arrivals[0].metadata).toMatchObject({arrivalState:'confirmed',pointsWithheld:true,photoRequired:true});
+  expect(result.arrivals[0].metadata.arrivalEvidence).toMatchObject({state:'confirmed',trustworthy:true});
+  expect(result.incomplete).toHaveLength(1);
+  expect(result.incomplete[0].metadata).toMatchObject({arrivalState:'confirmed',pointsWithheld:true,pointsAwarded:0,normalCompletionEmitted:false});
+  expect(result.incomplete[0].metadata.photoEvidenceState).not.toBe('complete');
+  expect(result.incomplete[0].metadata.summary).toMatch(/GPS arrival is confirmed.*photo evidence is incomplete/i);
+  if(failureDisposition)expect(result.incomplete[0].metadata.reasonCode).toBe(failureDisposition);
+  expect(result.completions).toHaveLength(0);
+  expect(result.score).toBe(0);
 }
 
 test('Mission Control exposes one paired Journey Photo action',async({page},testInfo)=>{
@@ -90,7 +128,7 @@ test('automatic checkpoint capture is paired, silent, and returns to the Rally m
   expect(browserDialogs,'automatic success must not open a browser success dialog').toEqual([]);
 });
 
-test('high-speed camera failure credits silently and never fabricates media',async({page},testInfo)=>{
+test('high-speed camera failure preserves confirmed arrival, reports photo missing, and withholds score',async({page},testInfo)=>{
   test.skip(testInfo.project.name!=='Android portrait');
   await open(page);
   await installAutomaticCapture(page,{failure:true});
@@ -99,11 +137,15 @@ test('high-speed camera failure credits silently and never fabricates media',asy
   await page.evaluate(()=>window.CannonMapTest.observeCheckpointDetectionsForTest({observedAt:4000,speedMph:25,priorTargetId:'cp-37',gpsEvidence:{latitude:30.0001,longitude:-90,accuracyFeet:7},detections:[{checkpointId:'cp-42',distanceFeet:2,accuracyFeet:7,radiusFeet:100}]}));
   await page.evaluate(()=>window.CannonMapTest.awaitFieldMediaIdle());
   await expect(page.locator('#rallyCameraWorkflow')).toBeHidden();
-  const result=await page.evaluate(async()=>({events:await window.CannonMapTest.missionControlJournalEvents(),media:await window.CannonMapTest.missionMediaRecords()}));
-  expect(result.media).toHaveLength(0);expect(result.events.some(event=>event.eventType==='camera_failure'&&event.metadata.captureStatus==='camera_unavailable_high_speed'&&Number(event.metadata.speedAtFailureMph)>10)).toBeTruthy();expect(result.events.some(event=>event.eventType==='checkpoint_completed'&&event.references.checkpointId==='cp-42')).toBeTruthy();await expect(page.locator('#rallyNextName')).toContainText('Prior Target');
+  const events=await page.evaluate(()=>window.CannonMapTest.missionControlJournalEvents()),result=await checkpointEvidenceSummary(page);
+  expect(result.mediaCount).toBe(0);
+  expect(events.some(event=>event.eventType==='camera_failure'&&event.metadata.captureStatus==='camera_unavailable_high_speed'&&Number(event.metadata.speedAtFailureMph)>10)).toBeTruthy();
+  expectArrivalConfirmedPhotoMissing(result,{failureDisposition:'camera_unavailable_high_speed'});
+  await expect(page.locator('#rallyScore')).toHaveText('0');
+  await expect(page.locator('#rallyNextName')).toContainText('Prior Target');
 });
 
-test('slow-speed fallback expiration credits the checkpoint and resumes the active Rally day',async({page},testInfo)=>{
+test('slow-speed fallback expiration preserves confirmed arrival and withholds completion and score',async({page},testInfo)=>{
   test.skip(testInfo.project.name!=='Android portrait');
   const slowProject=structuredClone(payload);slowProject.project.projectId='field-media-slow-browser';slowProject.project.name='Field Media Slow Fallback';
   await open(page,slowProject);
@@ -119,17 +161,71 @@ test('slow-speed fallback expiration credits the checkpoint and resumes the acti
   await expect(page.locator('#rallyNextName')).toContainText('Prior Target');
   await expect(page.locator('#rallyDay')).toContainText('Day 1');
   await expect(page.locator('#rallyDayComplete')).toBeHidden();
-  const result=await page.evaluate(async()=>({state:window.CannonMapTest.fieldMediaState(),events:await window.CannonMapTest.missionControlJournalEvents(),media:await window.CannonMapTest.missionMediaRecords()}));
-  expect(result.state).toMatchObject({pending:false,pendingCheckpointId:null});
-  expect(result.media).toHaveLength(0);
-  expect(result.events.some(event=>event.eventType==='camera_failure'&&event.references.checkpointId==='cp-42'&&event.metadata.captureStatus==='manual_fallback_expired'&&Number(event.metadata.speedAtFailureMph)<=10)).toBeTruthy();
-  expect(result.events.some(event=>event.eventType==='checkpoint_completed'&&event.references.checkpointId==='cp-42'&&event.metadata.photoFailureDisposition==='manual_fallback_expired')).toBeTruthy();
+  const state=await page.evaluate(()=>window.CannonMapTest.fieldMediaState()),events=await page.evaluate(()=>window.CannonMapTest.missionControlJournalEvents()),result=await checkpointEvidenceSummary(page);
+  expect(state).toMatchObject({pending:false,pendingCheckpointId:null});
+  expect(result.mediaCount).toBe(0);
+  expect(events.some(event=>event.eventType==='camera_failure'&&event.references.checkpointId==='cp-42'&&event.metadata.captureStatus==='manual_fallback_expired'&&Number(event.metadata.speedAtFailureMph)<=10)).toBeTruthy();
+  expectArrivalConfirmedPhotoMissing(result,{failureDisposition:'manual_fallback_expired'});
+  await expect(page.locator('#rallyScore')).toHaveText('0');
+});
+
+test('reload restores one confirmed arrival with pending photo evidence and never duplicates completion',async({page},testInfo)=>{
+  test.skip(testInfo.project.name!=='Android portrait');
+  const reloadProject=structuredClone(payload);reloadProject.project.projectId='field-media-reload-browser';reloadProject.project.name='Field Media Reload Recovery';
+  await open(page,reloadProject);await installAutomaticCapture(page,{failure:true});
+  await page.evaluate(()=>window.CannonMapTest.setGpsPositionForTest({lat:30.0001,lon:-90,speedMph:25,accuracyFeet:7}));
+  const detections=[{checkpointId:'cp-42',distanceFeet:3,accuracyFeet:7,radiusFeet:100}];
+  await page.evaluate(d=>window.CannonMapTest.observeCheckpointDetectionsForTest({observedAt:20_000,speedMph:25,priorTargetId:'cp-37',gpsEvidence:{latitude:30.0001,longitude:-90,accuracyFeet:7},detections:d}),detections);
+  await page.evaluate(d=>window.CannonMapTest.observeCheckpointDetectionsForTest({observedAt:23_000,speedMph:25,priorTargetId:'cp-37',gpsEvidence:{latitude:30.0001,longitude:-90,accuracyFeet:7},detections:d}),detections);
+  await page.evaluate(()=>window.CannonMapTest.awaitFieldMediaIdle());
+  expectArrivalConfirmedPhotoMissing(await checkpointEvidenceSummary(page),{failureDisposition:'camera_unavailable_high_speed'});
+
+  await page.reload();await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
+  const restored=await checkpointEvidenceSummary(page);
+  expectArrivalConfirmedPhotoMissing(restored,{failureDisposition:'camera_unavailable_high_speed'});
+  expect(restored.mediaCount).toBe(0);
+  await expect(page.locator('#rallyScore')).toHaveText('0');
+});
+
+test('offline reconnection reconciles pending evidence without duplicating arrival, media, or score',async({page,context},testInfo)=>{
+  test.skip(testInfo.project.name!=='Android portrait');
+  const reconnectProject=structuredClone(payload);reconnectProject.project.projectId='field-media-reconnect-browser';reconnectProject.project.name='Field Media Reconnect';
+  await open(page,reconnectProject);await installAutomaticCapture(page,{failure:true});await context.setOffline(true);
+  await page.evaluate(()=>window.CannonMapTest.setGpsPositionForTest({lat:30.0001,lon:-90,speedMph:25,accuracyFeet:7}));
+  const detections=[{checkpointId:'cp-42',distanceFeet:3,accuracyFeet:7,radiusFeet:100}];
+  await page.evaluate(d=>window.CannonMapTest.observeCheckpointDetectionsForTest({observedAt:30_000,speedMph:25,priorTargetId:'cp-37',gpsEvidence:{latitude:30.0001,longitude:-90,accuracyFeet:7},detections:d}),detections);
+  await page.evaluate(d=>window.CannonMapTest.observeCheckpointDetectionsForTest({observedAt:33_000,speedMph:25,priorTargetId:'cp-37',gpsEvidence:{latitude:30.0001,longitude:-90,accuracyFeet:7},detections:d}),detections);
+  await page.evaluate(()=>window.CannonMapTest.awaitFieldMediaIdle());
+  const offline=await checkpointEvidenceSummary(page);expectArrivalConfirmedPhotoMissing(offline,{failureDisposition:'camera_unavailable_high_speed'});expect(offline.arrivals[0].metadata.offline).toBe(true);
+
+  await context.setOffline(false);
+  await page.evaluate(()=>window.dispatchEvent(new Event('online')));
+  // Reconnection restores the durable projection without silently opening a
+  // hidden camera workflow. Rider-initiated recovery opens only on demand.
+  await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.checkpointEvidenceStateForTest('cp-42'))).toMatchObject({arrival:{state:'confirmed',trustworthy:true},completion:{state:'pending'}});
+  expect(await page.evaluate(()=>window.CannonMapTest.fieldMediaState())).toMatchObject({pending:false,pendingCheckpointId:null});
+  await page.evaluate(()=>window.CannonMapTest.reconcilePendingCheckpointEvidenceForTest({checkpointId:'cp-42',interactive:true}));
+  await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.fieldMediaState())).toMatchObject({pending:true,pendingCheckpointId:'cp-42',mode:'recovery'});
+  await page.evaluate(()=>window.dispatchEvent(new Event('online')));
+  const reconnected=await checkpointEvidenceSummary(page);expectArrivalConfirmedPhotoMissing(reconnected,{failureDisposition:'camera_unavailable_high_speed'});expect(reconnected.mediaCount).toBe(0);
+});
+
+test('background position gap does not invent a checkpoint crossing without an authoritative in-radius sample',async({page},testInfo)=>{
+  test.skip(testInfo.project.name!=='Android portrait');
+  const backgroundProject=structuredClone(payload);backgroundProject.project.projectId='field-media-background-gap';backgroundProject.project.name='Field Media Background Gap';
+  await open(page,backgroundProject);
+  await page.evaluate(()=>{globalThis.__fieldVisibility='visible';Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>globalThis.__fieldVisibility});window.CannonMapTest.setGpsPositionForTest({lat:30.0001,lon:-90.003,speedMph:25,accuracyFeet:7});});
+  await page.evaluate(()=>{globalThis.__fieldVisibility='hidden';document.dispatchEvent(new Event('visibilitychange'));window.CannonMapTest.setGpsPositionForTest({lat:30.0001,lon:-89.997,speedMph:25,accuracyFeet:7});});
+  await page.evaluate(()=>{globalThis.__fieldVisibility='visible';document.dispatchEvent(new Event('visibilitychange'));window.CannonMapTest.evaluateCheckpointArrival(7);window.CannonMapTest.evaluateCheckpointArrival(7);});
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  const result=await checkpointEvidenceSummary(page);
+  expect(result.arrivals).toHaveLength(0);expect(result.incomplete).toHaveLength(0);expect(result.completions).toHaveLength(0);expect(result.mediaCount).toBe(0);expect(result.score).toBe(0);
 });
 
 test('closely spaced out-of-order checkpoint hits are serialized and preserve the prior target',async({page},testInfo)=>{
   test.skip(testInfo.project.name!=='Android portrait');
   const clustered=structuredClone(payload);clustered.project.features.splice(2,0,{id:'cp-43',name:'1.43 Second Detected Target',type:'checkpoint',day:1,sequence:3,status:'upcoming',photoRequirement:'required',visible:true,geometry:{kind:'point',coordinates:[{lat:30.0002,lon:-90}]}});
-  await page.goto('/?e2e=field-media-queue');await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');await page.locator('#projectInput').setInputFiles({name:'clustered.cmap',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(clustered))});await page.evaluate(()=>{const day=document.getElementById('dayFilter');day.value='1';day.dispatchEvent(new Event('change',{bubbles:true}));});
+  await page.goto('/?e2e=field-media-queue');await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');await page.locator('#projectInput').setInputFiles({name:'clustered.cmap',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(clustered))});await page.evaluate(()=>{const day=document.getElementById('dayFilter');day.value='1';day.dispatchEvent(new Event('change',{bubbles:true}));});await proceedPastReadiness(page);
   await installAutomaticCapture(page);
   const detections=[{checkpointId:'cp-42',distanceFeet:4,accuracyFeet:6,radiusFeet:100},{checkpointId:'cp-43',distanceFeet:7,accuracyFeet:6,radiusFeet:100}];
   await page.evaluate(d=>window.CannonMapTest.observeCheckpointDetectionsForTest({observedAt:1000,speedMph:18,priorTargetId:'cp-37',gpsEvidence:{latitude:30,longitude:-90,accuracyFeet:6},detections:d}),detections);
@@ -268,7 +364,9 @@ test('Wake Lock is optional, acquired with GPS, and released when GPS stops',asy
     Object.defineProperty(navigator,'wakeLock',{configurable:true,value:{request:async type=>{globalThis.__wakeLockRequests++;const listeners=new Set(),sentinel={type,released:false,addEventListener:(name,callback)=>{if(name==='release')listeners.add(callback);},removeEventListener:(name,callback)=>listeners.delete(callback),async release(){if(this.released)return;this.released=true;for(const callback of listeners)callback();}};globalThis.__wakeSentinel=sentinel;return sentinel;}}});
     Object.defineProperty(navigator,'geolocation',{configurable:true,value:{watchPosition(callback){success=callback;return 41;},clearWatch(){success=null;}}});
   });
-  await open(page);await page.locator('#rallyRecenterFab').click();
+  // Explicit preflight continuation already starts GPS; no second tap should
+  // be required and a second tap would intentionally stop the active watch.
+  await open(page);
   await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.wakeLockState())).toMatchObject({supported:true,desired:true,held:true});expect(await page.evaluate(()=>globalThis.__wakeLockRequests)).toBe(1);
   await page.evaluate(async()=>{globalThis.__visibility='hidden';document.dispatchEvent(new Event('visibilitychange'));await globalThis.__wakeSentinel.release();});await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.wakeLockState())).toMatchObject({desired:true,held:false,visible:false});
   await page.evaluate(()=>{globalThis.__visibility='visible';document.dispatchEvent(new Event('visibilitychange'));});await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.wakeLockState())).toMatchObject({desired:true,held:true,visible:true});expect(await page.evaluate(()=>globalThis.__wakeLockRequests)).toBe(2);

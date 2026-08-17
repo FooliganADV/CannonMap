@@ -13,6 +13,24 @@ function checkpointKind(next){
 
 const text=value=>String(value||'').trim();
 
+const PREFLIGHT_DOM=Object.freeze({gps:'Gps',camera:'Camera',storage:'Storage',offline:'Offline'});
+function renderDayPreflight({getElement,model}){
+  const preflight=model.dayPreflight||{},sheet=getElement('rallyDayPreflight'),visible=Boolean(model.showDayPreflight);
+  if(sheet)sheet.hidden=!visible;
+  const overallState=String(preflight.status||'CHECKING'),overall=overallState.replaceAll('_',' ');
+  const overallElement=getElement('rallyDayPreflightOverall');if(overallElement){overallElement.textContent=overall;overallElement.dataset.state=overallState.toLowerCase().replaceAll('_','-');}
+  const title=getElement('rallyDayPreflightTitle');if(title)title.textContent=`Day ${model.day||'—'} readiness`;
+  for(const [key,suffix] of Object.entries(PREFLIGHT_DOM)){
+    const capability=preflight.capabilities?.[key]||{},rawStatus=String(capability.status||'CHECKING'),state=rawStatus.toLowerCase().replaceAll('_','-'),stateElement=getElement(`rallyPreflight${suffix}State`),detail=getElement(`rallyPreflight${suffix}Detail`),action=getElement(`rallyPreflight${suffix}Action`);
+    if(stateElement){stateElement.textContent=String(capability.label||rawStatus).replaceAll('_',' ').toUpperCase();stateElement.dataset.state=state;}
+    if(detail)detail.textContent=capability.detail||'';
+    if(action){action.hidden=!capability.actionLabel;action.disabled=Boolean(capability.actionDisabled);if(capability.actionLabel)action.textContent=capability.actionLabel;}
+  }
+  const notice=getElement('rallyDayPreflightNotice');if(notice)notice.textContent=preflight.notice||'No permission is requested until you choose the matching action.';
+  const start=getElement('rallyDayPreflightStart');if(start){start.disabled=!preflight.ready;start.textContent=preflight.resume?'RESUME DAY':'START DAY';}
+  const degraded=getElement('rallyDayPreflightDegraded');if(degraded){degraded.hidden=Boolean(preflight.ready);degraded.disabled=Boolean(preflight.checking);}
+}
+
 function warningActions(item,{escapeHtml,cameraCapability,cameraPermission}){
   if(String(item?.id||'')!=='camera')return `<div><button type="button" data-warning-action="dismiss">Dismiss</button><button type="button" data-warning-action="10">10m</button><button type="button" data-warning-action="30">30m</button><button type="button" data-warning-action="checkpoint">Next CP</button></div>`;
   const checking=cameraCapability==='checking',denied=cameraPermission==='denied';
@@ -27,6 +45,7 @@ function warningActions(item,{escapeHtml,cameraCapability,cameraPermission}){
 export function renderRally({getElement,model,escapeHtml}){
   if(!getElement('rallyMode'))return;
   const set=(id,value)=>{const el=getElement(id);if(el)el.textContent=value;};
+  renderDayPreflight({getElement,model});
   const kind=checkpointKind(model.next);
   const camera=model.cameraReadiness||{},cameraCapability=String(camera.capability||'uninitialized'),cameraPermission=String(camera.permission||'unknown');
   const cameraSetup=getElement('rallyCameraSetup'),showCameraSetup=Boolean(model.showCameraSetup);
@@ -53,7 +72,8 @@ export function renderRally({getElement,model,escapeHtml}){
   set('rallyNextName',model.next?.name||model.emptyLabel||'Preparing next objective…');
   set('rallyNavigationGuidance',model.navigationGuidance||'Preparing navigation…');
   set('rallyNextDistance',model.distance===null?'':`${model.distance.toFixed(1)} mi`);
-  set('rallyObjectiveStatus',model.next?`${text(model.next.type||'checkpoint')} · ${Number(model.next.points)||0} points${model.next.extreme?' · EXTREME':''} · ${text(model.next.status||'upcoming')}`:'');
+  const arrivalPhotoMissing=model.next?.arrivalState==='confirmed'&&model.next?.arrivalTrustworthy&&model.next?.photoRequired&&model.next?.photoEvidenceState!=='complete';
+  set('rallyObjectiveStatus',arrivalPhotoMissing?'ARRIVAL CONFIRMED · PHOTO MISSING':model.next?`${text(model.next.type||'checkpoint')} · ${Number(model.next.points)||0} points${model.next.extreme?' · EXTREME':''} · ${text(model.next.status||'upcoming')}`:'');
   const notes=text(model.next?.notes),intelligence=text(model.routeIntelligence),objectiveIntel=text(model.objectiveIntel);
   set('rallyRiderNotes',notes);
   set('rallyRouteIntelligence',intelligence);
@@ -71,7 +91,7 @@ export function renderRally({getElement,model,escapeHtml}){
     for(const name of ['is-extreme','is-fuel','is-hotel','is-checkpoint','is-none'])card.classList.toggle(name,false);
     card.classList.toggle(`is-${kind}`,true);
   }
-  if(card)card.hidden=Boolean(model.showDeferredPrompt||model.dayComplete||showCameraSetup);
+  if(card)card.hidden=Boolean(model.showDeferredPrompt||model.dayComplete||showCameraSetup||model.showDayPreflight);
   const fab=getElement('rallyRecenterFab');
   if(fab){
     const active=Boolean(model.gpsActive)||(model.gpsStatus&&!/off/i.test(model.gpsStatus));
@@ -84,7 +104,7 @@ export function renderRally({getElement,model,escapeHtml}){
   }
   const photoPending=model.next?.status==='photo_required';
   const defer=getElement('rallyDeferIcon');if(defer)defer.hidden=!model.next||kind==='hotel'||photoPending;
-  const complete=getElement('rallyCompleteButton');if(complete&&photoPending)complete.disabled=true;
+  const complete=getElement('rallyCompleteButton');if(complete){complete.disabled=Boolean(!model.next||model.dayComplete);complete.textContent=model.next?.photoRecoveryAction||'COMPLETE';}
   const deferredPrompt=getElement('rallyDeferredPrompt');if(deferredPrompt)deferredPrompt.hidden=!model.showDeferredPrompt||Boolean(model.dayComplete);
   set('rallyDeferredMessage',`You have ${model.deferredCount||0} deferred checkpoint${model.deferredCount===1?'':'s'} remaining.`);
   const resume=getElement('rallyResumeDeferredButton');if(resume)resume.disabled=!model.showDeferredPrompt||Boolean(model.dayComplete);

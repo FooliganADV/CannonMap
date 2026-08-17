@@ -1,6 +1,13 @@
 export const CHECKPOINT_STATE=Object.freeze({
   UNAVAILABLE:'unavailable',UPCOMING:'upcoming',ACTIVE:'active',DEFERRED:'deferred',COLLECTED:'collected',FAILED:'failed',PHOTO_REQUIRED:'photo_required'
 });
+
+export {
+  CHECKPOINT_ARRIVAL_STATE,CHECKPOINT_EVIDENCE_SCHEMA_VERSION,CHECKPOINT_FINAL_COMPLETION_STATE,
+  CHECKPOINT_PHOTO_EVIDENCE_STATE,checkpointCompletionDecision,checkpointEvidenceState,
+  reconcileCheckpointEvidenceState,recordCheckpointArrivalEvidence,recordCheckpointFinalCompletion,
+  transitionCheckpointPhotoEvidence
+} from './evidence.js';
 export const CHECKPOINT_STATUSES=Object.freeze(new Set(Object.values(CHECKPOINT_STATE)));
 
 const LEGACY_STATE=Object.freeze({
@@ -90,6 +97,10 @@ export function normalizeCheckpoint(feature,index=0){
   feature.photoRequired=!explicitlyExempt&&(explicitlyRequired||['checkpoint','hotel'].includes(feature.type));
   feature.photoStatus=feature.photoStatus||'not_requested';
   for(const key of ['arrivedAt','completedAt','deferredAt','deferReason','restoredAt'])feature[key]=feature[key]??null;
+  const evidence=reconcileCheckpointEvidenceState(feature);
+  if(feature.status===CHECKPOINT_STATE.COLLECTED&&feature.photoRequired&&evidence.completion.state==='pending'&&evidence.photo.state!=='complete'){
+    feature.status=CHECKPOINT_STATE.PHOTO_REQUIRED;feature.completedAt=null;feature.scoreAwarded=0;
+  }
   return feature;
 }
 
@@ -108,7 +119,8 @@ export function dayCheckpoints(project,settings){
 
 export function currentCheckpoint(project,settings){
   const rows=dayCheckpoints(project,settings);
-  return rows.find(feature=>[CHECKPOINT_STATE.ACTIVE,CHECKPOINT_STATE.PHOTO_REQUIRED].includes(feature.status))||
+  return rows.find(feature=>feature.status===CHECKPOINT_STATE.ACTIVE)||
+    rows.find(feature=>feature.status===CHECKPOINT_STATE.PHOTO_REQUIRED)||
     rows.find(feature=>feature.type!=='hotel'&&feature.status===CHECKPOINT_STATE.UPCOMING)||
     (!rows.some(feature=>feature.type!=='hotel'&&feature.status===CHECKPOINT_STATE.DEFERRED)?
       rows.find(feature=>feature.type==='hotel'&&feature.status===CHECKPOINT_STATE.UPCOMING):null)||null;
@@ -120,8 +132,8 @@ export function currentHotel(project,settings){
 }
 
 export function rallyScore(project){
-  return (project?.features||[]).filter(feature=>feature.type==='checkpoint'&&checkpointState(feature.status)===CHECKPOINT_STATE.COLLECTED)
-    .reduce((score,feature)=>score+(Number(feature.points)||(feature.extreme?21:10)),0);
+  return (project?.features||[]).filter(feature=>feature.type==='checkpoint'&&checkpointState(feature.status)===CHECKPOINT_STATE.COLLECTED&&checkpointEvidenceState(feature).completion.state==='completed')
+    .reduce((score,feature)=>score+(Number(checkpointEvidenceState(feature).completion.pointsAwarded)||(Number(feature.points)||(feature.extreme?21:10))),0);
 }
 
 export function moveCheckpoint(rows,id,direction){
@@ -174,10 +186,10 @@ export function captureFailureDisposition(speedMph){
 
 export function completeCheckpoint(rows,checkpoint,now,{photoRecorded=false,photoDisposition=null,preserveActiveTarget=false}={}){
   if(!checkpoint||checkpoint.status===CHECKPOINT_STATE.COLLECTED)return null;
-  const acceptedDisposition=['camera_unavailable_high_speed','manual_fallback_expired'].includes(photoDisposition);
-  if(checkpoint.photoRequired&&!photoRecorded&&!acceptedDisposition)return null;
-  checkpoint.status=CHECKPOINT_STATE.COLLECTED;checkpoint.completedAt=now;checkpoint.photoStatus=photoRecorded?'recorded':acceptedDisposition?photoDisposition:checkpoint.photoRequired?'required_pending':'not_taken';
-  checkpoint.photoFailureDisposition=acceptedDisposition?photoDisposition:null;checkpoint.deferredAt=null;checkpoint.deferReason=null;delete checkpoint.arrivalPriorState;
+  if(photoRecorded&&checkpoint.photoRequired)transitionCheckpointPhotoEvidence(checkpoint,CHECKPOINT_PHOTO_EVIDENCE_STATE.COMPLETE,{reasonCode:null,missingSides:[],updatedAt:now});
+  const decision=checkpointCompletionDecision(checkpoint);if(!decision.allowed)return null;
+  recordCheckpointFinalCompletion(checkpoint,{completedAt:now});checkpoint.photoStatus=photoRecorded?'recorded':checkpoint.photoRequired?'required_pending':'not_taken';
+  checkpoint.photoFailureDisposition=null;checkpoint.deferredAt=null;checkpoint.deferReason=null;delete checkpoint.arrivalPriorState;
   if(preserveActiveTarget)return rows.find(feature=>feature.id!==checkpoint.id&&feature.status===CHECKPOINT_STATE.ACTIVE)||null;
   return activateNextPlanned(rows);
 }
@@ -222,3 +234,7 @@ export function deferForHotel(rows,now){
   const deferred=rows.filter(feature=>feature.type!=='hotel'&&[CHECKPOINT_STATE.UPCOMING,CHECKPOINT_STATE.ACTIVE].includes(feature.status));
   deferred.forEach(feature=>{feature.status=CHECKPOINT_STATE.DEFERRED;feature.deferredAt=now;feature.deferReason='Hotel bailout';});return deferred;
 }
+import {
+  CHECKPOINT_PHOTO_EVIDENCE_STATE,checkpointCompletionDecision,checkpointEvidenceState,
+  reconcileCheckpointEvidenceState,recordCheckpointFinalCompletion,transitionCheckpointPhotoEvidence
+} from './evidence.js';

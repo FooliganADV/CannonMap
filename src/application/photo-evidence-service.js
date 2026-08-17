@@ -118,10 +118,17 @@ export function createPhotoEvidenceService({repository,render=renderEvidenceJpeg
         failure.requiresNewPair=!durablyDetached||!evidenceDiscarded;failure.cleanupErrors=Object.freeze(cleanupErrors);throw failure;
       }
     },
-    async retryEvidence(originalMediaId){
+    async retryEvidence(originalMediaId,{pairId=null,cameraRole=null,pairJournalEventId=null}={}){
       const original=await repository.getMedia(originalMediaId);if(!original||original.role!=='original')throw new Error('The stored original is unavailable.');
       await inspect(original.blob);const evidenceBlob=await render(original.blob,original.metadata),filename=String(original.name||'Original.jpg').replace(/_Original(?=\.[^.]+$)/i,'_Evidence').replace(/\.[^.]+$/,'.jpg');let evidence=null;
-      try{evidence=await repository.addEvidence({original,evidenceBlob,filename,evidenceMediaId:original.pairedMediaId||createId()});assertReadableDimensions(await inspect(evidence.blob),'Evidence image');return evidence;}
+      try{
+        evidence=await repository.addEvidence({original,evidenceBlob,filename,evidenceMediaId:original.pairedMediaId||createId()});assertReadableDimensions(await inspect(evidence.blob),'Evidence image');
+        if(pairId&&typeof repository.reattachRecoveredEvidencePair==='function'){
+          const recovered=await repository.reattachRecoveredEvidencePair({originalMediaId:original.mediaId,evidenceMediaId:evidence.mediaId,pairId,cameraRole,pairJournalEventId});
+          return recovered.evidence;
+        }
+        return evidence;
+      }
       catch(error){if(evidence)await repository.discardEvidence?.(evidence.mediaId,original.mediaId,error?.message||error);throw error;}
     }
   });

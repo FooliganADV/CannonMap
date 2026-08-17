@@ -3,7 +3,7 @@ export const JOURNAL_EVENT_SCHEMA_VERSION=1;
 
 export const BUILT_IN_JOURNAL_EVENT_TYPES=Object.freeze([
   'ride_started','ride_finished','day_started','day_finished',
-  'checkpoint_completed','hotel_arrival','route_recalculated',
+  'checkpoint_arrival','checkpoint_completed','checkpoint_photo_capture_started','checkpoint_photo_evidence_incomplete','checkpoint_photo_evidence_recovered','hotel_arrival','day_preflight_completed','route_recalculated',
   'weather_alert','road_hazard','photo_added','video_added',
   'voice_note','rider_note','emergency_event','system_event'
 ]);
