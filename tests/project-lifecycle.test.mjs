@@ -118,6 +118,46 @@ test('active Project save updates the authoritative record and compatibility mir
   await assert.rejects(()=>setup.manager.saveActiveProject({projectId:'p2',name:'Wrong'}),/Only the active Project/);
 });
 
+test('external restore drains and reloads the active Project so its next save preserves restored sessions',async()=>{
+  const setup=harness({legacy:{id:'p1',name:'One',features:[],rallyExecution:{schemaVersion:2,sessions:{},daySessions:{},days:{}}},activeId:'p1'});
+  await setup.manager.initialize();
+  const retained=setup.manager.getActiveRepositories();
+  await setup.manager.withExternalProjectMutation('p1',async()=>{
+    const stored=setup.projects.get('p1');
+    setup.projects.set('p1',{...stored,rallyExecution:{schemaVersion:2,activeSessionId:'run-a',sessions:{'run-a':{sessionId:'run-a',projectId:'p1',dayNumber:1}},daySessions:{1:['run-a']},days:{1:{sessionId:'run-a',status:'active'}}}});
+  });
+  assert.equal(retained.getState(),'closed');
+  assert.equal(setup.manager.getActiveRepositories().getState(),'open');
+  assert.equal(setup.manager.getActiveProject().rallyExecution.activeSessionId,'run-a');
+  const saved=await setup.manager.saveActiveProject({...setup.manager.getActiveProject(),name:'After Restore'});
+  assert.equal(saved.rallyExecution.sessions['run-a'].sessionId,'run-a');
+  assert.equal(setup.projects.get('p1').rallyExecution.sessions['run-a'].sessionId,'run-a');
+  const drainStart=setup.steps.indexOf('flush:p1'),reloadAt=setup.steps.indexOf('rebuild:p1',drainStart);
+  assert.deepEqual(setup.steps.slice(drainStart,drainStart+5),['flush:p1','journal:p1','analytics:p1','search:p1','close:p1']);
+  assert.ok(reloadAt>drainStart+4);
+});
+
+test('failed external restore reopens the prior active Project cache',async()=>{
+  const setup=harness({activeId:'p1'});await setup.manager.initialize();
+  await assert.rejects(()=>setup.manager.withExternalProjectMutation('p1',async()=>{throw new Error('restore rejected');}),/restore rejected/);
+  assert.equal(setup.manager.getActiveProject().projectId,'p1');
+  assert.equal(setup.manager.getActiveRepositories().getState(),'open');
+  await setup.manager.saveActiveProject({...setup.manager.getActiveProject(),name:'Still Writable'});
+  assert.equal(setup.projects.get('p1').name,'Still Writable');
+});
+
+test('active-scope reopen failure rolls an external mutation back before writes resume',async()=>{
+  let failNextReopen=false;
+  const original={projectId:'p1',id:'p1',name:'One',features:[],rallyExecution:{schemaVersion:2,sessions:{old:{sessionId:'old'}},daySessions:{1:['old']},days:{}}};
+  const setup=harness({legacy:original,activeId:'p1',onLegacySave:async()=>{if(failNextReopen){failNextReopen=false;throw new Error('reopen failed');}}});
+  await setup.manager.initialize();
+  const error=await setup.manager.withExternalProjectMutation('p1',async()=>{setup.projects.set('p1',{...original,name:'Restored',rallyExecution:{schemaVersion:2,sessions:{new:{sessionId:'new'}},daySessions:{1:['new']},days:{}}});failNextReopen=true;return {verified:true};},{rollbackOnReopenFailure:async()=>setup.projects.set('p1',structuredClone(original))}).then(()=>null,value=>value);
+  assert.match(error.message,/reopen failed/);assert.equal(error.rolledBack,true);
+  assert.equal(setup.manager.getActiveProject().name,'One');assert.equal(setup.projects.get('p1').rallyExecution.sessions.old.sessionId,'old');
+  await setup.manager.saveActiveProject({...setup.manager.getActiveProject(),name:'Writable after rollback'});
+  assert.equal(setup.projects.get('p1').name,'Writable after rollback');
+});
+
 test('rapid switches serialize complete drain/commit/close/open pipelines',async()=>{
   const setup=harness();
   await setup.manager.initialize();

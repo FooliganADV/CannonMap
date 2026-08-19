@@ -111,6 +111,20 @@ test('persistence failure reports the arrival and never enters its media process
   assert.deepEqual(coordinator.state().handledCheckpointIds,['cp-1','cp-3'],'an unpersisted hit is not marked handled or credited');
 });
 
+test('destroy drains persistence already started for arrivals discarded behind an active processor',async()=>{
+  let releaseProcessing,releaseSecondPersistence,processingStarted;
+  const processingBlocked=new Promise(resolve=>{releaseProcessing=resolve;}),secondPersistenceBlocked=new Promise(resolve=>{releaseSecondPersistence=resolve;}),started=new Promise(resolve=>{processingStarted=resolve;});
+  const coordinator=createCheckpointArrivalCoordinator({
+    dwellMs:0,
+    persistArrival(arrival){return arrival.checkpointId==='cp-2'?secondPersistenceBlocked:`stored:${arrival.checkpointId}`;},
+    async processArrival(arrival){if(arrival.checkpointId==='cp-1'){processingStarted();await processingBlocked;}}
+  });
+  coordinator.observe({observedAt:8000,detections:[detection('cp-1',5),detection('cp-2',6)]});
+  await started;coordinator.destroy();let idle=false;const waiting=coordinator.whenIdle().then(()=>{idle=true;});
+  releaseProcessing();await Promise.resolve();await Promise.resolve();assert.equal(idle,false,'discarding cp-2 must not forget its in-flight durable arrival write');
+  releaseSecondPersistence('stored:cp-2');await waiting;assert.equal(idle,true);
+});
+
 test('poor accuracy preserves each candidate while leaving the radius clears only that checkpoint',()=>{
   const coordinator=createCheckpointArrivalCoordinator({dwellMs:1000,maxAccuracyFeet:100});
   coordinator.observe({observedAt:1000,detections:[detection('a',20),detection('b',20)]});

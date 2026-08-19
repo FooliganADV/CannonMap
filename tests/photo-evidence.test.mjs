@@ -16,6 +16,17 @@ test('capture preserves the original object and persists one generated evidence 
   assert.equal(calls[0].originalFile,original);assert.equal(calls[0].evidenceBlob,evidence);assert.deepEqual(calls[0].identities,{mediaGroupId:'group',originalMediaId:'original',evidenceMediaId:'evidence'});assert.equal(calls[0].filenames.original,'Day01_CP1.1_Original.jpg');
 });
 
+test('capture preserves immutable rally session identity in persisted Original and Evidence metadata',async()=>{
+  const calls=[],ids=['group','original','evidence'],repository={async addEvidencePair(input){calls.push(input);return input;}};
+  const service=createPhotoEvidenceService({repository,createId:()=>ids.shift(),inspect:async()=>({width:1,height:1}),render:async()=>new Blob(['evidence'],{type:'image/jpeg'})});
+  await service.capture({projectId:'project',checkpointId:'cp',journalEventId:'event',file:new Blob(['original'],{type:'image/jpeg'}),context:{
+    dayNumber:1,checkpointNumber:'1.1',capturedAt:'2026-08-18T17:37:42.123Z',sessionId:'session-aug18-run2',sessionRunNumber:2,sessionCalendarDate:'2026-08-18',sessionStartedAt:'2026-08-18T13:00:00.000Z'
+  }});
+  assert.deepEqual({sessionId:calls[0].metadata.sessionId,run:calls[0].metadata.sessionRunNumber,date:calls[0].metadata.sessionCalendarDate,started:calls[0].metadata.sessionStartTimestamp},{
+    sessionId:'session-aug18-run2',run:2,date:'2026-08-18',started:'2026-08-18T13:00:00.000Z'
+  });
+});
+
 test('photo export names are stable and generated archives are valid ZIP containers',async()=>{
   assert.equal(checkpointPhotoFilename({dayNumber:1,checkpointNumber:'1.1',role:'original'}),'Day01_CP1.1_Original.jpg');
   const zip=await createStoredZip([{name:'Day01_CP1.1_Original.jpg',blob:new Blob(['original'])},{name:'Day01_CP1.1_Evidence.jpg',blob:new Blob(['evidence'])}]);

@@ -1,16 +1,16 @@
-name: Deploy persistent camera preview
+name: Deploy iOS session evidence recovery preview
 
 on:
   push:
     branches:
-      - agent/persistent-camera-current
+      - agent/ios-session-evidence-recovery
 
 permissions:
   contents: read
   deployments: write
 
 concurrency:
-  group: cannonmap-persistent-camera-preview
+  group: cannonmap-ios-session-evidence-recovery-preview
   cancel-in-progress: true
 
 jobs:
@@ -18,8 +18,8 @@ jobs:
     name: Deploy exact commit to Cloudflare Pages preview
     runs-on: ubuntu-latest
     environment:
-      name: cannonmap-persistent-camera-preview
-      url: ${{ steps.deploy.outputs.pages-deployment-alias-url || steps.deploy.outputs.deployment-url }}
+      name: cannonmap-ios-session-evidence-recovery-preview
+      url: ${{ steps.deploy.outputs.deployment-url || steps.deploy.outputs.pages-deployment-alias-url }}
 
     steps:
       - name: Check out the triggering commit
@@ -36,7 +36,14 @@ jobs:
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing required repository secret CLOUDFLARE_API_TOKEN"; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing required repository secret CLOUDFLARE_ACCOUNT_ID"; exit 1; }
-          test "$GITHUB_REF_NAME" = "agent/persistent-camera-current" || { echo "::error::Unexpected preview branch"; exit 1; }
+          test "$GITHUB_REF_NAME" = "agent/ios-session-evidence-recovery" || { echo "::error::Unexpected preview branch"; exit 1; }
+
+      - name: Run P0 release gates
+        shell: bash
+        run: |
+          node --test tests/*.test.mjs tests/architecture/*.test.mjs
+          node scripts/check-boundaries.mjs
+          git diff --check
 
       - name: Deploy repository root to cannonmap preview
         id: deploy
@@ -49,9 +56,20 @@ jobs:
           command: >-
             pages deploy .
             --project-name=cannonmap
-            --branch=agent/persistent-camera-current
+            --branch=agent/ios-session-evidence-recovery
             --commit-hash=${{ github.sha }}
             --commit-dirty=false
+
+      - name: Verify immutable preview
+        shell: bash
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-url }}
+        run: |
+          test -n "$DEPLOYMENT_URL" || { echo "::error::Cloudflare did not return an immutable deployment URL"; exit 1; }
+          curl --retry 12 --retry-delay 5 --retry-all-errors --fail --silent --show-error --location "$DEPLOYMENT_URL/" --output /tmp/cannonmap-index.html
+          curl --retry 12 --retry-delay 5 --retry-all-errors --fail --silent --show-error --location "$DEPLOYMENT_URL/app.js?20260818-session-recovery-1" --output /tmp/cannonmap-app.js
+          grep -F "2026.08.18.session-recovery-1" /tmp/cannonmap-index.html
+          grep -F "2026.08.18.session-recovery-1" /tmp/cannonmap-app.js
 
       - name: Publish deployment summary
         if: ${{ always() }}
@@ -62,13 +80,13 @@ jobs:
           DEPLOYMENT_STATUS: ${{ job.status }}
         run: |
           {
-            echo "## CannonMap persistent camera preview"
+            echo "## CannonMap iOS session evidence recovery preview"
             echo
             echo "| Field | Value |"
             echo "| --- | --- |"
             echo "| Commit | \`${GITHUB_SHA}\` |"
             echo "| Project | \`cannonmap\` |"
-            echo "| Branch | \`agent/persistent-camera-current\` |"
+            echo "| Branch | \`agent/ios-session-evidence-recovery\` |"
             echo "| Status | \`${DEPLOYMENT_STATUS}\` |"
             echo "| Deployment URL | ${DEPLOYMENT_URL:-Not returned} |"
             echo "| Branch alias URL | ${PREVIEW_ALIAS_URL:-Not returned} |"

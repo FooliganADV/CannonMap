@@ -85,6 +85,9 @@ test('storage and offline setup remain explicit actions',async()=>{
   });
   const result=await service.inspect({projectId:'america-250',dayNumber:1});
   assert.equal(result.status,PREFLIGHT_STATUS.ACTION_REQUIRED);
+  assert.equal(result.capabilities.storage.status,PREFLIGHT_STATUS.READY);
+  assert.equal(result.capabilities.storage.operationalReady,true);
+  assert.equal(result.capabilities.storage.persistenceProtected,false);
   assert.equal(result.capabilities.storage.action,'PROTECT_STORAGE');
   assert.equal(result.capabilities.offline.action,'PREPARE_OFFLINE');
 });

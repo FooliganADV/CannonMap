@@ -26,13 +26,17 @@ export function classifyCameraReadinessError(error){
   if(error?.classification)return Object.freeze({...error.classification,error:serializableError(error)});
   const name=String(error?.name||''),explicit=String(error?.code||'');
   let code='CAMERA_STREAM_INTERRUPTED',permissionState=null,capabilityState='interrupted',retryable=true,platformLimitation=false;
-  if(name==='NotAllowedError'||name==='SecurityError'||explicit==='CAMERA_PERMISSION_DENIED'){
+  if(explicit==='CAMERA_PERMISSION_DENIED'){
     code='CAMERA_PERMISSION_DENIED';permissionState='denied';capabilityState='unavailable';retryable=false;
+  }else if(name==='NotAllowedError'||name==='SecurityError'){
+    // NotAllowedError also covers a missing user gesture and other browser
+    // policy restrictions. Only a live Permissions API result proves denial.
+    code='CAMERA_PERMISSION_UNVERIFIED';permissionState='unknown';capabilityState='setup-required';retryable=true;
   }else if(name==='NotFoundError'||explicit==='CAMERA_TRACK_UNAVAILABLE'||explicit==='CAMERA_UNAVAILABLE'){
     code='CAMERA_UNAVAILABLE';capabilityState='unavailable';retryable=false;
   }else if(name==='OverconstrainedError'||name==='ConstraintNotSatisfiedError'){
     code='CAMERA_CONSTRAINT_UNSUPPORTED';capabilityState='unavailable';retryable=false;
-  }else if(explicit==='IMAGE_CAPTURE_UNAVAILABLE'||explicit==='IMAGE_CAPTURE_INVALID'){
+  }else if(name==='NotSupportedError'||explicit==='IMAGE_CAPTURE_UNAVAILABLE'||explicit==='IMAGE_CAPTURE_INVALID'||explicit==='NATIVE_STILL_UNSUPPORTED'){
     code='IMAGE_CAPTURE_UNAVAILABLE';capabilityState='manual-only';retryable=false;platformLimitation=true;
   }else if(explicit==='GET_USER_MEDIA_UNAVAILABLE'){
     code='GET_USER_MEDIA_UNAVAILABLE';capabilityState='manual-only';retryable=false;platformLimitation=true;
@@ -40,8 +44,10 @@ export function classifyCameraReadinessError(error){
     code='INSECURE_CONTEXT';capabilityState='manual-only';retryable=false;platformLimitation=true;
   }else if(name==='AbortError'){
     code='CAMERA_STREAM_INTERRUPTED';capabilityState='interrupted';retryable=true;
-  }else if(explicit==='CAMERA_PROBE_TIMEOUT'){
-    code='CAMERA_PROBE_TIMEOUT';capabilityState='interrupted';retryable=true;
+  }else if(['CAMERA_PROBE_TIMEOUT','CAMERA_ACQUISITION_TIMEOUT','CAMERA_SESSION_INITIALIZATION_TIMEOUT','CAMERA_NATIVE_STILL_PROBE_TIMEOUT','NATIVE_STILL_TIMEOUT'].includes(explicit)){
+    code=explicit;capabilityState='interrupted';retryable=true;
+  }else if(['CAMERA_TRACK_MUTED','CAMERA_STREAM_INTERRUPTED','CAMERA_NOT_READY','EMPTY_NATIVE_STILL','NATIVE_STILL_VERIFICATION_INCOMPLETE'].includes(explicit)){
+    code=explicit;capabilityState='interrupted';retryable=true;
   }
   return Object.freeze({code,permissionState,capabilityState,retryable,platformLimitation,error:serializableError(error)});
 }
@@ -63,6 +69,7 @@ export function createBrowserCameraReadinessAdapter({
   imageCaptureFactory=typeof globalThis.ImageCapture==='function'?track=>new globalThis.ImageCapture(track):null,
   secureContext=globalThis.isSecureContext!==false,
   probeTimeoutMs=5000,
+  sessionProbeTimeoutMs=10000,
   setTimer=globalThis.setTimeout,
   clearTimer=globalThis.clearTimeout,
   cameraSession=null,
@@ -122,7 +129,9 @@ export function createBrowserCameraReadinessAdapter({
       diagnostic('camera_stream_acquisition_requested',{cameraRole});
       const constraints={audio:false,video:{facingMode:{ideal:facingMode},width:{ideal:4096},height:{ideal:3072}}};
       let timedOut=false,timer=null;
-      const acquisition=Promise.resolve().then(()=>mediaDevices.getUserMedia(constraints)).then(value=>{
+      let startedAcquisition;
+      try{startedAcquisition=mediaDevices.getUserMedia(constraints);}catch(error){throw error;}
+      const acquisition=Promise.resolve(startedAcquisition).then(value=>{
         if(timedOut){stopStream(value);diagnostic('camera_late_probe_stream_stopped',{cameraRole});return null;}
         return value;
       },error=>{
@@ -140,15 +149,34 @@ export function createBrowserCameraReadinessAdapter({
       if(!stream)throw new BrowserCameraReadinessError(`${cameraRole} camera readiness probe timed out.`,{code:'CAMERA_PROBE_TIMEOUT',cameraRole});
       const track=stream?.getVideoTracks?.()[0]||stream?.getTracks?.().find(item=>item?.kind==='video');
       if(!track)throw new BrowserCameraReadinessError(`The ${cameraRole} camera did not provide a video track.`,{code:'CAMERA_TRACK_UNAVAILABLE',cameraRole});
-      if(track.readyState!=='live')throw new BrowserCameraReadinessError(`The ${cameraRole} camera track is not live.`,{code:'CAMERA_STREAM_INTERRUPTED',cameraRole});
+      if(stream.active===false||track.readyState!=='live'||track.enabled===false||track.muted===true){
+        throw new BrowserCameraReadinessError(`The ${cameraRole} camera track is not usable.`,{code:track.muted?'CAMERA_TRACK_MUTED':'CAMERA_STREAM_INTERRUPTED',cameraRole});
+      }
       let imageCapture;
       try{imageCapture=imageCaptureFactory(track);}catch(error){
         throw new BrowserCameraReadinessError('Native ImageCapture could not be created.',{cause:error,code:'IMAGE_CAPTURE_UNAVAILABLE',cameraRole});
       }
       if(!imageCapture||typeof imageCapture.takePhoto!=='function')throw new BrowserCameraReadinessError('Native ImageCapture.takePhoto is unavailable.',{code:'IMAGE_CAPTURE_INVALID',cameraRole});
+      let photoTimedOut=false,photoTimer=null;
+      let startedPhoto;
+      try{startedPhoto=imageCapture.takePhoto();}catch(error){throw error;}
+      const photoOperation=Promise.resolve(startedPhoto).then(value=>{
+        if(photoTimedOut){diagnostic('camera_late_probe_photo_discarded',{cameraRole});return null;}
+        return value;
+      },error=>{if(photoTimedOut)return null;throw error;});
+      const photoTimeout=new Promise((_,reject)=>{
+        photoTimer=setTimer(()=>{
+          photoTimedOut=true;
+          reject(new BrowserCameraReadinessError(`${cameraRole} native still readiness probe timed out.`,{code:'CAMERA_NATIVE_STILL_PROBE_TIMEOUT',cameraRole}));
+        },Math.max(1,Number(probeTimeoutMs)||5000));
+      });
+      let photo;
+      try{photo=await Promise.race([photoOperation,photoTimeout]);}
+      finally{if(photoTimer!==null)clearTimer(photoTimer);}
+      if(!photo?.arrayBuffer||!Number(photo.size))throw new BrowserCameraReadinessError('Native ImageCapture.takePhoto returned no image bytes.',{code:'EMPTY_NATIVE_STILL',cameraRole});
       const settings=track.getSettings?.()||{};
-      diagnostic('camera_stream_acquired',{cameraRole,readyState:track.readyState,actualFacingMode:settings.facingMode||null,imageCaptureAvailable:true});
-      return Object.freeze({cameraRole,requestedFacingMode:facingMode,actualFacingMode:settings.facingMode||null,readyState:'live',imageCaptureAvailable:true});
+      diagnostic('camera_stream_acquired',{cameraRole,readyState:track.readyState,actualFacingMode:settings.facingMode||null,imageCaptureAvailable:true,nativeStillVerified:true});
+      return Object.freeze({cameraRole,requestedFacingMode:facingMode,actualFacingMode:settings.facingMode||null,readyState:'live',imageCaptureAvailable:true,nativeStillVerified:true});
     }catch(error){
       const classification=classifyCameraReadinessError(error),wrapped=error instanceof BrowserCameraReadinessError?error:new BrowserCameraReadinessError(`${cameraRole} camera readiness probe failed.`,{cause:error,code:classification.code,cameraRole,classification});
       diagnostic('camera_stream_acquisition_failed',{cameraRole,classification});
@@ -164,15 +192,16 @@ export function createBrowserCameraReadinessAdapter({
     if(!secureContext)throw new BrowserCameraReadinessError('Camera access requires a secure context.',{code:'INSECURE_CONTEXT'});
     if(!getUserMediaSupported)throw new BrowserCameraReadinessError('Camera media access is unavailable.',{code:'GET_USER_MEDIA_UNAVAILABLE'});
     if(!imageCaptureSupported)throw new BrowserCameraReadinessError('Native ImageCapture is unavailable.',{code:'IMAGE_CAPTURE_UNAVAILABLE'});
-    if(cameraSession)return cameraSession.initialize({scopeToken:sessionScopeProvider?.()});
+    if(cameraSession)return cameraSession.initialize({scopeToken:sessionScopeProvider?.(),timeoutMs:sessionProbeTimeoutMs});
     const probes=[];
     for(const camera of CAMERA_PROBES)probes.push(await probeOne(camera));
-    return Object.freeze({ready:true,probes:Object.freeze(probes)});
+    return Object.freeze({ready:true,verifiedNativeStill:probes.every(item=>item.nativeStillVerified===true),verifiedRoles:Object.freeze(probes.map(item=>item.cameraRole)),probes:Object.freeze(probes)});
   }
 
   return Object.freeze({
     capabilities:Object.freeze({permissionQuerySupported,getUserMediaSupported,imageCaptureSupported,secureContext:Boolean(secureContext)}),
-    cameraSessionReady:()=>cameraSession?cameraSession.state?.().retainedStreamCount===2:true,
+    cameraSessionReady:()=>cameraSession?cameraSession.state?.().ready===true:true,
+    cameraSessionState:()=>cameraSession?.state?.()||null,
     queryPermission,
     probeCameras,
     classifyError:classifyCameraReadinessError,

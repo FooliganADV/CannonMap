@@ -37,6 +37,8 @@ export function wireRallyController({getElement,actions,windowTarget=window}){
   on('rallyPreflightOfflineAction','click',actions.prepareOffline);
   on('rallyDayPreflightStart','click',actions.startReadyDay);
   on('rallyDayPreflightDegraded','click',actions.continueDegradedDay);
+  on('rallyResumeSessionButton','click',actions.resumeSession);
+  on('rallyStartNewSessionButton','click',actions.startNewSession);
   on('rallyEnableCameraButton','click',actions.enableCamera);
   on('rallyCameraContinueManualButton','click',actions.continueManualCamera);
   on('rallyCameraTapSurface','click',actions.capturePhoto);
@@ -48,7 +50,9 @@ export function wireRallyController({getElement,actions,windowTarget=window}){
   on('rallyCameraInput','change',event=>actions.addTestCameraPair?.(event.target.files?.[0]));
   on('rallyCameraInput','cancel',()=>actions.cancelCamera?.());
   on('rallyCameraFailObjective','click',actions.failPhotoObjective);
+  on('rallyCameraContinueRoute','click',actions.continuePhotoRoute);
   on('rallyStartNextDay','click',actions.startNextDay);
+  on('rallyStartNewRun','click',actions.startNewSession);
   on('rallyDebugExportButton','click',actions.exportDebug);
   on('rallyJournalExportButton','click',actions.exportJournal);
   on('rallyWarnings','click',event=>{
@@ -60,6 +64,10 @@ export function wireRallyController({getElement,actions,windowTarget=window}){
     }
     const button=event.target.closest('button[data-warning-action]'),row=event.target.closest('[data-warning-id]');
     if(button&&row)actions.warning(row.dataset.warningId,button.dataset.warningAction);
+  });
+  on('rallyPendingEvidenceList','click',event=>{
+    const button=event.target.closest('button[data-evidence-action]'),row=event.target.closest('[data-pending-checkpoint-id]');
+    if(button&&row)actions.pendingEvidence?.(row.dataset.pendingCheckpointId,button.dataset.evidenceAction);
   });
   for(const id of ['autoCompleteCheckpoints','checkpointArrivalRadius','checkpointMaxAccuracy'])on(id,'change',actions.saveArrivalSettings);
   on('checkpointOrderList','click',event=>{

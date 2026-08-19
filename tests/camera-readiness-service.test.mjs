@@ -7,7 +7,7 @@ function fakeAdapter({permission='prompt',capabilities={},probeError=null,sessio
   const adapter={
     capabilities:{permissionQuerySupported:true,getUserMediaSupported:true,imageCaptureSupported:true,...capabilities},
     async queryPermission(){queryCalls++;callOrder.push('query');return {state:permission};},
-    async probeCameras(){probeCalls++;callOrder.push('probe');if(probeError)throw probeError;sessionReady=true;return {ready:true,probes:[{cameraRole:'rear'},{cameraRole:'front'}]};},
+    async probeCameras(){probeCalls++;callOrder.push('probe');if(probeError)throw probeError;sessionReady=true;return {ready:true,verifiedNativeStill:true,verifiedRoles:['rear','front'],probes:[{cameraRole:'rear',nativeStillVerified:true},{cameraRole:'front',nativeStillVerified:true}]};},
     cameraSessionReady(){return sessionReady;},
     classifyError(error){return error.classification||{code:error.code||'CAMERA_STREAM_INTERRUPTED',capabilityState:'interrupted',retryable:true};},
     subscribePermissionChange(listener){permissionListener=listener;return ()=>{permissionListener=null;};},
@@ -28,8 +28,8 @@ test('fresh prompt state requires setup and inspection never opens a camera stre
   assert.equal(state.automaticCaptureEligible,false);
   assert.equal(state.reasonCode,'permission-setup-required');
   assert.deepEqual(Object.keys(state).sort(),[
-    'automaticCaptureEligible','capability','getUserMediaSupported','imageCaptureSupported','lastVerifiedAt','permission',
-    'permissionQuerySupported','priorSetupSucceeded','reasonCode','setupAttemptedThisSession'
+    'automaticCaptureEligible','capability','currentSessionVerified','getUserMediaSupported','imageCaptureSupported','lastVerifiedAt','nativeStillCapability','permission',
+    'permissionQuerySupported','priorSetupSucceeded','reasonCode','setupAttemptedThisSession','verifiedCameraRoles','verifiedNativeStill'
   ].sort());
   assert.deepEqual(adapter.calls(),{probeCalls:0,queryCalls:1,callOrder:['query']});
   assert.throws(()=>service.assertAutomaticCaptureEligible(),AutomaticCameraNotReadyError);
@@ -60,12 +60,14 @@ test('explicit user-gesture setup verifies both cameras and makes automatic capt
   assert.deepEqual(persisted,[true]);
 });
 
-test('a previous grant hint permits controlled verification when permission query is unknown',async()=>{
+test('a previous grant hint cannot make an unknown current session ready',async()=>{
   const adapter=fakeAdapter({permission:'unknown'});
   const service=createCameraReadinessService({adapter,priorSetupSucceeded:true});
   const state=await service.inspect();
-  assert.equal(state.automaticCaptureEligible,true);
-  assert.equal(adapter.calls().probeCalls,1);
+  assert.equal(state.automaticCaptureEligible,false);
+  assert.equal(state.verifiedNativeStill,false);
+  assert.equal(state.capability,'setup-required');
+  assert.equal(adapter.calls().probeCalls,0);
 });
 
 test('forced inspection re-queries a ready permission without reopening camera streams',async()=>{
@@ -99,7 +101,7 @@ test('a live prompt result overrides a prior successful setup hint',async()=>{
   assert.equal(adapter.calls().probeCalls,0);
 });
 
-test('permission denial is explicit and is not repeatedly probed',async()=>{
+test('cached permission denial allows one deliberate bounded recheck without an automatic loop',async()=>{
   const adapter=fakeAdapter({permission:'denied'}),hints=[];
   const service=createCameraReadinessService({adapter,persistSetupSucceeded:value=>hints.push(value)});
   const inspected=await service.inspect();
@@ -109,8 +111,39 @@ test('permission denial is explicit and is not repeatedly probed',async()=>{
   assert.equal(adapter.calls().probeCalls,0);
   const setup=await service.setupFromUserGesture();
   assert.equal(setup.reasonCode,'permission-denied');
-  assert.equal(adapter.calls().probeCalls,0);
+  assert.equal(adapter.calls().probeCalls,1);
   assert.deepEqual(hints,[]);
+});
+
+test('NotAllowed during a setup tap is resolved against live denied permission',async()=>{
+  const denial=new Error('camera blocked');denial.name='NotAllowedError';denial.classification={code:'CAMERA_PERMISSION_UNVERIFIED',permissionState:'unknown',capabilityState:'setup-required',retryable:true};
+  const adapter=fakeAdapter({permission:'denied',probeError:denial});
+  const service=createCameraReadinessService({adapter});
+  const state=await service.setupFromUserGesture();
+  assert.equal(state.permission,'denied');assert.equal(state.capability,'manual-only');assert.equal(state.reasonCode,'permission-denied');
+  assert.deepEqual(adapter.calls(),{probeCalls:1,queryCalls:1,callOrder:['probe','query']});
+});
+
+test('stream acquisition without verified native stills never becomes automatic READY',async()=>{
+  const adapter=fakeAdapter({permission:'granted'});
+  adapter.probeCameras=async()=>({ready:true,verifiedNativeStill:false,verifiedRoles:[],probes:[{cameraRole:'rear'},{cameraRole:'front'}]});
+  const service=createCameraReadinessService({adapter});
+  const state=await service.inspect();
+  assert.equal(state.permission,'granted');
+  assert.equal(state.capability,'interrupted');
+  assert.equal(state.verifiedNativeStill,false);
+  assert.equal(state.automaticCaptureEligible,false);
+  assert.throws(()=>service.assertAutomaticCaptureEligible(),AutomaticCameraNotReadyError);
+});
+
+test('a live permission change to granted triggers one controlled native-still re-verification',async()=>{
+  const adapter=fakeAdapter({permission:'prompt'}),service=createCameraReadinessService({adapter});
+  await service.inspect();adapter.setPermission('granted');
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(service.state().permission,'granted');
+  assert.equal(service.state().verifiedNativeStill,true);
+  assert.equal(service.state().automaticCaptureEligible,true);
+  assert.equal(adapter.calls().probeCalls,1);
 });
 
 test('missing ImageCapture becomes intentional manual-only mode',async()=>{

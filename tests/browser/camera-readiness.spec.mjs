@@ -9,7 +9,7 @@ const projectPayload={
     projectId:'camera-readiness-browser',
     name:'Camera Readiness Browser',
     features:[
-      {id:'cp-1',name:'1.1 First Target',type:'checkpoint',day:1,sequence:1,status:'active',photoRequirement:'required',visible:true,geometry:{kind:'point',coordinates:[{lat:30,lon:-90}]}},
+      {id:'cp-1',name:'1.1 First Target',type:'checkpoint',day:1,sequence:1,status:'upcoming',photoRequirement:'required',visible:true,geometry:{kind:'point',coordinates:[{lat:30,lon:-90}]}},
       {id:'cp-2',name:'1.2 Second Target',type:'checkpoint',day:1,sequence:2,status:'upcoming',photoRequirement:'required',visible:true,geometry:{kind:'point',coordinates:[{lat:30.0001,lon:-90}]}},
       {id:'hotel-1',name:'1.99 Hotel',type:'hotel',day:1,sequence:99,status:'upcoming',photoRequirement:'required',visible:true,geometry:{kind:'point',coordinates:[{lat:30.1,lon:-90.1}]}}
     ],
@@ -21,9 +21,11 @@ async function installCameraPlatform(page,{
   permission='prompt',
   permissionQuerySupported=true,
   imageCaptureSupported=true,
-  grantOnAcquire=true
+  grantOnAcquire=true,
+  mutedFacings=[],
+  hangNextAcquisition=false
 }={}){
-  await page.addInitScript(({initialPermission,querySupported,imageCaptureSupported,grantOnAcquire,png})=>{
+  await page.addInitScript(({initialPermission,querySupported,imageCaptureSupported,grantOnAcquire,initialMutedFacings,initialHangNextAcquisition,png})=>{
     let permissionState=initialPermission;
     const permissionListeners=new Set();
     const permissionStatus={
@@ -38,7 +40,7 @@ async function installCameraPlatform(page,{
       }
     };
     const telemetry={queryCalls:0,getUserMediaCalls:[],trackStops:[],takePhotoCalls:[],imageCaptureInstances:0};
-    const failures={next:null,facings:new Set()},tracksByFacing=new Map();
+    const failures={next:null,facings:new Set(),mutedFacings:new Set(initialMutedFacings),hangNextAcquisition:initialHangNextAcquisition,hangNextPhoto:false},tracksByFacing=new Map();
     const setPermission=next=>{
       permissionState=next;
       permissionStatus.dispatchEvent(new Event('change'));
@@ -59,17 +61,28 @@ async function installCameraPlatform(page,{
           setPermission('denied');
           throw new DOMException('Camera permission denied by the rider.','NotAllowedError');
         }
+        if(failures.hangNextAcquisition){failures.hangNextAcquisition=false;return new Promise(()=>{});}
         if(failures.next){const next=failures.next;failures.next=null;throw new DOMException(next.message||'Camera reopen failed.',next.name||'NotReadableError');}
         if(failures.facings.has(facingMode))throw new DOMException(`Camera ${facingMode} unavailable.`,'NotReadableError');
-        let readyState='live';
+        let readyState='live',muted=failures.mutedFacings.has(facingMode),active=true;
+        const trackListeners=new Map(),streamListeners=new Map();
+        const dispatch=(listeners,type)=>{for(const listener of listeners.get(type)||[])listener.call(track,new Event(type));};
         const track={
-          kind:'video',
+          kind:'video',enabled:true,
           get readyState(){return readyState;},
-          stop(){readyState='ended';telemetry.trackStops.push({facingMode});},
+          get muted(){return muted;},
+          stop(){if(readyState==='ended')return;readyState='ended';telemetry.trackStops.push({facingMode});dispatch(trackListeners,'ended');},
+          addEventListener(type,listener){const listeners=trackListeners.get(type)||new Set();listeners.add(listener);trackListeners.set(type,listeners);},
+          removeEventListener(type,listener){trackListeners.get(type)?.delete(listener);},
           getSettings(){return {facingMode,width:1920,height:1080,deviceId:`mock-${facingMode}`};}
         };
-        tracksByFacing.set(facingMode,{track,end:()=>{readyState='ended';}});
-        return {getTracks:()=>[track],getVideoTracks:()=>[track]};
+        const stream={
+          get active(){return active;},getTracks:()=>[track],getVideoTracks:()=>[track],
+          addEventListener(type,listener){const listeners=streamListeners.get(type)||new Set();listeners.add(listener);streamListeners.set(type,listeners);},
+          removeEventListener(type,listener){streamListeners.get(type)?.delete(listener);}
+        };
+        tracksByFacing.set(facingMode,{track,stream,end:()=>{readyState='ended';dispatch(trackListeners,'ended');},mute:()=>{muted=true;dispatch(trackListeners,'mute');},inactivate:()=>{active=false;for(const listener of streamListeners.get('inactive')||[])listener.call(stream,new Event('inactive'));}});
+        return stream;
       }
     };
     const permissions={
@@ -88,6 +101,7 @@ async function installCameraPlatform(page,{
         async getPhotoCapabilities(){return {imageWidth:{max:1920},imageHeight:{max:1080}};}
         async takePhoto(settings){
           telemetry.takePhotoCalls.push({facingMode:this.track.getSettings().facingMode,settings:settings?structuredClone(settings):null});
+          if(failures.hangNextPhoto){failures.hangNextPhoto=false;return new Promise(()=>{});}
           return new Blob([imageBytes],{type:'image/png'});
         }
       }
@@ -105,11 +119,15 @@ async function installCameraPlatform(page,{
       }),
       setPermission,
       failNext:(name='NotReadableError',message='Camera reopen failed.')=>{failures.next={name,message};},
+      hangNextAcquisition:()=>{failures.hangNextAcquisition=true;},
+      hangNextPhoto:()=>{failures.hangNextPhoto=true;},
       endFacing:facingMode=>tracksByFacing.get(facingMode)?.end(),
+      muteFacing:facingMode=>tracksByFacing.get(facingMode)?.mute(),
+      inactivateFacing:facingMode=>tracksByFacing.get(facingMode)?.inactivate(),
       failFacing:facingMode=>failures.facings.add(facingMode),
       clearFailures:()=>{failures.next=null;failures.facings.clear();}
     };
-  },{initialPermission:permission,querySupported:permissionQuerySupported,imageCaptureSupported,grantOnAcquire,png:pngBase64});
+  },{initialPermission:permission,querySupported:permissionQuerySupported,imageCaptureSupported,grantOnAcquire,initialMutedFacings:mutedFacings,initialHangNextAcquisition:hangNextAcquisition,png:pngBase64});
 }
 
 async function openProject(page,{query='camera-readiness'}={}){
@@ -122,6 +140,8 @@ async function openProject(page,{query='camera-readiness'}={}){
     day.value='1';
     day.dispatchEvent(new Event('change',{bubbles:true}));
   });
+  await page.waitForFunction(()=>document.getElementById('rallyDay')?.textContent==='Day 1');
+  await page.waitForFunction(()=>window.CannonMapTest.dayPreflightState()?.scope?.dayNumber===1);
 }
 
 async function readiness(page){return page.evaluate(()=>window.CannonMapTest.cameraReadinessState());}
@@ -149,6 +169,10 @@ async function continueDayPreflight(page){
   await expect(page.locator('#rallyDayPreflightDegraded')).toBeEnabled();
   await page.locator('#rallyDayPreflightDegraded').click();
   await expect(preflight).toBeHidden();
+  await expect.poll(async()=>page.evaluate(async()=>{
+    const events=await window.CannonMapTest.missionControlJournalEvents();
+    return events.some(event=>event.eventType==='day_preflight_completed');
+  })).toBe(true);
 }
 
 async function triggerCheckpoint(page,{checkpointId,latitude,observedAt=1000,speedMph=22,priorTargetId=null,awaitIdle=true}={}){
@@ -187,7 +211,10 @@ test('fresh Android permission requires one setup gesture, then two checkpoints 
   expect(afterSetup.getUserMediaCalls.map(call=>call.facingMode)).toEqual(['environment','user']);
   expect(afterSetup.getUserMediaCalls[0]).toMatchObject({permissionAtCall:'prompt',userActivation:true});
   expect(afterSetup.trackStops).toHaveLength(0);
-  expect(afterSetup.takePhotoCalls).toHaveLength(0);
+  expect(afterSetup.takePhotoCalls).toEqual([
+    {facingMode:'environment',settings:null},
+    {facingMode:'user',settings:null}
+  ]);
   await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.cameraSessionState())).toMatchObject({retainedStreamCount:2,getUserMediaCallCount:2});
   await continueDayPreflight(page);
   await expect(page.locator('#rallyCameraSetup')).toBeHidden();
@@ -214,6 +241,100 @@ test('fresh Android permission requires one setup gesture, then two checkpoints 
   expect((await platform(page)).getUserMediaCalls).toHaveLength(2);
   await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.cameraSessionState())).toMatchObject({retainedStreamCount:2,getUserMediaCallCount:2});
   expect(await readiness(page)).toMatchObject({permission:'granted',capability:'ready',automaticCaptureEligible:true,setupAttemptedThisSession:true,priorSetupSucceeded:true});
+});
+
+test('iOS setup verifies native stills while retaining only one active camera',async({page},testInfo)=>{
+  test.skip(!testInfo.project.name.startsWith('iPhone 13'));
+  await installCameraPlatform(page,{permission:'prompt'});
+  await openProject(page,{query:'camera-readiness-ios-single-active'});
+  await enableCameraFromPreflight(page);
+
+  await expect.poll(()=>readiness(page)).toMatchObject({
+    permission:'granted',capability:'ready',automaticCaptureEligible:true,
+    verifiedNativeStill:true,currentSessionVerified:true,verifiedCameraRoles:['rear','front']
+  });
+  expect((await platform(page)).takePhotoCalls).toEqual([
+    {facingMode:'environment',settings:null},
+    {facingMode:'user',settings:null}
+  ]);
+  expect(await page.evaluate(async()=>window.CannonMapTest.missionMediaRecords())).toHaveLength(0);
+  await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.cameraSessionState())).toMatchObject({
+    retentionPolicy:'single-active',retainedStreamCount:1,roles:['front'],verifiedRoles:['rear','front'],verifiedNativeStill:true,ready:true
+  });
+  expect((await platform(page)).trackStops).toEqual([{facingMode:'environment'}]);
+});
+
+test('iOS live-but-muted camera track cannot produce false READY',async({page},testInfo)=>{
+  test.skip(!testInfo.project.name.startsWith('iPhone 13'));
+  await installCameraPlatform(page,{permission:'prompt',mutedFacings:['user']});
+  await openProject(page,{query:'camera-readiness-ios-muted'});
+  await enableCameraFromPreflight(page);
+
+  await expect.poll(()=>readiness(page)).toMatchObject({
+    permission:'granted',capability:'interrupted',automaticCaptureEligible:false,
+    verifiedNativeStill:false,currentSessionVerified:false,reasonCode:'camera-track-muted'
+  });
+  const cameraState=await page.evaluate(()=>window.CannonMapTest.cameraSessionState());
+  expect(cameraState.ready).toBe(false);expect(cameraState.retainedStreamCount).toBe(0);
+  expect((await platform(page)).takePhotoCalls).toEqual([{facingMode:'environment',settings:null}]);
+});
+
+test('iOS permission change to granted re-verifies capture without reloading',async({page},testInfo)=>{
+  test.skip(!testInfo.project.name.startsWith('iPhone 13'));
+  await installCameraPlatform(page,{permission:'denied'});
+  await openProject(page,{query:'camera-readiness-ios-permission-refresh'});
+  await expect.poll(()=>readiness(page)).toMatchObject({permission:'denied',capability:'manual-only',automaticCaptureEligible:false,verifiedNativeStill:false});
+
+  await page.evaluate(()=>globalThis.__cameraPlatform.setPermission('granted'));
+  await expect.poll(()=>readiness(page),{timeout:10000}).toMatchObject({
+    permission:'granted',capability:'ready',automaticCaptureEligible:true,
+    verifiedNativeStill:true,currentSessionVerified:true,verifiedCameraRoles:['rear','front']
+  });
+  const snapshot=await platform(page);
+  expect(snapshot.getUserMediaCalls.map(item=>item.facingMode)).toEqual(['environment','user']);
+  expect(snapshot.takePhotoCalls.map(item=>item.facingMode)).toEqual(['environment','user']);
+  await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.cameraSessionState())).toMatchObject({retentionPolicy:'single-active',retainedStreamCount:1,ready:true});
+});
+
+test('iOS hung camera acquisition fails within the bounded setup deadline',async({page},testInfo)=>{
+  test.skip(!testInfo.project.name.startsWith('iPhone 13'));
+  await installCameraPlatform(page,{permission:'prompt',hangNextAcquisition:true});
+  await openProject(page,{query:'camera-readiness-ios-hung-acquisition'});
+  const started=Date.now();
+  await enableCameraFromPreflight(page);
+
+  await expect.poll(()=>readiness(page),{timeout:10000}).toMatchObject({
+    permission:'granted',capability:'interrupted',automaticCaptureEligible:false,
+    verifiedNativeStill:false,currentSessionVerified:false,reasonCode:'camera-acquisition-timeout'
+  });
+  expect(Date.now()-started).toBeLessThan(8000);
+  await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.cameraSessionState())).toMatchObject({pendingAcquisitions:0,retainedStreamCount:0,ready:false});
+});
+
+test('iOS hung checkpoint takePhoto is bounded and never fabricates evidence',async({page},testInfo)=>{
+  test.skip(!testInfo.project.name.startsWith('iPhone 13'));
+  await installCameraPlatform(page,{permission:'prompt'});
+  await openProject(page,{query:'camera-readiness-ios-hung-photo'});
+  await enableCameraFromPreflight(page);
+  await expect.poll(()=>readiness(page)).toMatchObject({permission:'granted',capability:'ready',automaticCaptureEligible:true,verifiedNativeStill:true});
+  const setupCalls=(await platform(page)).getUserMediaCalls.length;
+  await continueDayPreflight(page);
+  await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.cameraSessionState())).toMatchObject({retentionPolicy:'single-active',retainedStreamCount:1,ready:true});
+  expect((await platform(page)).getUserMediaCalls).toHaveLength(setupCalls);
+  await page.evaluate(()=>globalThis.__cameraPlatform.hangNextPhoto());
+
+  const started=Date.now();
+  await triggerCheckpoint(page,{checkpointId:'cp-1',latitude:30,speedMph:25,priorTargetId:'cp-1'});
+  expect(Date.now()-started).toBeLessThan(7000);
+  await expect.poll(()=>readiness(page)).toMatchObject({permission:'granted',capability:'interrupted',automaticCaptureEligible:false,verifiedNativeStill:false});
+  const result=await page.evaluate(async()=>({
+    media:await window.CannonMapTest.missionMediaRecords(),events:await window.CannonMapTest.missionControlJournalEvents(),
+    evidence:window.CannonMapTest.checkpointEvidenceStateForTest('cp-1')
+  }));
+  expect(result.media).toHaveLength(0);
+  expect(result.events.some(event=>event.eventType==='checkpoint_completed'&&event.references.checkpointId==='cp-1')).toBe(false);
+  expect(result.events.some(event=>event.eventType==='camera_failure'&&event.metadata.causeCode==='NATIVE_STILL_TIMEOUT')).toBeTruthy();
+  expect(result.evidence).toMatchObject({arrival:{state:'confirmed',trustworthy:true},completion:{state:'pending',pointsAwarded:0}});
 });
 
 test('camera setup does not block GPS when no rally day is active',async({page},testInfo)=>{
@@ -297,12 +418,15 @@ test('previously granted Android permission verifies both cameras without showin
   await installCameraPlatform(page,{permission:'granted'});
   await openProject(page,{query:'camera-readiness-granted'});
   await expect.poll(()=>readiness(page)).toMatchObject({permission:'granted',capability:'ready',automaticCaptureEligible:true,permissionQuerySupported:true,getUserMediaSupported:true,imageCaptureSupported:true,setupAttemptedThisSession:false,priorSetupSucceeded:true});
+  const verifiedBeforeStart=await platform(page);
+  expect(verifiedBeforeStart.getUserMediaCalls.slice(-2).map(call=>call.facingMode)).toEqual(['environment','user']);
   await continueDayPreflight(page);
   await expect(page.locator('#rallyCameraSetup')).toBeHidden();
   await expect(warningRow(page,'camera')).toHaveCount(0);
   const state=await platform(page);
-  expect(state.getUserMediaCalls.map(call=>call.facingMode)).toEqual(['environment','user']);
-  expect(state.trackStops.map(call=>call.facingMode)).toEqual(['environment','user']);
+  expect(state.getUserMediaCalls).toEqual(verifiedBeforeStart.getUserMediaCalls);
+  expect(state.trackStops).toHaveLength(0);
+  await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.cameraSessionState())).toMatchObject({retentionPolicy:'retain-all',retainedStreamCount:2,ready:true});
   expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('cannonmap.settings.v6')||'{}').cameraSetupSucceededAt)).toBeUndefined();
   expect(await page.evaluate(()=>Boolean(localStorage.getItem('cannonmap.camera-setup-succeeded.v1')))).toBe(true);
   await page.reload();

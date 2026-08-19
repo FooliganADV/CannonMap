@@ -55,6 +55,11 @@ test('service-worker shell contains the complete local startup module graph',asy
     'src/infrastructure/indexeddb/legacy-current-project-repository.js',
     'src/infrastructure/indexeddb/project-deletion-repository.js'
   ])assert.ok(shell.has(lifecycleModule),`${lifecycleModule} must be cached for offline Project lifecycle consumers`);
+  for(const rallySessionModule of [
+    'src/domain/checkpoints/pending-evidence-queue.js',
+    'src/domain/rally/session.js',
+    'src/domain/rally/artifacts.js'
+  ])assert.ok(shell.has(rallySessionModule),`${rallySessionModule} must be cached for offline Rally session recovery`);
   for(const backupModule of [
     'src/domain/backup/archive.js',
     'src/domain/backup/errors.js',
@@ -74,7 +79,7 @@ test('service-worker shell contains the complete local startup module graph',asy
 test('Mission Control cache identifier advances without deleting IndexedDB data',async()=>{
   const {cache,source}=await cacheManifest();
   assert.notEqual(cache,'cannonmap-v0.7.1-20260726-06');
-  assert.equal(cache,'cannonmap-v0.7.10-20260817-persistent-camera-current-1');
+  assert.equal(cache,'cannonmap-v0.7.11-20260818-session-recovery-1');
   assert.doesNotMatch(source,/indexedDB\.deleteDatabase|deleteDatabase\s*\(/);
   assert.doesNotMatch(source,/localStorage\.clear|caches\.delete\([^)]*CannonMapDB/);
 });

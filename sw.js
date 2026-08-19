@@ -1,12 +1,12 @@
-const CACHE = 'cannonmap-v0.7.10-20260817-persistent-camera-current-1';
+const CACHE = 'cannonmap-v0.7.11-20260818-session-recovery-1';
 const RADAR_CACHE='cannonmap-radar-v1',RADAR_CACHE_LIMIT=96;
 const APP_SHELL = [
   './',
   './index.html',
-  './app.css?v=20260817-persistent-camera-current-1',
+  './app.css?v=20260818-session-recovery-1',
   './gps-checkpoints-feed.js?v=20260725-02',
   './stationary-events.js?v=20260725-01',
-  './app.js?v=20260817-persistent-camera-current-1',
+  './app.js?v=20260818-session-recovery-1',
   './src/core/clock.js',
   './src/core/compatibility.js',
   './src/core/errors.js',
@@ -33,6 +33,9 @@ const APP_SHELL = [
   './src/domain/checkpoints/workflow.js',
   './src/domain/checkpoints/evidence.js',
   './src/domain/checkpoints/arrival.js',
+  './src/domain/checkpoints/pending-evidence-queue.js',
+  './src/domain/rally/session.js',
+  './src/domain/rally/artifacts.js',
   './src/domain/journey/days.js',
   './src/domain/observations/contract.js',
   './src/domain/observations/ingestion-contract.js',

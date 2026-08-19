@@ -28,6 +28,20 @@ test('original and evidence images persist as one atomic reference pair',async({
   expect(result.roles).toEqual(['evidence','original']);expect(result.originalText).toBe('camera-original');expect(result.evidenceText).toBe('evidence-copy');expect(result.shared).toBeTruthy();expect(result.pair.original.name).toBe('Day01_CP1.1_Original.jpg');
 });
 
+test('captured Original and Evidence retain their rally session identity after IndexedDB reopen',async({page},testInfo)=>{
+  const result=await page.evaluate(async name=>{
+    const module=await import('/src/infrastructure/indexeddb/index.js');let database=await module.openIndexedDbV2({indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name});
+    let repository=module.createMissionMediaRepository({database,createId:(()=>{let number=0;return()=>`session-media-${++number}`;})(),clock:{iso:()=> '2026-08-18T17:37:42.123Z'}});
+    await repository.addEvidencePair({projectId:'project',checkpointId:'1.1',journalEventId:'pair-event',originalFile:new File(['original'],'camera.jpg',{type:'image/jpeg'}),evidenceBlob:new Blob(['evidence'],{type:'image/jpeg'}),metadata:{dayNumber:1,sessionId:'session-aug18-run2',sessionRunNumber:2,sessionCalendarDate:'2026-08-18'},identities:{mediaGroupId:'group',originalMediaId:'original',evidenceMediaId:'evidence'}});
+    database.close();database=await module.openIndexedDbV2({indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name});repository=module.createMissionMediaRepository({database,createId:()=>'',clock:{iso:()=>''}});
+    const rows=await repository.listCheckpointPhotos('project','1.1'),answer=rows.map(row=>({role:row.role,sessionId:row.sessionId,metadataSessionId:row.metadata.sessionId,run:row.metadata.sessionRunNumber,date:row.metadata.sessionCalendarDate})).sort((a,b)=>a.role.localeCompare(b.role));database.close();return answer;
+  },`CannonMapDB-session-media-${testInfo.project.name}-${Date.now()}`);
+  expect(result).toEqual([
+    {role:'evidence',sessionId:'session-aug18-run2',metadataSessionId:'session-aug18-run2',run:2,date:'2026-08-18'},
+    {role:'original',sessionId:'session-aug18-run2',metadataSessionId:'session-aug18-run2',run:2,date:'2026-08-18'}
+  ]);
+});
+
 test('camera File and Evidence Blob persist as exact byte buffers without Blob/File structured cloning',async({page},testInfo)=>{
   const result=await page.evaluate(async name=>{
     const module=await import('/src/infrastructure/indexeddb/index.js');let database=await module.openIndexedDbV2({indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name}),number=0;

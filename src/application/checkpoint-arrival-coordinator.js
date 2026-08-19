@@ -83,7 +83,7 @@ export function createCheckpointArrivalCoordinator({
 }={}){
   const dwell=Math.max(0,finite(dwellMs)??2000);
   const defaultMaxAccuracy=Math.max(0,finite(maxAccuracyFeet)??200);
-  const candidates=new Map(),queuedIds=new Set(),handledIds=new Set(),queue=[],persistenceBySequence=new Map();
+  const candidates=new Map(),queuedIds=new Set(),handledIds=new Set(),queue=[],persistenceBySequence=new Map(),persistenceTasks=new Set();
   let nextSequence=1,processing=false,destroyed=false,pumpPromise=Promise.resolve();
 
   const beginPersistence=arrival=>{
@@ -94,10 +94,12 @@ export function createCheckpointArrivalCoordinator({
     // Convert rejection to data immediately. A later arrival can fail while an
     // earlier one is still in a long media workflow without causing an
     // unhandled rejection before the serialized pump reaches it.
-    persistenceBySequence.set(arrival.arrivalSequence,pending.then(
+    const task=pending.then(
       value=>Object.freeze({ok:true,value}),
       error=>Object.freeze({ok:false,error})
-    ));
+    );
+    persistenceBySequence.set(arrival.arrivalSequence,task);persistenceTasks.add(task);
+    void task.finally(()=>{persistenceTasks.delete(task);if(destroyed)persistenceBySequence.delete(arrival.arrivalSequence);});
   };
 
   const schedule=()=>{
@@ -252,7 +254,7 @@ export function createCheckpointArrivalCoordinator({
 
     /** Wait until the configured asynchronous arrival processor is idle. */
     async whenIdle(){
-      do{await pumpPromise;}while(processing||queue.length&&typeof processArrival==='function');
+      do{await Promise.all([pumpPromise,...persistenceTasks]);}while(processing||persistenceTasks.size||queue.length&&typeof processArrival==='function');
     },
 
     /** Permit a checkpoint to be detected again after an explicit caller reset. */
@@ -279,7 +281,7 @@ export function createCheckpointArrivalCoordinator({
       candidates.clear();
       queue.length=0;
       queuedIds.clear();
-      persistenceBySequence.clear();
+      if(!persistenceTasks.size)persistenceBySequence.clear();
     }
   });
 }

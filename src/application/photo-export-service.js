@@ -1,4 +1,6 @@
 import {CHECKPOINT_EVIDENCE_SCHEMA_VERSION,checkpointEvidenceState} from '../domain/checkpoints/evidence.js';
+import {CHECKPOINT_EXECUTION_FIELDS} from '../domain/rally/session.js';
+import {createSessionArtifactFilename,createSessionManifestIdentity} from '../domain/rally/artifacts.js';
 
 const encoder=new TextEncoder();
 const table=(()=>{const values=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?0xedb88320^(c>>>1):c>>>1;values[n]=c>>>0;}return values;})();
@@ -14,6 +16,87 @@ export function checkpointPhotoFilename({dayNumber,checkpointNumber,role}){
 
 const binaryValue=value=>typeof Blob!=='undefined'&&value instanceof Blob||typeof ArrayBuffer!=='undefined'&&(value instanceof ArrayBuffer||ArrayBuffer.isView(value));
 const durable=value=>JSON.parse(JSON.stringify(value,(key,current)=>key==='_layer'||typeof current==='function'||typeof current==='symbol'||binaryValue(current)?undefined:current));
+const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
+const sessionIdsFor=value=>[value?.sessionId,value?.metadata?.sessionId,value?.references?.sessionId].map(item=>String(item??'').trim()).filter(Boolean);
+const sessionIdFor=value=>sessionIdsFor(value)[0]||null;
+const journalDay=event=>{
+  const direct=Number(event?.metadata?.dayNumber||event?.references?.dayNumber);
+  if(Number.isInteger(direct)&&direct>0)return direct;
+  const match=String(event?.metadata?.dayId||event?.references?.dayId||'').match(/(?:^|-)day-(\d+)$/i);
+  return match?Number(match[1]):null;
+};
+function normalizedSessionScope(value,{projectId,dayNumber}={}){
+  if(!value)return null;
+  if(!object(value))throw exportError('EXPORT_SESSION_INVALID','Session-aware export requires a session identity object.');
+  const sessionId=String(value.sessionId||'').trim(),sessionProjectId=String(value.projectId||projectId||'').trim(),sessionDay=Number(value.dayNumber??dayNumber),runNumber=Number(value.runNumber??value.sessionRunNumber);
+  if(!sessionId||sessionProjectId!==String(projectId)||!Number.isInteger(sessionDay)||sessionDay!==Number(dayNumber)||!Number.isInteger(runNumber)||runNumber<1){
+    throw exportError('EXPORT_SESSION_INVALID','Session-aware export identity does not match the requested Project and day.',{sessionId,sessionProjectId,sessionDay,runNumber});
+  }
+  return {...durable(value),sessionId,projectId:sessionProjectId,dayNumber:sessionDay,runNumber,
+    startedAt:value.startedAt||value.sessionStartedAt,
+    legacy:value.legacy===true||value.origin==='schema-v1-day-execution'};
+}
+const belongsToSession=(value,session)=>{
+  if(!session)return true;
+  const identities=new Set(sessionIdsFor(value));
+  if(identities.size>1)throw exportError('EXPORT_SESSION_CONFLICT','Stored rally evidence contains conflicting session identities.',{sessionIds:[...identities]});
+  const itemSessionId=[...identities][0]||null;
+  return itemSessionId?itemSessionId===session.sessionId:session.legacy===true;
+};
+function scopedJournal(journal,dayNumber,session){
+  if(!session)return journal||[];
+  return (journal||[]).filter(event=>belongsToSession(event,session)).filter(event=>{
+    const day=journalDay(event);return day===null||day===Number(dayNumber);
+  });
+}
+function projectedDayFeatures(project,dayNumber,session){
+  const fields=new Set(CHECKPOINT_EXECUTION_FIELDS);
+  return (project?.features||[]).filter(item=>Number(item.day)===Number(dayNumber)).map(item=>{
+    const feature=durable(item);if(!session||!object(session.checkpointStates)||!['checkpoint','hotel'].includes(feature.type))return feature;
+    for(const key of fields)delete feature[key];
+    const projection=session.checkpointStates?.[String(feature.id)];
+    if(object(projection))for(const [key,value] of Object.entries(projection))if(fields.has(key))feature[key]=value===undefined?undefined:durable(value);
+    return feature;
+  });
+}
+const dayStateForSession=session=>({
+  dayNumber:session.dayNumber,dayId:session.dayId,sessionId:session.sessionId,
+  status:session.status==='completed'?'complete':session.status,startedAt:session.startedAt,
+  completedAt:session.completedAt||null,nextDay:Number(session.nextDay)||0,summary:durable(session.summary??null)
+});
+function projectForSession(project,dayNumber,dayFeatures,session){
+  const snapshot=durable(project);if(!session)return snapshot;
+  const projectedById=new Map(dayFeatures.map(feature=>[String(feature.id),feature]));
+  const fields=new Set(CHECKPOINT_EXECUTION_FIELDS);
+  snapshot.features=(snapshot.features||[]).map(feature=>{
+    if(Number(feature.day)===Number(dayNumber)&&projectedById.has(String(feature.id)))return projectedById.get(String(feature.id));
+    const copy=durable(feature);if(!['checkpoint','hotel'].includes(copy.type))return copy;
+    const unavailable=copy.status==='unavailable';for(const key of fields)delete copy[key];copy.status=unavailable?'unavailable':'upcoming';return copy;
+  });
+  const prior=snapshot.rallyExecution||{},dayKey=String(dayNumber),executionId=prior.executionId||snapshot.executionId||null;
+  snapshot.rallyExecution={schemaVersion:Math.max(2,Number(prior.schemaVersion)||0),...(executionId?{executionId}:{}),activeSessionId:session.sessionId,
+    sessions:{[session.sessionId]:durable(session)},daySessions:{[dayKey]:[session.sessionId]},days:{[dayKey]:dayStateForSession(session)}};
+  return snapshot;
+}
+const SESSION_PACKAGE_RUNTIME_SETTING_KEYS=Object.freeze(['rallyDays','mediaBackups','mediaBackupProgress','mediaBackupReminderDay','lastMediaExportAt','restoredDayReview','activeDay','currentObjectiveId','rallyStartedAt']);
+function settingsForSession(settings,session){const snapshot=durable(settings||{});if(!session)return snapshot;for(const key of SESSION_PACKAGE_RUNTIME_SETTING_KEYS)delete snapshot[key];return snapshot;}
+function sessionManifestIdentity(session,{project,projectId,dayNumber,exportedAt,applicationVersion,buildId,serviceWorkerCacheId,tripId,rallyId}={}){
+  if(!session)return null;
+  return createSessionManifestIdentity({
+    session,projectId,tripId:tripId||project?.tripId||project?.projectId||projectId,
+    rallyId:rallyId||project?.rallyId||session.rallyId,dayNumber,
+    exportedAt,applicationVersion:applicationVersion||'unknown',buildId:buildId||'unknown',
+    serviceWorkerCacheId:serviceWorkerCacheId||'unknown'
+  });
+}
+function buildValues(options={}){
+  const build=options.buildIdentity||{};
+  return {
+    applicationVersion:options.applicationVersion||build.applicationVersion||build.appVersion||null,
+    buildId:options.buildId||build.buildId||null,
+    serviceWorkerCacheId:options.serviceWorkerCacheId||build.serviceWorkerCacheId||build.cacheId||null
+  };
+}
 const checkpointEvidenceProjection=feature=>durable(checkpointEvidenceState(feature));
 const checkpointManifestState=feature=>{
   const evidence=checkpointEvidenceProjection(feature);
@@ -36,7 +119,7 @@ const referenceMediaIds=(value,key='',ids=[])=>{
 };
 const mediaIdsForEvent=event=>[...new Set(referenceMediaIds({references:event?.references,attachments:event?.attachments}))];
 function journalMediaMetadata(journal=[]){
-  const byId=new Map(),byPairId=new Map();for(const event of journal){const metadata={...(event.metadata||{}),objectiveType:event.metadata?.objectiveType||null};for(const mediaId of mediaIdsForEvent(event))byId.set(mediaId,metadata);const pairId=event?.references?.pairId||event?.metadata?.pairId;if(pairId)byPairId.set(String(pairId),metadata);}return {byId,byPairId};
+  const byId=new Map(),byPairId=new Map();for(const event of journal){const metadata={...(event.metadata||{}),sessionId:sessionIdFor(event),objectiveType:event.metadata?.objectiveType||null};for(const mediaId of mediaIdsForEvent(event))byId.set(mediaId,metadata);const pairId=event?.references?.pairId||event?.metadata?.pairId;if(pairId)byPairId.set(String(pairId),metadata);}return {byId,byPairId};
 }
 const roleAlias=value=>{const role=String(value||'').trim().toLowerCase();if(['front','user','selfie','rider'].includes(role))return 'front';if(['rear','environment','forward','road'].includes(role))return 'rear';return null;};
 const logicalSideFor=value=>roleAlias(value)==='front'?'rider':roleAlias(value)==='rear'?'road':null;
@@ -68,10 +151,10 @@ function photoZipFiles(rows){
 const exportError=(code,message,details={})=>Object.assign(new Error(message),{code,...details});
 const sha256=async blob=>{const bytes=blob instanceof Uint8Array?blob:new Uint8Array(await blob.arrayBuffer()),hash=await crypto.subtle.digest('SHA-256',bytes);return [...new Uint8Array(hash)].map(byte=>byte.toString(16).padStart(2,'0')).join('');};
 const jsonFile=(name,value)=>({name,blob:new Blob([JSON.stringify(value,null,2)],{type:'application/json;charset=utf-8'})});
-const mediaIndexEntry=async file=>{const {blob,...record}=file.record,{metadata={}}=record;return {archivePath:file.name,mediaId:String(file.mediaId),mediaGroupId:record.mediaGroupId||null,pairId:record.pairId||null,pairStatus:record.pairStatus||null,cameraRole:record.cameraRole||null,logicalSide:record.logicalSide||null,mediaRole:record.role||null,pairedMediaId:record.pairedMediaId||null,journalEventId:record.journalEventId||null,pairJournalEventId:record.pairJournalEventId||null,objectiveType:metadata.objectiveType||null,dayNumber:Number(metadata.dayNumber)||null,mimeType:record.mimeType||blob?.type||null,name:record.name,size:file.size,checksum:{algorithm:'SHA-256',value:await sha256(file.blob)}};};
-async function photoArchiveFiles(rows,{scope,dayNumber=null}={}){
+const mediaIndexEntry=async file=>{const {blob,...record}=file.record,{metadata={}}=record;return {archivePath:file.name,mediaId:String(file.mediaId),mediaGroupId:record.mediaGroupId||null,pairId:record.pairId||null,pairStatus:record.pairStatus||null,cameraRole:record.cameraRole||null,logicalSide:record.logicalSide||null,mediaRole:record.role||null,pairedMediaId:record.pairedMediaId||null,journalEventId:record.journalEventId||null,pairJournalEventId:record.pairJournalEventId||null,sessionId:sessionIdFor(record),objectiveType:metadata.objectiveType||null,dayNumber:Number(metadata.dayNumber)||null,mimeType:record.mimeType||blob?.type||null,name:record.name,size:file.size,checksum:{algorithm:'SHA-256',value:await sha256(file.blob)}};};
+async function photoArchiveFiles(rows,{scope,dayNumber=null,sessionIdentity=null}={}){
   const mediaFiles=photoZipFiles(rows),entries=[];for(const file of mediaFiles)entries.push(await mediaIndexEntry(file));
-  const manifest={format:'cannonmap-photo-archive',version:2,scope,dayNumber:dayNumber==null?null:Number(dayNumber),mediaCount:mediaFiles.length,originalCount:entries.filter(item=>item.mediaRole==='original').length,evidenceCount:entries.filter(item=>item.mediaRole==='evidence').length,pairCount:new Set(entries.map(item=>item.pairId).filter(Boolean)).size,entries},files=mediaFiles.map(({record,...file})=>file);
+  const manifest={format:'cannonmap-photo-archive',version:2,scope,dayNumber:dayNumber==null?null:Number(dayNumber),...(sessionIdentity||{}),mediaCount:mediaFiles.length,originalCount:entries.filter(item=>item.mediaRole==='original').length,evidenceCount:entries.filter(item=>item.mediaRole==='evidence').length,pairCount:new Set(entries.map(item=>item.pairId).filter(Boolean)).size,entries},files=mediaFiles.map(({record,...file})=>file);
   if(files.length)files.push(jsonFile('manifest/photo-media-index.json',manifest));
   return {files,mediaFiles,manifest};
 }
@@ -102,23 +185,28 @@ export function createPhotoExportService({repository}={}){
   return Object.freeze({
     checkpointPhotoFilename,
     async single(mediaId){const record=await repository.getMedia(mediaId);if(!record)throw new Error('Photo is unavailable.');return {blob:record.blob,filename:record.name,metadata:durable(normalizeMediaExportRecord(record))};},
-    async day(projectId,dayNumber,{journal=[]}={}){const all=archiveRows(await records(projectId),journal),rows=all.filter(item=>Number(item.metadata?.dayNumber)===Number(dayNumber)),archive=await photoArchiveFiles(rows,{scope:'day',dayNumber}),blob=await verifiedPhotoArchive(archive.files,{storedMediaCount:all.length,dayNumber,mediaFileCount:archive.mediaFiles.length});return {blob,filename:`Day${String(dayNumber).padStart(2,'0')}_Photos.zip`,manifest:{...archive.manifest,entryCount:archive.mediaFiles.length,archiveEntryCount:archive.files.length,totalBytes:archive.mediaFiles.reduce((sum,file)=>sum+file.size,0)}};},
-    async dayBackup(projectId,dayNumber,{journal=[],project=null,settings={},applicationVersion=null,buildId=null}={}){
-      const day=Number(dayNumber),all=archiveRows(await records(projectId),journal),rows=all.filter(item=>Number(item.metadata?.dayNumber)===day);
+    async day(projectId,dayNumber,options={}){
+      const {journal=[],project=null,rallyName=null,tripId=null,rallyId=null}=options,day=Number(dayNumber),session=normalizedSessionScope(options.session||options.sessionIdentity,{projectId,dayNumber:day}),selectedJournal=scopedJournal(journal,day,session),all=archiveRows(await records(projectId),selectedJournal),sessionRows=all.filter(item=>belongsToSession(item,session)),rows=sessionRows.filter(item=>Number(item.metadata?.dayNumber)===day),exportedAt=options.exportedAt||new Date(),build=buildValues(options),identity=sessionManifestIdentity(session,{project,projectId,dayNumber:day,exportedAt,tripId,rallyId,...build}),archive=await photoArchiveFiles(rows,{scope:'day',dayNumber:day,sessionIdentity:identity}),blob=await verifiedPhotoArchive(archive.files,{storedMediaCount:sessionRows.length,dayNumber:day,mediaFileCount:archive.mediaFiles.length});
+      const filename=session?createSessionArtifactFilename({rallyName:rallyName||project?.name||session.rallyName||session.rallyId,dayNumber:day,runNumber:session.runNumber,exportedAt,artifactType:'Photos',extension:'zip'}):`Day${String(day).padStart(2,'0')}_Photos.zip`;
+      return {blob,filename,manifest:{...archive.manifest,entryCount:archive.mediaFiles.length,archiveEntryCount:archive.files.length,totalBytes:archive.mediaFiles.reduce((sum,file)=>sum+file.size,0)}};
+    },
+    async dayBackup(projectId,dayNumber,options={}){
+      const {journal=[],project=null,settings={},rallyName=null,tripId=null,rallyId=null}=options,day=Number(dayNumber),session=normalizedSessionScope(options.session||options.sessionIdentity,{projectId,dayNumber:day}),selectedJournal=scopedJournal(journal,day,session),all=archiveRows(await records(projectId),selectedJournal),sessionRows=all.filter(item=>belongsToSession(item,session)),rows=sessionRows.filter(item=>Number(item.metadata?.dayNumber)===day),exportedAt=options.exportedAt||new Date(),createdAt=new Date(exportedAt).toISOString(),build=buildValues(options),identity=sessionManifestIdentity(session,{project,projectId,dayNumber:day,exportedAt,tripId,rallyId,...build});
       if(!project?.projectId||String(project.projectId)!==String(projectId))throw exportError('DAY_BACKUP_PROJECT_INVALID','Day backup failed because the active Project identity could not be verified.');
-      if(!rows.length&&all.length)throw exportError('DAY_BACKUP_MEDIA_MISMATCH',`Day backup failed verification. ${all.length} stored media files exist, but none matched Day ${day}.`);
+      if(!rows.length&&sessionRows.length)throw exportError('DAY_BACKUP_MEDIA_MISMATCH',`Day backup failed verification. ${sessionRows.length} stored media files exist for this ${session?'session':'Project'}, but none matched Day ${day}.`);
       if(rows.some(row=>!row.blob||Number(row.blob.size)<1))throw exportError('DAY_BACKUP_MEDIA_EMPTY','Day backup failed verification because stored media contain no readable bytes.');
       const used=new Map(),mediaFiles=[],mediaIndex=[];
       for(const row of rows){const category=photoArchiveCategory(row),base=`media/${category}/${row.name}`,count=used.get(base)||0;used.set(base,count+1);const archivePath=count?base.replace(/(?=\.[^.]+$)/,`_${String(count+1).padStart(2,'0')}`):base,checksum=await sha256(row.blob),{blob,...record}=row;mediaFiles.push({name:archivePath,blob});mediaIndex.push({...record,archivePath,checksum:{algorithm:'SHA-256',value:checksum}});}
-      const exportedJournal=durable(journal),dayFeatures=durable((project.features||[]).filter(item=>Number(item.day)===day)),durableProject=durable(project),createdAt=new Date().toISOString(),checkpointStates=dayFeatures.map(checkpointManifestState),checkpointEvidence=checkpointStates.map(item=>({id:item.id,...item.checkpointEvidence})),projectMetadata={projectId:String(projectId),projectName:project.name||null,executionId:project.executionId||project.rallyExecution?.executionId||null,finalizedMasterId:project.finalizedMasterId||project.sourceMasterId||null,dayNumber:day,project:durableProject,dayFeatures,checkpointEvidenceSchemaVersion:CHECKPOINT_EVIDENCE_SCHEMA_VERSION,checkpointEvidence,settings:durable(settings),createdAt};
-      const manifest={format:'cannonmap-day-backup',version:2,checkpointEvidenceSchemaVersion:CHECKPOINT_EVIDENCE_SCHEMA_VERSION,projectId:String(projectId),projectName:project.name||null,executionId:projectMetadata.executionId,finalizedMasterId:projectMetadata.finalizedMasterId,dayNumber:day,createdAt,applicationVersion,buildId,mediaCount:rows.length,originalCount:rows.filter(item=>item.role==='original').length,evidenceCount:rows.filter(item=>item.role==='evidence').length,pairCount:new Set(rows.map(item=>item.pairId).filter(Boolean)).size,journalEventCount:exportedJournal.length,journalEvidenceCounts:journalEvidenceCounts(exportedJournal),checkpointStates,dayState:project.rallyExecution?.days?.[day]||settings.rallyDays?.[day]||null};
+      const exportedJournal=durable(selectedJournal),dayFeatures=projectedDayFeatures(project,day,session),durableProject=projectForSession(project,day,dayFeatures,session),checkpointStates=dayFeatures.map(checkpointManifestState),checkpointEvidence=checkpointStates.map(item=>({id:item.id,...item.checkpointEvidence})),projectMetadata={projectId:String(projectId),projectName:project.name||null,executionId:project.executionId||project.rallyExecution?.executionId||null,finalizedMasterId:project.finalizedMasterId||project.sourceMasterId||null,dayNumber:day,...(identity||{}),sessionIdentity:identity,project:durableProject,dayFeatures,checkpointEvidenceSchemaVersion:CHECKPOINT_EVIDENCE_SCHEMA_VERSION,checkpointEvidence,settings:settingsForSession(settings,session),createdAt};
+      const manifest={format:'cannonmap-day-backup',version:2,checkpointEvidenceSchemaVersion:CHECKPOINT_EVIDENCE_SCHEMA_VERSION,projectId:String(projectId),projectName:project.name||null,executionId:projectMetadata.executionId,finalizedMasterId:projectMetadata.finalizedMasterId,dayNumber:day,...(identity||{}),createdAt,applicationVersion:identity?.applicationVersion??build.applicationVersion,buildId:identity?.buildId??build.buildId,serviceWorkerCacheId:identity?.serviceWorkerCacheId??build.serviceWorkerCacheId,mediaCount:rows.length,originalCount:rows.filter(item=>item.role==='original').length,evidenceCount:rows.filter(item=>item.role==='evidence').length,pairCount:new Set(rows.map(item=>item.pairId).filter(Boolean)).size,journalEventCount:exportedJournal.length,journalEvidenceCounts:journalEvidenceCounts(exportedJournal),checkpointStates,dayState:session?dayStateForSession(session):(project.rallyExecution?.days?.[day]||settings.rallyDays?.[day]||null)};
       const files=[...mediaFiles,jsonFile('manifest/day-manifest.json',manifest),jsonFile('manifest/project-metadata.json',projectMetadata),jsonFile('manifest/media-index.json',mediaIndex),jsonFile('journal/Daily_Journal.json',exportedJournal)];
       const blob=await createStoredZip(files),reopened=await readStoredZipBinary(blob),required=['manifest/day-manifest.json','manifest/project-metadata.json','manifest/media-index.json','journal/Daily_Journal.json'];
       for(const name of required)if(!reopened.has(name))throw exportError('DAY_BACKUP_REQUIRED_FILE_MISSING',`Day backup failed verification: ${name} is missing.`);
       for(const name of required)try{JSON.parse(new TextDecoder().decode(reopened.get(name)));}catch{throw exportError('DAY_BACKUP_JSON_INVALID',`Day backup failed verification: ${name} is invalid.`);}
       if(reopened.size!==files.length)throw exportError('DAY_BACKUP_ENTRY_MISMATCH',`Day backup failed verification. Expected ${files.length} entries but reopened ${reopened.size}.`);
       for(const item of mediaIndex){const bytes=reopened.get(item.archivePath);if(!bytes?.byteLength||await sha256(bytes)!==item.checksum.value)throw exportError('DAY_BACKUP_CHECKSUM_INVALID',`Day backup failed verification for ${item.archivePath}.`);}
-      return {blob,filename:`Day${String(day).padStart(2,'0')}_Backup.cmapday.zip`,manifest,verified:true,entryCount:files.length};
+      const filename=session?createSessionArtifactFilename({rallyName:rallyName||project?.name||session.rallyName||session.rallyId,dayNumber:day,runNumber:session.runNumber,exportedAt,artifactType:'Backup',extension:'cmapday.zip'}):`Day${String(day).padStart(2,'0')}_Backup.cmapday.zip`;
+      return {blob,filename,manifest,verified:true,entryCount:files.length};
     },
     async projectBackup(projectId,{journal=[],project=null,settings={}}={}){
       const rows=archiveRows(await records(projectId),journal),exportedJournal=durable(journal),createdAt=new Date().toISOString(),manifest={format:'cannonmap-project-media-backup',version:2,projectId:String(projectId),projectName:project?.name||null,createdAt,mediaCount:rows.length,originalCount:rows.filter(item=>item.role==='original').length,evidenceCount:rows.filter(item=>item.role==='evidence').length,pairCount:new Set(rows.map(item=>item.pairId).filter(Boolean)).size,journalEventCount:exportedJournal.length};

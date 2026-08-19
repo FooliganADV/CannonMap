@@ -1,8 +1,8 @@
-# CannonMap Planner — Beta 0.7.10 Rally Day Readiness
+# CannonMap Planner — Beta 0.7.11 Session Recovery
 
-Build: `2026.08.17.rally-day-readiness-1`
+Build: `2026.08.18.session-recovery-1`
 
-Rally Mode now checks camera readiness before active riding. Supported Android browsers offer one deliberate **Enable Camera** setup action, verify both cameras, release the probe streams, and then reopen them automatically for checkpoint capture. Browsers without native `ImageCapture` support continue through the full-screen manual fallback intentionally.
+Rally Mode now creates an immutable session for every deliberate run, asks riders to **Resume Existing** or **Start New**, and keeps unresolved photo evidence separate from GPS navigation. Camera preflight verifies an actual bounded still capture before reporting automatic capture ready; iPhone/iPad use a single-active-camera policy while supported Android browsers retain the paired-camera fast path. Browsers without verified native still capture continue through the full-screen manual recovery path intentionally.
 
 ## Purpose
 
@@ -10,6 +10,12 @@ CannonMap is a rally decision system. The primary live-rally function is display
 
 ## New in this release
 
+- Session-scoped checkpoint, score, Journal, media, recovery, and backup state for repeated runs of the same itinerary day
+- A durable Pending Evidence queue: an unresolved photo at one checkpoint cannot block later GPS arrivals
+- Immediate, idempotent Journal persistence for retry, resume, fail, defer, and continue-route decisions
+- Unique Day artifact filenames plus manifest identity for Project, rally, day, run, build, cache, Journal, media, and checkpoint evidence
+- Bounded iOS camera verification/capture and truthful separation of permission, usable stream, native still support, and automatic-capture eligibility
+- Trip/day selectors and execution storage tested through at least 60 sequential days
 - Dedicated phone-first Rally Mode while preserving the desktop Planner
 - Checkpoint states, 10/21 point scoring, completion, defer, restore, skip, and sequence preservation
 - One-action hotel bailout that defers unfinished checkpoints and offers an immediate undo
@@ -54,7 +60,7 @@ node --test tests/*.test.mjs
 
 ## First test
 
-1. Confirm the status shows `v0.6.2 · 2026.07.21.02`.
+1. Confirm the status shows `v0.7.11 · 2026.08.18.session-recovery-1`.
 2. Import `competitor-test.json`; verify the red trail appears and Rider 27 is listed.
 3. Open **Trail Intel** and select **Weather here**. No key is required.
 4. On a phone, select **Intel** and verify the compact bottom sheet opens without covering the entire map.

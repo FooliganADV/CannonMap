@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260817-persistent-camera-current-1" />
+  <link rel="stylesheet" href="app.css?v=20260818-session-recovery-1" />
 </head>
 <body>
   <header class="topbar">
@@ -18,7 +18,7 @@
       <span class="brand-mark">CM</span>
       <div>
         <h1>CannonMap</h1>
-          <p>America 250 Planner · <span id="buildLabel">Beta 0.7.10</span></p>
+          <p>America 250 Planner · <span id="buildLabel">Beta 0.7.11</span></p>
       </div>
     </div>
     <div class="top-actions">
@@ -272,7 +272,6 @@
           <div id="rallyObjectiveActions" class="rally-objective-actions"><button id="rallyNextButton" type="button">SELECT OBJECTIVE</button><button id="rallyCompleteButton" type="button" title="Manual completion fallback">COMPLETE</button></div>
           <div class="rally-objective-sections">
             <section id="rallyRiderNotesSection" hidden><h3>Rider Notes</h3><p id="rallyRiderNotes"></p></section>
-            <section id="rallyRouteIntelligenceSection" hidden><p id="rallyRouteIntelligence"></p></section>
             <section id="rallyObjectiveIntelSection" hidden><h3>Trail Intel</h3><p id="rallyObjectiveIntel"></p></section>
             <section id="rallyWarningsSection" hidden><ul id="rallyWarnings"></ul></section>
           </div>
@@ -280,6 +279,14 @@
         <section id="rallyDeferredPrompt" class="rally-deferred-prompt" hidden>
           <strong id="rallyDeferredMessage">Deferred checkpoints remain.</strong>
           <div><button id="rallyResumeDeferredButton" type="button">Resume Deferred</button><button id="rallyFinishDayButton" type="button">Finish Day</button></div>
+        </section>
+        <section id="rallySessionChoice" class="rally-session-choice" hidden aria-live="polite" role="dialog" aria-modal="true" aria-labelledby="rallySessionChoiceTitle">
+          <strong id="rallySessionChoiceTitle">Existing rally session</strong>
+          <p id="rallySessionChoiceSummary">Choose whether to resume this run or start a clean run.</p>
+          <div>
+            <button id="rallyResumeSessionButton" type="button">RESUME EXISTING</button>
+            <button id="rallyStartNewSessionButton" type="button">START NEW</button>
+          </div>
         </section>
         <section id="rallyDayPreflight" class="rally-day-preflight" hidden aria-live="polite" role="dialog" aria-modal="true" aria-labelledby="rallyDayPreflightTitle">
           <header>
@@ -314,6 +321,7 @@
             <small id="rallyCameraError" class="rally-camera-error" hidden></small>
           </div>
           <div id="rallyCameraDebugInputs" hidden><input id="rallyCameraFrontInput" type="file" accept="image/*" capture="user" /><input id="rallyCameraRearInput" type="file" accept="image/*" capture="environment" /><input id="rallyCameraInput" type="file" accept="image/*" /></div>
+          <button id="rallyCameraContinueRoute" type="button">CONTINUE ROUTE</button>
           <button id="rallyCameraFailObjective" type="button">Mark Objective Failed</button>
         </section>
         <section id="rallyDayComplete" class="rally-day-complete" hidden>
@@ -323,6 +331,7 @@
           <small id="rallyDayBackupStatus" class="rally-backup-status">Not backed up</small>
           <button id="rallyBackupToday" type="button">BACK UP DAY</button>
           <button id="rallyStartNextDay" type="button" hidden>Start Next Day</button>
+          <button id="rallyStartNewRun" type="button" hidden>START NEW RUN</button>
         </section>
         <section id="rallyBackupSheet" class="rally-backup-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="rallyBackupSheetTitle">
           <div class="rally-backup-sheet-panel">
@@ -347,6 +356,10 @@
             <span id="rallyHotelEta">Hotel ETA —</span>
             <span id="rallyFeedAge">Feed never updated</span>
           </div>
+          <section id="rallyPendingEvidence" class="rally-pending-evidence" hidden>
+            <h3>Pending Evidence</h3>
+            <div id="rallyPendingEvidenceList"></div>
+          </section>
           <div class="rally-more-actions">
             <h3>Documentation</h3>
             <button id="rallyJourneyPhotoButton" type="button">Journey Photo</button>
@@ -410,7 +423,7 @@
       <div class="map-status">
         <span id="cursorCoordinates">—</span>
         <span id="gpsStatus">GPS off</span>
-        <span id="appVersion">v0.7.10 · 2026.08.17.persistent-camera-current-1</span>
+        <span id="appVersion">v0.7.11 · 2026.08.18.session-recovery-1</span>
       </div>
       <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open planner" aria-expanded="false">Planner</button>
       <button id="intelButton" class="intel-toggle" aria-label="Open live intelligence" aria-expanded="false">Intel</button>
@@ -507,6 +520,6 @@
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260817-persistent-camera-current-1"></script>
+  <script type="module" src="app.js?v=20260818-session-recovery-1"></script>
 </body>
 </html>

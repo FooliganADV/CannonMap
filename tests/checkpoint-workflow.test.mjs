@@ -233,6 +233,18 @@ test('camera failure dispositions preserve GPS arrival without collecting or sco
   }
 });
 
+test('photo-missing arrival releases navigation to the next objective without awarding points',()=>{
+  const rows=[checkpoint('CP 1.1',1,'next',{photoRequired:true}),checkpoint('CP 1.2',2,'planned',{photoRequired:true})],arrived=rows[0];
+  workflow.recordCheckpointArrivalEvidence(arrived,{timestamp:'2026-08-18T12:00:00.000Z',latitude:38.1,longitude:-105.2,gpsAccuracyFeet:14,source:'gps-radius-dwell'});
+  workflow.recordDetectedArrival(arrived,'2026-08-18T12:00:00.000Z');
+  const next=workflow.advanceRouteAfterDetectedArrival(rows,arrived);
+  assert.equal(arrived.status,workflow.CHECKPOINT_STATE.PHOTO_REQUIRED);
+  assert.equal(next,rows[1]);
+  assert.equal(rows[1].status,workflow.CHECKPOINT_STATE.ACTIVE);
+  assert.equal(workflow.currentCheckpoint({features:rows},{dayFilter:'1'}),rows[1]);
+  assert.equal(workflow.rallyScore({features:rows}),0);
+});
+
 test('camera failure policy interrupts only at 10 mph or below',()=>{
   assert.equal(workflow.captureFailureDisposition(10),'manual_fallback_required');
   assert.equal(workflow.captureFailureDisposition(10.01),'camera_unavailable_high_speed');

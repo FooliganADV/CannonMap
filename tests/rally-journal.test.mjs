@@ -43,6 +43,15 @@ test('supports built-in, plugin, and unknown event types without changing persis
   assert.equal(unknown.eventType,'newer_producer_event');
 });
 
+test('persists an immutable rally session identity when the producer supplies one',()=>{
+  const event=createJournalEvent(input({sessionId:'run-2026-08-18-01'}),{createId:()=>ids[0]});
+  assert.equal(event.sessionId,'run-2026-08-18-01');
+  assert.equal(Object.isFrozen(event),true);
+  assert.equal(Object.hasOwn(createJournalEvent(input(),{createId:()=>ids[1]}),'sessionId'),false,'legacy and administrative events remain compatible');
+  assert.equal(createJournalEvent(input({metadata:{day:1,sessionId:'run-from-metadata'}}),{createId:()=>ids[2]}).sessionId,'run-from-metadata','older producers are normalized without losing their session identity');
+  assert.throws(()=>createJournalEvent(input({sessionId:'run-a',references:{sessionId:'run-b'}}),{createId:()=>ids[2]}),/consistent/,'conflicting session identities are rejected');
+});
+
 test('builds one ordered project journal and rejects cross-project events',()=>{
   const later=createJournalEvent(input({timestamp:'2026-07-30T18:00:00Z'}),{createId:()=>ids[1]});
   const earlier=createJournalEvent(input({timestamp:'2026-07-30T17:00:00Z'}),{createId:()=>ids[0]});

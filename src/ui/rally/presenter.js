@@ -31,6 +31,20 @@ function renderDayPreflight({getElement,model}){
   const degraded=getElement('rallyDayPreflightDegraded');if(degraded){degraded.hidden=Boolean(preflight.ready);degraded.disabled=Boolean(preflight.checking);}
 }
 
+function renderSessionChoice({getElement,model}){
+  const choice=model.sessionChoice||{},sheet=getElement('rallySessionChoice'),visible=Boolean(choice.show);if(sheet)sheet.hidden=!visible;
+  const session=choice.session||{},summary=getElement('rallySessionChoiceSummary');
+  if(summary)summary.textContent=session.sessionId?`Day ${session.dayNumber} · Run ${session.runNumber} · ${session.calendarDate}. Resume its exact state, or preserve it and start clean.`:'Start a clean rally-day session.';
+  const resume=getElement('rallyResumeSessionButton');if(resume){resume.hidden=!choice.canResume;resume.disabled=!choice.canResume;}
+  const start=getElement('rallyStartNewSessionButton');if(start)start.disabled=!choice.canStartNew;
+}
+
+function renderPendingEvidence({getElement,model,escapeHtml}){
+  const entries=model.pendingEvidence||[],section=getElement('rallyPendingEvidence'),list=getElement('rallyPendingEvidenceList');if(section)section.hidden=!entries.length;
+  if(list)list.innerHTML=entries.map(item=>`<article data-pending-checkpoint-id="${escapeHtml(item.checkpointId)}"><div><strong>${escapeHtml(item.checkpointName||item.checkpointId)}</strong><small>ARRIVAL CONFIRMED · PHOTO MISSING${item.photoState?` · ${escapeHtml(String(item.photoState).replaceAll('_',' '))}`:''}</small></div><div><button type="button" data-evidence-action="${item.recoveryAction==='RESUME PAIR'?'resume':'retry'}">${escapeHtml(item.recoveryAction||'RETRY EVIDENCE')}</button><button type="button" data-evidence-action="continue">CONTINUE</button><button type="button" data-evidence-action="defer">DEFER</button><button type="button" data-evidence-action="fail">FAIL</button></div></article>`).join('');
+  const more=getElement('rallyMoreButton');if(more)more.textContent=entries.length?`MORE · ${entries.length}`:'MORE';
+}
+
 function warningActions(item,{escapeHtml,cameraCapability,cameraPermission}){
   if(String(item?.id||'')!=='camera')return `<div><button type="button" data-warning-action="dismiss">Dismiss</button><button type="button" data-warning-action="10">10m</button><button type="button" data-warning-action="30">30m</button><button type="button" data-warning-action="checkpoint">Next CP</button></div>`;
   const checking=cameraCapability==='checking',denied=cameraPermission==='denied';
@@ -45,7 +59,9 @@ function warningActions(item,{escapeHtml,cameraCapability,cameraPermission}){
 export function renderRally({getElement,model,escapeHtml}){
   if(!getElement('rallyMode'))return;
   const set=(id,value)=>{const el=getElement(id);if(el)el.textContent=value;};
+  renderSessionChoice({getElement,model});
   renderDayPreflight({getElement,model});
+  renderPendingEvidence({getElement,model,escapeHtml});
   const kind=checkpointKind(model.next);
   const camera=model.cameraReadiness||{},cameraCapability=String(camera.capability||'uninitialized'),cameraPermission=String(camera.permission||'unknown');
   const cameraSetup=getElement('rallyCameraSetup'),showCameraSetup=Boolean(model.showCameraSetup);
@@ -74,11 +90,9 @@ export function renderRally({getElement,model,escapeHtml}){
   set('rallyNextDistance',model.distance===null?'':`${model.distance.toFixed(1)} mi`);
   const arrivalPhotoMissing=model.next?.arrivalState==='confirmed'&&model.next?.arrivalTrustworthy&&model.next?.photoRequired&&model.next?.photoEvidenceState!=='complete';
   set('rallyObjectiveStatus',arrivalPhotoMissing?'ARRIVAL CONFIRMED · PHOTO MISSING':model.next?`${text(model.next.type||'checkpoint')} · ${Number(model.next.points)||0} points${model.next.extreme?' · EXTREME':''} · ${text(model.next.status||'upcoming')}`:'');
-  const notes=text(model.next?.notes),intelligence=text(model.routeIntelligence),objectiveIntel=text(model.objectiveIntel);
+  const notes=text(model.next?.notes),objectiveIntel=text(model.objectiveIntel);
   set('rallyRiderNotes',notes);
-  set('rallyRouteIntelligence',intelligence);
   const notesSection=getElement('rallyRiderNotesSection');if(notesSection)notesSection.hidden=!notes;
-  const intelligenceSection=getElement('rallyRouteIntelligenceSection');if(intelligenceSection)intelligenceSection.hidden=!intelligence;
   set('rallyObjectiveIntel',objectiveIntel);
   const objectiveIntelSection=getElement('rallyObjectiveIntelSection');if(objectiveIntelSection)objectiveIntelSection.hidden=!objectiveIntel;
   const warnings=(model.warnings||[]).filter(item=>item?.message),warningList=getElement('rallyWarnings');
@@ -91,7 +105,7 @@ export function renderRally({getElement,model,escapeHtml}){
     for(const name of ['is-extreme','is-fuel','is-hotel','is-checkpoint','is-none'])card.classList.toggle(name,false);
     card.classList.toggle(`is-${kind}`,true);
   }
-  if(card)card.hidden=Boolean(model.showDeferredPrompt||model.dayComplete||showCameraSetup||model.showDayPreflight);
+  if(card)card.hidden=Boolean(model.showDeferredPrompt||model.dayComplete||showCameraSetup||model.showDayPreflight||model.sessionChoice?.show);
   const fab=getElement('rallyRecenterFab');
   if(fab){
     const active=Boolean(model.gpsActive)||(model.gpsStatus&&!/off/i.test(model.gpsStatus));
@@ -116,6 +130,7 @@ export function renderRally({getElement,model,escapeHtml}){
   set('rallyDaySummary','');const daySummary=getElement('rallyDaySummary');if(daySummary)daySummary.hidden=true;
   set('rallyDayCollected',model.daySummary?.totalCollected||0);set('rallyDayDeferred',model.daySummary?.totalDeferred||0);set('rallyDayScore',model.daySummary?.score||0);set('rallyTotalScore',model.score||0);set('rallyDayBackupStatus',model.backupStatus||'Not backed up');set('rallyBackupSheetStatus',model.backupStatus||'Not backed up');
   const startNext=getElement('rallyStartNextDay');if(startNext){startNext.hidden=!model.dayComplete||!model.nextDay||model.reviewMode;startNext.textContent=model.nextDay?`Start Day ${model.nextDay}`:'Start Next Day';}
+  const startNewRun=getElement('rallyStartNewRun');if(startNewRun){startNewRun.hidden=!model.dayComplete||model.reviewMode;startNewRun.textContent=`START NEW DAY ${model.day||''} RUN`;}
   const goHotel=getElement('goHotelButton');
   if(goHotel){
     goHotel.disabled=!model.hasHotel&&!model.hotelBailoutActive;

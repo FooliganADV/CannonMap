@@ -71,7 +71,7 @@ export function createRallyAnalyticsService({clock,createId,featureFlags,persist
     async startSession({rallyEventId='local',riderId='local-rider',startedAt=clock.iso(),extensions={}}={}){
       if(!enabled())return {status:'disabled'};
       return enqueue(async()=>{
-        if(session?.status==='active')return {status:'active',sessionId:session.sessionId,resumed:true};
+        if(session?.status==='active')return {status:'active',sessionId:session.sessionId,executionSessionId:session.extensions?.executionSessionId||null,resumed:true};
         const existing=await persistence.findActiveSession(String(rallyEventId));
         if(existing){
           session=existing;sessionAccumulator=clone(existing.accumulator);
@@ -79,7 +79,7 @@ export function createRallyAnalyticsService({clock,createId,featureFlags,persist
           dailyAccumulator=(await persistence.getDaily(existing.sessionId,currentDayKey))?.accumulator||createAnalyticsAccumulator({
             sessionId:existing.sessionId,rallyEventId:existing.rallyEventId,startedAt:existing.updatedAt,dayKey:currentDayKey
           });
-          return {status:'active',sessionId:session.sessionId,resumed:true};
+          return {status:'active',sessionId:session.sessionId,executionSessionId:session.extensions?.executionSessionId||null,resumed:true};
         }
         const sessionId=createId(),timestamp=new Date(startedAt).toISOString();
         currentDayKey=dayKeyFor(timestamp,{timeZone});
@@ -97,7 +97,7 @@ export function createRallyAnalyticsService({clock,createId,featureFlags,persist
         const derived=records(sessionAccumulator,dailyAccumulator,{sessionRecord:nextSession,dayKey:currentDayKey});
         await persistence.appendEventAndStats({event,...derived});
         session=nextSession;
-        return {status:'active',sessionId};
+        return {status:'active',sessionId,executionSessionId:nextSession.extensions?.executionSessionId||null};
       });
     },
     async stopSession({endedAt=clock.iso(),reason='rally-stopped'}={}){

@@ -163,7 +163,7 @@ test('mobile Rally Mode controls do not overlap and meet 48px targets',async({pa
   for(let i=0;i<boxes.length;i++)for(let j=i+1;j<boxes.length;j++){const a=boxes[i],b=boxes[j],overlap=a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;expect(overlap,`${a.id} overlaps ${b.id}`).toBeFalsy();}
   const card=page.locator('#rallyPrimaryCard, .rally-primary-card').first();
   await expect(card.locator('#rallyRiderNotesSection')).toBeHidden();
-  await expect(card.locator('#rallyRouteIntelligenceSection')).toBeHidden();
+  await expect(card.locator('#rallyRouteIntelligenceSection')).toHaveCount(0);
   await expect(card.locator('#rallyWarningsSection')).toContainText('GPS REQUIRED');
   const cardBox=await card.evaluate(element=>{const r=element.getBoundingClientRect();return {top:r.top,bottom:r.bottom};});
   expect(cardBox.top).toBeGreaterThanOrEqual(0);expect(cardBox.bottom).toBeLessThan(viewport.height-72);

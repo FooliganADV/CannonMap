@@ -1,4 +1,5 @@
 const unavailable=value=>value===null||value===undefined||value===''?'Unavailable':String(value);
+const optionalText=value=>value===null||value===undefined||value===''?null:String(value);
 const fixed=(value,digits=5)=>Number.isFinite(Number(value))?Number(value).toFixed(digits):'Unavailable';
 const localParts=timestamp=>{
   const date=new Date(timestamp);if(Number.isNaN(date.valueOf()))return {date:'Unavailable',time:'Unavailable'};
@@ -10,6 +11,8 @@ export function buildPhotoEvidenceMetadata(context={}){
   const source=context.originalSourceProvenance&&typeof context.originalSourceProvenance==='object'?structuredClone(context.originalSourceProvenance):null;
   return Object.freeze({
     eventName:unavailable(context.eventName),objectiveType:unavailable(context.objectiveType),rallyName:unavailable(context.rallyName),dayNumber:unavailable(context.dayNumber),
+    sessionId:optionalText(context.sessionId),sessionRunNumber:Number.isInteger(Number(context.sessionRunNumber))?Number(context.sessionRunNumber):null,
+    sessionCalendarDate:optionalText(context.sessionCalendarDate),sessionStartTimestamp:optionalText(context.sessionStartedAt||context.sessionStartTimestamp),
     checkpointName:unavailable(context.checkpointName),checkpointNumber:unavailable(context.checkpointNumber),points:unavailable(context.points),
     captureDate:local.date,captureTime:local.time,latitude:fixed(context.latitude),longitude:fixed(context.longitude),
     elevation:context.elevation===null||context.elevation===undefined?'Unavailable':`${Math.round(Number(context.elevation))} ft`,

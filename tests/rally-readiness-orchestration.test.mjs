@@ -233,18 +233,19 @@ test('automatic camera failure handling stops at every asynchronous scope bounda
   guardBetween('await cameraReadiness?.noteCaptureFailure?.',"const failure=cameraFailureDetails",'camera-readiness failure reporting must not cross Rally scopes');
   guardBetween("await appendFailureJournalBestEffort('camera_failure'","if(disposition==='camera_unavailable_high_speed')",'camera-failure Journal completion must be scope-checked');
   guardBetween('await preserveIncompletePhotoEvidence(checkpoint',"if(pendingPhotoCheckpointId===checkpoint.id)",'high-speed evidence preservation must be scope-checked');
-  guardBetween('workflow=await restartUnsafeCapturePair','transitionPhotoEvidenceSafely(checkpoint','pair restart must not resume in a replacement scope');
-  guardBetween('await saveProject(false)','await beginManualFallback(checkpoint','manual fallback must not open in a replacement scope');
+  guardBetween('workflow=await restartUnsafeCapturePair','await preserveIncompletePhotoEvidence(checkpoint','pair restart must not resume in a replacement scope');
+  assert.match(failure,/await preserveIncompletePhotoEvidence\(checkpoint[\s\S]*?rallyScopeMatches\(scopeToken\)[\s\S]*?void beginManualFallback\(checkpoint/,'manual fallback must not open in a replacement scope');
 });
 
 test('every direct project and day replacement suspends then resets the arrival runtime',()=>{
   assertScopeTransition(functionSource('openProjectFile'),/state\.project\s*=/,'portable project open');
   assertScopeTransition(functionSource('restoreSnapshot'),/state\.project\s*=/,'snapshot restore');
   assertScopeTransition(functionSource('createActiveExecutionCopy'),/state\.project\s*=/,'execution-copy creation');
-  assertScopeTransition(functionSource('newProject'),/state\.project\s*=/,'legacy new project');
+  assert.match(functionSource('newProject'),/return createIndependentProject\(\)/,
+    'legacy new project action must delegate to the isolated Project lifecycle');
   assertScopeTransition(functionSource('switchProject'),/state\.project\s*=/,'standard project switch');
   assertScopeTransition(functionSource('createIndependentProject'),/state\.project\s*=/,'independent project creation');
-  assertScopeTransition(functionSource('startNextRallyDay'),/checkpoints\.startRallyDay\(/,'next-day start');
+  assert.match(functionSource('startNextRallyDay'),/await startNewRallySession\(nextDay/,'next-day start must delegate to the session lifecycle that suspends and isolates the prior scope');
 
   const dayStart=app.indexOf("$('dayFilter')?.addEventListener('change'"),dayEnd=app.indexOf("$('featureForm')?.addEventListener('submit'",dayStart),dayHandler=app.slice(dayStart,dayEnd);
   assertScopeTransition(dayHandler,/state\.settings\.dayFilter\s*=/,'day filter change');

@@ -165,6 +165,7 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
      Parent pointer-events:none + fixed/absolute children is a known WebKit quirk.
      Force auto + isolation + compositing layer so touchstart/click reach controls. */
   .rally-primary-card,
+  .rally-session-choice,
   .rally-day-preflight,
   .rally-deferred-prompt,
   .rally-camera-setup,
@@ -335,11 +336,12 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
     pointer-events:auto;
   }
 
-  .rally-deferred-prompt,.rally-day-preflight,.rally-camera-setup,.rally-camera-workflow,.rally-day-complete{
+  .rally-deferred-prompt,.rally-session-choice,.rally-day-preflight,.rally-camera-setup,.rally-camera-workflow,.rally-day-complete{
     position:absolute;left:10px;right:10px;top:calc(max(6px,env(safe-area-inset-top)) + 36px);z-index:1080;
     padding:14px;border:2px solid #f59e0b;border-radius:14px;background:rgba(15,23,42,.97);box-shadow:0 12px 32px #000c;pointer-events:auto;
   }
   .rally-deferred-prompt strong,.rally-camera-setup strong,.rally-camera-workflow strong{display:block;font-size:1.05rem}
+  .rally-session-choice{z-index:1110;left:max(10px,env(safe-area-inset-left));right:max(10px,env(safe-area-inset-right));border-color:#f59e0b;text-align:left}.rally-session-choice>strong{display:block;font-size:1.05rem}.rally-session-choice p{margin:8px 0;color:#e2e8f0;font-size:.78rem;line-height:1.35}.rally-session-choice>div{display:grid;grid-template-columns:1fr 1fr;gap:8px}.rally-session-choice button{min-height:56px;border:2px solid #f59e0b;border-radius:11px;background:#78350f;color:#fff;font-weight:900}.rally-session-choice #rallyResumeSessionButton{border-color:#38bdf8;background:#075985}
   .rally-deferred-prompt>div{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
   .rally-deferred-prompt button{min-height:52px;display:grid;place-items:center;border:1px solid #64748b;border-radius:10px;background:#1f2937;color:#fff;font-weight:900}
   .rally-day-preflight{z-index:1100;left:max(10px,env(safe-area-inset-left));right:max(10px,env(safe-area-inset-right));top:calc(max(6px,env(safe-area-inset-top)) + 36px);max-height:calc(100dvh - max(96px,calc(84px + env(safe-area-inset-bottom))));overflow:auto;border-color:#38bdf8;padding:12px;text-align:left}
@@ -371,6 +373,7 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
   .rally-camera-facing button{min-height:48px;margin:0;border:2px solid #64748b;border-radius:10px;background:#1f2937;color:#fff;font-weight:900}
   .rally-camera-facing button.is-active{border-color:#38bdf8;background:#075985;box-shadow:0 0 0 2px rgba(56,189,248,.2)}
   #rallyCameraFailObjective{border-color:#64748b;background:#1f2937;color:#cbd5e1;font-weight:700}
+  #rallyCameraContinueRoute{border-color:#38bdf8;background:#075985;color:#fff}
   .rally-camera-error{color:#fecaca!important}
   .rally-day-complete{top:calc(max(8px,env(safe-area-inset-top)) + 42px);left:max(10px,env(safe-area-inset-left));right:max(10px,env(safe-area-inset-right));max-height:calc(100dvh - max(8px,env(safe-area-inset-top)) - max(82px,calc(70px + env(safe-area-inset-bottom))));overflow:auto;border-color:#22c55e;text-align:center;font-size:1.2rem;font-weight:900;background:rgba(5,46,22,.97)}
   .rally-day-complete strong,.rally-day-complete small{display:block}.rally-day-complete small{margin-top:7px;color:#bbf7d0;font-size:.75rem}
@@ -384,6 +387,9 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
   .map-area:has(.rally-day-preflight:not([hidden])) .rally-primary-card,
   .map-area:has(.rally-day-preflight:not([hidden])) .rally-recenter-fab,
   .map-area:has(.rally-day-preflight:not([hidden])) .rally-actions{visibility:hidden;pointer-events:none}
+  .map-area:has(.rally-session-choice:not([hidden])) .rally-primary-card,
+  .map-area:has(.rally-session-choice:not([hidden])) .rally-recenter-fab,
+  .map-area:has(.rally-session-choice:not([hidden])) .rally-actions{visibility:hidden;pointer-events:none}
   .map-area:has(.leaflet-control-layers-expanded) .leaflet-top.leaflet-right{z-index:1400}
   .map-area:has(.leaflet-control-layers-expanded) .rally-head,
   .map-area:has(.leaflet-control-layers-expanded) .rally-primary-card,
@@ -419,6 +425,7 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
     pointer-events:auto;
   }
   .rally-mode.more-open .rally-more-sheet{display:block}
+  .rally-pending-evidence{margin:10px 0;padding:9px;border:1px solid #f59e0b;border-radius:11px;background:#451a03}.rally-pending-evidence h3{margin:0 0 7px;color:#fde68a;font-size:.78rem}.rally-pending-evidence>div{display:grid;gap:7px}.rally-pending-evidence article{padding:8px;border:1px solid #92400e;border-radius:9px;background:#1c1917}.rally-pending-evidence article strong,.rally-pending-evidence article small{display:block}.rally-pending-evidence article small{margin-top:3px;color:#fde68a;font-size:.65rem}.rally-pending-evidence article>div:last-child{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:7px}.rally-pending-evidence button{min-height:48px;border:1px solid #64748b;border-radius:8px;background:#1f2937;color:#fff;font-size:.68rem;font-weight:900}.rally-pending-evidence button[data-evidence-action="retry"],.rally-pending-evidence button[data-evidence-action="resume"]{border-color:#38bdf8;background:#075985}.rally-pending-evidence button[data-evidence-action="fail"]{border-color:#fb7185;color:#fecdd3}
   .rally-journal-sheet{display:none;max-height:62dvh}
   .rally-mode.journal-open .rally-journal-sheet{display:block}
   .rally-journal-sheet header{display:flex;align-items:center;justify-content:space-between;gap:10px}.rally-journal-sheet header small{display:block;color:#94a3b8}.rally-journal-sheet header button{width:48px;height:48px;border:0;border-radius:9px;background:#1f2937;color:#fff;font-size:1.4rem}
@@ -513,7 +520,7 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
 .rally-actions[hidden]{display:none!important}
 .rally-actions.is-day-complete{background:transparent}
 .rally-mode.backup-open .rally-objective-actions{visibility:hidden!important;pointer-events:none!important}
-.rally-completion-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:10px 0;font-size:.72rem}.rally-completion-metrics span{display:grid;gap:2px;padding:7px;border:1px solid #166534;border-radius:8px;background:#052e16}.rally-completion-metrics b{font-size:1rem}.rally-backup-status{margin:5px 0 8px!important;color:#fde68a!important}.rally-day-complete>#rallyBackupToday,.rally-day-complete>#rallyStartNextDay{display:block;width:100%;margin-top:7px}
+.rally-completion-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:10px 0;font-size:.72rem}.rally-completion-metrics span{display:grid;gap:2px;padding:7px;border:1px solid #166534;border-radius:8px;background:#052e16}.rally-completion-metrics b{font-size:1rem}.rally-backup-status{margin:5px 0 8px!important;color:#fde68a!important}.rally-day-complete>#rallyBackupToday,.rally-day-complete>#rallyStartNextDay,.rally-day-complete>#rallyStartNewRun{display:block;width:100%;margin-top:7px}
 .rally-backup-sheet{position:fixed;inset:0;z-index:3000;display:flex;align-items:flex-end;justify-content:center;padding:max(8px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));background:rgba(2,6,23,.76);pointer-events:auto}.rally-backup-sheet[hidden]{display:none!important}.rally-backup-sheet-panel{width:min(100%,560px);max-height:calc(100dvh - max(16px,env(safe-area-inset-top)) - max(16px,env(safe-area-inset-bottom)));overflow:auto;overscroll-behavior:contain;background:#0f172a;border:2px solid #38bdf8;border-radius:16px;padding:12px;box-shadow:0 20px 60px #000}.rally-backup-sheet header{display:flex;align-items:center;justify-content:space-between;gap:10px;position:sticky;top:-12px;z-index:1;padding:8px 0;background:#0f172a}.rally-backup-sheet header strong,.rally-backup-sheet header small{display:block}.rally-backup-sheet header small{margin-top:3px;color:#fde68a}.rally-backup-sheet button{min-height:52px;border:1px solid #64748b;border-radius:10px;background:#1e293b;color:#fff;font-weight:900}.rally-backup-sheet header button{min-width:72px}.rally-backup-sheet-actions{display:grid;gap:8px}.rally-backup-sheet-actions #rallyBackupDayPackage{border-color:#38bdf8;background:#075985}.rally-mode.backup-open .rally-actions,.rally-mode.backup-open .rally-recenter-fab,.rally-mode.backup-open .rally-more-sheet{visibility:hidden!important;pointer-events:none!important}
 @media (orientation:landscape) and (max-height:500px){.rally-day-complete{top:max(6px,env(safe-area-inset-top));left:calc(max(8px,env(safe-area-inset-left)) + 126px);right:auto;width:min(390px,48vw);max-height:calc(100dvh - max(12px,env(safe-area-inset-bottom)))}.rally-backup-sheet{align-items:stretch}.rally-backup-sheet-panel{width:min(720px,88vw);max-height:100%;margin:auto}.rally-backup-sheet-actions{grid-template-columns:repeat(2,minmax(0,1fr))}.rally-backup-sheet-actions #rallyBackupCloseSecondary{grid-column:1/-1}}
 
@@ -524,7 +531,7 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
     inset:0!important;
     z-index:3200!important;
     display:grid;
-    grid-template-rows:minmax(0,1fr) auto;
+    grid-template-rows:minmax(0,1fr) auto auto;
     padding:max(8px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));
     border:0!important;
     border-radius:0!important;
@@ -541,6 +548,7 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
   .rally-camera-tap-surface p{margin:0;font-size:1rem}
   .rally-camera-tap-surface small{margin:.4rem 0 0}
   #rallyCameraFailObjective{position:relative;z-index:2;width:100%;min-height:52px;margin:8px 0 0!important;border-color:#64748b!important;background:#111827!important;color:#cbd5e1!important;font-weight:700!important}
+  #rallyCameraContinueRoute{position:relative;z-index:2;width:100%;min-height:52px;margin:8px 0 0!important;border:2px solid #38bdf8!important;background:#075985!important;color:#fff!important;font-weight:900!important}
   .rally-mode:has(.rally-camera-workflow:not([hidden])) .rally-head,
   .rally-mode:has(.rally-camera-workflow:not([hidden])) .rally-primary-card,
   .rally-mode:has(.rally-camera-workflow:not([hidden])) .rally-actions,

@@ -149,6 +149,39 @@ export function createProjectLifecycleManager({
       throw error;
     }
   };
+  const reopenActive=async projectId=>{
+    const project=await projectById(projectId),scope=await openScope(project);
+    try{
+      await legacyCurrentRepository.save(project);
+      scope.lifecycle.activate();activeProject=project;activeScope=scope;
+      return activeProject;
+    }catch(error){try{await scope.lifecycle.close();}catch(_){ }throw error;}
+  };
+  const withExternalProjectMutationInternal=async(projectId,operation,{rollbackOnReopenFailure=null}={})=>{
+    await initializeInternal();
+    const id=String(projectId||'').trim();if(!id||typeof operation!=='function')throw new TypeError('Project identity and external mutation operation are required.');
+    const wasActive=activeProject?.projectId===id;
+    if(!wasActive)return operation();
+    await drainActive();
+    try{
+      const result=await operation();
+      try{await reopenActive(id);return result;}
+      catch(reopenError){
+        if(typeof rollbackOnReopenFailure==='function'){
+          let rollbackError=null;try{await rollbackOnReopenFailure(reopenError);}catch(error){rollbackError=error;}
+          if(!rollbackError){
+            try{await reopenActive(id);reopenError.code||='PROJECT_REOPEN_FAILED_AFTER_EXTERNAL_MUTATION';reopenError.rolledBack=true;throw reopenError;}
+            catch(error){if(error===reopenError)throw error;rollbackError=error;}
+          }
+          const failure=new Error(`External Project mutation committed, but active-scope recovery failed: ${rollbackError?.message||reopenError.message}`,{cause:reopenError});failure.code='EXTERNAL_MUTATION_RECOVERY_FAILED';failure.rollbackError=rollbackError;throw failure;
+        }
+        throw reopenError;
+      }
+    }catch(error){
+      if(!activeProject)try{await reopenActive(id);}catch(_){initialized=false;activeProject=null;activeScope=null;}
+      throw error;
+    }
+  };
 
   return Object.freeze({
     initialize:()=>enqueue(initializeInternal),
@@ -168,6 +201,8 @@ export function createProjectLifecycleManager({
     listProjects:()=>projectRepository.list(),
     openProject:projectId=>enqueue(()=>switchInternal(projectId)),
     setActiveProject:projectId=>enqueue(()=>switchInternal(projectId)),
+    /** Drains an active Project before a direct durable mutation, then reloads its Project and repository caches. */
+    withExternalProjectMutation:(projectId,operation,options)=>enqueue(()=>withExternalProjectMutationInternal(projectId,operation,options)),
     closeProject:()=>enqueue(async()=>{
       await initializeInternal();
       const previous=await drainActive();

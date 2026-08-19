@@ -120,10 +120,21 @@ export function dayCheckpoints(project,settings){
 export function currentCheckpoint(project,settings){
   const rows=dayCheckpoints(project,settings);
   return rows.find(feature=>feature.status===CHECKPOINT_STATE.ACTIVE)||
-    rows.find(feature=>feature.status===CHECKPOINT_STATE.PHOTO_REQUIRED)||
     rows.find(feature=>feature.type!=='hotel'&&feature.status===CHECKPOINT_STATE.UPCOMING)||
     (!rows.some(feature=>feature.type!=='hotel'&&feature.status===CHECKPOINT_STATE.DEFERRED)?
       rows.find(feature=>feature.type==='hotel'&&feature.status===CHECKPOINT_STATE.UPCOMING):null)||null;
+}
+
+/**
+ * A confirmed arrival may leave evidence pending, but it never owns route
+ * navigation. Keep an existing out-of-order target, otherwise activate the
+ * next planned objective while the arrived checkpoint remains recoverable.
+ */
+export function advanceRouteAfterDetectedArrival(rows,checkpoint){
+  if(!checkpoint)return null;
+  const active=(rows||[]).find(feature=>feature.id!==checkpoint.id&&feature.status===CHECKPOINT_STATE.ACTIVE);
+  if(active)return active;
+  return activateNextPlanned(rows||[]);
 }
 
 export function currentHotel(project,settings){

@@ -9,13 +9,13 @@ class FakePermissionStatus{
   change(state){this.state=state;this.listener?.();}
 }
 
-function fakeStream(role,{live=true}={}){
+function fakeStream(role,{live=true,muted=false,enabled=true,active=true}={}){
   const track={
-    kind:'video',readyState:live?'live':'ended',stopped:false,
+    kind:'video',readyState:live?'live':'ended',muted,enabled,stopped:false,
     stop(){this.stopped=true;},
     getSettings(){return {facingMode:role==='rear'?'environment':'user',width:1920,height:1080};}
   };
-  return {track,getVideoTracks:()=>[track],getTracks:()=>[track]};
+  return {active,track,getVideoTracks:()=>[track],getTracks:()=>[track]};
 }
 
 test('permission query normalizes state and reports later changes',async()=>{
@@ -41,10 +41,12 @@ test('camera setup probes rear then front and stops each stream immediately',asy
       const facing=constraints.video.facingMode.ideal,role=facing==='environment'?'rear':'front';
       requested.push(role);const stream=fakeStream(role);streams.push(stream);return stream;
     }},
-    imageCaptureFactory:track=>({track,takePhoto(){}})
+    imageCaptureFactory:track=>({track,takePhoto:async()=>new Blob(['probe'],{type:'image/jpeg'})})
   });
   const result=await adapter.probeCameras();
   assert.equal(result.ready,true);
+  assert.equal(result.verifiedNativeStill,true);
+  assert.deepEqual(result.verifiedRoles,['rear','front']);
   assert.deepEqual(requested,['rear','front']);
   assert.deepEqual(result.probes.map(item=>item.cameraRole),['rear','front']);
   assert.ok(streams.every(stream=>stream.track.stopped));
@@ -77,7 +79,7 @@ test('ImageCapture must expose takePhoto and streams are cleaned up on failure',
 
 test('permission, unavailable, and interrupted browser errors receive stable classifications',()=>{
   for(const [name,code,state] of [
-    ['NotAllowedError','CAMERA_PERMISSION_DENIED','unavailable'],
+    ['NotAllowedError','CAMERA_PERMISSION_UNVERIFIED','setup-required'],
     ['NotFoundError','CAMERA_UNAVAILABLE','unavailable'],
     ['NotReadableError','CAMERA_STREAM_INTERRUPTED','interrupted'],
     ['OverconstrainedError','CAMERA_CONSTRAINT_UNSUPPORTED','unavailable']
@@ -148,9 +150,33 @@ test('a stream resolving after readiness timeout is stopped immediately',async()
   assert.equal(lateStream.track.stopped,true);
 });
 
+test('a muted live probe track cannot produce false native-still readiness',async()=>{
+  const stream=fakeStream('rear',{muted:true});let photoCalls=0;
+  const adapter=createBrowserCameraReadinessAdapter({
+    permissions:null,mediaDevices:{async getUserMedia(){return stream;}},
+    imageCaptureFactory:()=>({takePhoto:async()=>{photoCalls++;return new Blob(['probe']);}})
+  });
+  await assert.rejects(adapter.probeCameras(),error=>error.code==='CAMERA_TRACK_MUTED');
+  assert.equal(photoCalls,0);assert.equal(stream.track.stopped,true);
+});
+
+test('a hung native still readiness probe is bounded and its stream is stopped',async()=>{
+  const stream=fakeStream('rear');
+  const adapter=createBrowserCameraReadinessAdapter({
+    permissions:null,probeTimeoutMs:5,
+    mediaDevices:{async getUserMedia(){return stream;}},
+    imageCaptureFactory:()=>({takePhoto(){return new Promise(()=>{});}})
+  });
+  const started=Date.now();
+  await assert.rejects(adapter.probeCameras(),error=>error.code==='CAMERA_NATIVE_STILL_PROBE_TIMEOUT');
+  assert.ok(Date.now()-started<250);
+  assert.equal(stream.track.stopped,true);
+  assert.equal(classifyCameraReadinessError(new BrowserCameraReadinessError('timeout',{code:'CAMERA_NATIVE_STILL_PROBE_TIMEOUT'})).capabilityState,'interrupted');
+});
+
 test('persistent session owns readiness probes and is disposed on revocation and adapter destroy',async()=>{
   const status=new FakePermissionStatus('granted'),reasons=[];let initialized=0,destroyed=0;
-  const cameraSession={initialize:async input=>{initialized++;assert.deepEqual(input,{scopeToken:'project-a:1'});return {ready:true,probes:[]};},state:()=>({retainedStreamCount:2}),teardown:reason=>reasons.push(reason),destroy:()=>{destroyed++;}};
+  const cameraSession={initialize:async input=>{initialized++;assert.deepEqual(input,{scopeToken:'project-a:1',timeoutMs:10000});return {ready:true,verifiedNativeStill:true,verifiedRoles:['rear','front'],probes:[]};},state:()=>({ready:true,retainedStreamCount:2}),teardown:reason=>reasons.push(reason),destroy:()=>{destroyed++;}};
   const adapter=createBrowserCameraReadinessAdapter({permissions:{async query(){return status;}},mediaDevices:{getUserMedia:async()=>{throw new Error('session owns acquisition');}},imageCaptureFactory:()=>({takePhoto(){}}),cameraSession,sessionScopeProvider:()=> 'project-a:1'});
   await adapter.queryPermission();await adapter.probeCameras();assert.equal(initialized,1);assert.equal(adapter.cameraSessionReady(),true);
   status.change('denied');assert.deepEqual(reasons,['camera-permission-denied']);adapter.destroy();assert.equal(destroyed,1);

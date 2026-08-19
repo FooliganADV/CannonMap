@@ -65,16 +65,22 @@ export function createJournalEvent(input,{createId,clock}={}){
   const attachments=object(input?.attachments,'attachments');
   if(containsEmbeddedMedia(attachments))throw new TypeError('attachments may contain references only, not embedded media.');
   const eventType=requiredString(input?.eventType,'eventType');
+  const metadata=object(input?.metadata,'metadata');
+  const references=object(input?.references,'references');
+  const sessionIds=[input?.sessionId,metadata.sessionId,references.sessionId].map(value=>String(value??'').trim()).filter(Boolean);
+  if(new Set(sessionIds).size>1)throw new TypeError('sessionId must be consistent across the event, metadata, and references.');
+  const sessionId=sessionIds[0]||'';
   return Object.freeze({
     eventId,
     projectId:requiredString(input?.projectId,'projectId'),
+    ...(sessionId?{sessionId}:{}),
     timestamp,
     eventType,
     source:requiredString(input?.source,'source'),
     title:String(input?.title??''),
     summary:String(input?.summary??''),
-    metadata:object(input?.metadata,'metadata'),
-    references:object(input?.references,'references'),
+    metadata,
+    references,
     attachments,
     createdAt,
     schemaVersion:Number(input?.schemaVersion||JOURNAL_EVENT_SCHEMA_VERSION)

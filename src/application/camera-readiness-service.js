@@ -44,12 +44,13 @@ export function createCameraReadinessService({
 }={}){
   if(!adapter||typeof adapter.queryPermission!=='function'||typeof adapter.probeCameras!=='function')throw new TypeError('A camera readiness adapter is required.');
   const support=adapter.capabilities||{};
-  let destroyed=false,inspectionPromise=null;
+  let destroyed=false,inspectionPromise=null,probePromise=null;
   let current=frozenState({
     permission:'unknown',capability:'uninitialized',automaticCaptureEligible:false,reasonCode:'not-inspected',
     permissionQuerySupported:Boolean(support.permissionQuerySupported),getUserMediaSupported:Boolean(support.getUserMediaSupported),
     imageCaptureSupported:Boolean(support.imageCaptureSupported),lastVerifiedAt:null,setupAttemptedThisSession:false,
-    priorSetupSucceeded:Boolean(priorSetupSucceeded)
+    priorSetupSucceeded:Boolean(priorSetupSucceeded),verifiedNativeStill:false,nativeStillCapability:support.imageCaptureSupported?'unverified':'unsupported',
+    verifiedCameraRoles:Object.freeze([]),currentSessionVerified:false
   });
 
   const emit=(eventType,details={})=>{
@@ -72,7 +73,9 @@ export function createCameraReadinessService({
     const permission=classification.permissionState||current.permission;
     let capability=normalize(classification.capabilityState,CAPABILITY_STATES,'interrupted');
     if(permission==='denied')capability='manual-only';
-    const state=publish({permission,capability,automaticCaptureEligible:false,reasonCode:publicReasonCode(classification.code),lastVerifiedAt:null});
+    const nativeStillCapability=classification.platformLimitation?'unsupported':String(classification.code||'').startsWith('CAMERA_PERMISSION')?'unverified':'failed';
+    const state=publish({permission,capability,automaticCaptureEligible:false,reasonCode:publicReasonCode(classification.code),lastVerifiedAt:null,
+      verifiedNativeStill:false,nativeStillCapability,verifiedCameraRoles:Object.freeze([]),currentSessionVerified:false});
     if(permission==='denied')rememberSetupSucceeded(false);
     emit(eventType,{permission:state.permission,capability:state.capability,reasonCode:state.reasonCode,classification});
     return current;
@@ -83,43 +86,64 @@ export function createCameraReadinessService({
     const normalized=normalize(permissionState,PERMISSION_STATES,'unknown');
     const capability=normalized==='denied'?'manual-only':normalized==='prompt'?'setup-required':'uninitialized';
     const reasonCode=normalized==='denied'?'permission-denied':'permission-changed-reverify';
-    publish({permission:normalized,capability,automaticCaptureEligible:false,reasonCode,lastVerifiedAt:null});
+    publish({permission:normalized,capability,automaticCaptureEligible:false,reasonCode,lastVerifiedAt:null,
+      verifiedNativeStill:false,nativeStillCapability:current.imageCaptureSupported?'unverified':'unsupported',verifiedCameraRoles:Object.freeze([]),currentSessionVerified:false});
     if(normalized==='denied')rememberSetupSucceeded(false);
     emit('camera_permission_change_revoked_readiness',{permission:normalized,capability,reasonCode});
+    if(normalized==='granted')queueMicrotask(()=>{if(!destroyed&&current.permission==='granted')void inspect({force:true});});
   })||(()=>{});
 
   const unsupportedState=()=>{
-    if(support.secureContext===false)return publish({capability:'manual-only',automaticCaptureEligible:false,reasonCode:'insecure-context'});
-    if(!current.getUserMediaSupported)return publish({capability:'manual-only',automaticCaptureEligible:false,reasonCode:'get-user-media-unavailable'});
-    if(!current.imageCaptureSupported)return publish({capability:'manual-only',automaticCaptureEligible:false,reasonCode:'image-capture-unsupported'});
+    if(support.secureContext===false)return publish({capability:'manual-only',automaticCaptureEligible:false,reasonCode:'insecure-context',verifiedNativeStill:false,nativeStillCapability:'unsupported',currentSessionVerified:false});
+    if(!current.getUserMediaSupported)return publish({capability:'manual-only',automaticCaptureEligible:false,reasonCode:'get-user-media-unavailable',verifiedNativeStill:false,nativeStillCapability:'unsupported',currentSessionVerified:false});
+    if(!current.imageCaptureSupported)return publish({capability:'manual-only',automaticCaptureEligible:false,reasonCode:'image-capture-unsupported',verifiedNativeStill:false,nativeStillCapability:'unsupported',currentSessionVerified:false});
     return null;
   };
 
   async function verifyWithProbe(reason){
-    publish({capability:'checking',automaticCaptureEligible:false,reasonCode:'camera-readiness-checking'});
-    emit('camera_readiness_probe_started',{reason});
-    try{
-      const result=await adapter.probeCameras();
-      const permission=await adapter.queryPermission();
-      if(permission?.querySupported===false)publish({permissionQuerySupported:false});
-      const permissionState=permission.state==='denied'?'denied':'granted';
-      if(permissionState==='denied')return failFromClassification({code:'CAMERA_PERMISSION_DENIED',permissionState:'denied',capabilityState:'manual-only'},{eventType:'camera_readiness_probe_failed'});
-      rememberSetupSucceeded(true);
-      const state=publish({permission:'granted',capability:'ready',automaticCaptureEligible:true,reasonCode:null,lastVerifiedAt:clock.iso()});
-      emit('camera_readiness_verified',{reason,permission:state.permission,probeCount:Number(result?.probes?.length)||0});
-      return state;
-    }catch(error){
-      return failFromClassification(adapter.classifyError?.(error)||{code:error?.code||'CAMERA_READINESS_FAILED',capabilityState:'interrupted'},{eventType:'camera_readiness_probe_failed'});
-    }
+    if(probePromise)return probePromise;
+    probePromise=(async()=>{
+      publish({capability:'checking',automaticCaptureEligible:false,reasonCode:'camera-readiness-checking',verifiedNativeStill:false,currentSessionVerified:false});
+      emit('camera_readiness_probe_started',{reason});
+      try{
+        const result=await adapter.probeCameras();
+        const roles=[...new Set((result?.verifiedRoles||result?.probes?.filter(item=>item?.nativeStillVerified===true).map(item=>item.cameraRole)||[]).map(String))];
+        const verifiedNativeStill=result?.verifiedNativeStill===true&&['rear','front'].every(role=>roles.includes(role));
+        if(!verifiedNativeStill)throw Object.assign(new Error('Camera streams opened, but native still capture was not verified for both cameras.'),{code:'NATIVE_STILL_VERIFICATION_INCOMPLETE'});
+        const permission=await adapter.queryPermission();
+        if(permission?.querySupported===false)publish({permissionQuerySupported:false});
+        const permissionState=permission.state==='denied'?'denied':'granted';
+        if(permissionState==='denied')return failFromClassification({code:'CAMERA_PERMISSION_DENIED',permissionState:'denied',capabilityState:'manual-only'},{eventType:'camera_readiness_probe_failed'});
+        rememberSetupSucceeded(true);
+        const state=publish({permission:'granted',capability:'ready',automaticCaptureEligible:true,reasonCode:null,lastVerifiedAt:clock.iso(),
+          verifiedNativeStill:true,nativeStillCapability:'verified',verifiedCameraRoles:Object.freeze(roles),currentSessionVerified:true});
+        emit('camera_readiness_verified',{reason,permission:state.permission,probeCount:Number(result?.probes?.length)||0,verifiedNativeStill:true,verifiedCameraRoles:roles});
+        return state;
+      }catch(error){
+        let classification=adapter.classifyError?.(error)||{code:error?.code||'CAMERA_READINESS_FAILED',capabilityState:'interrupted'};
+        // NotAllowedError is overloaded by browsers: it can mean a persisted
+        // denial, a missing gesture, or another policy restriction. Resolve it
+        // against the live Permissions API when available instead of caching a
+        // false denial or pretending the permission is still granted.
+        if(classification.code==='CAMERA_PERMISSION_UNVERIFIED'){
+          const permission=await adapter.queryPermission();
+          if(permission?.querySupported===false)publish({permissionQuerySupported:false});
+          if(permission?.state==='denied')classification={...classification,code:'CAMERA_PERMISSION_DENIED',permissionState:'denied',capabilityState:'manual-only',retryable:false};
+          else classification={...classification,permissionState:permission?.state==='prompt'?'prompt':'unknown',capabilityState:'setup-required'};
+        }
+        return failFromClassification(classification,{eventType:'camera_readiness_probe_failed'});
+      }
+    })().finally(()=>{probePromise=null;});
+    return probePromise;
   }
 
   async function inspect({force=false}={}){
     if(destroyed)return current;
     const sessionReady=adapter.cameraSessionReady?.()!==false;
-    if(current.automaticCaptureEligible&&current.capability==='ready'&&!force&&sessionReady)return current;
+    if(current.automaticCaptureEligible&&current.verifiedNativeStill&&current.currentSessionVerified&&current.capability==='ready'&&!force&&sessionReady)return current;
     if(inspectionPromise)return inspectionPromise;
     inspectionPromise=(async()=>{
-      const wasEligible=current.automaticCaptureEligible&&current.capability==='ready';
+      const wasEligible=current.automaticCaptureEligible&&current.verifiedNativeStill&&current.currentSessionVerified&&current.capability==='ready';
       const unsupported=unsupportedState();
       if(unsupported){emit('camera_readiness_platform_manual_only',{reasonCode:unsupported.reasonCode});return unsupported;}
       publish({capability:'checking',automaticCaptureEligible:false,reasonCode:'camera-permission-checking'});
@@ -135,10 +159,11 @@ export function createCameraReadinessService({
         }
         return verifyWithProbe('permission-granted');
       }
-      if(permissionState==='unknown'&&current.priorSetupSucceeded)return verifyWithProbe('prior-setup-succeeded');
       // Browser permission prompts must be initiated by a deliberate rider gesture.
-      // Initial inspection therefore never calls getUserMedia in this state.
-      return publish({capability:'setup-required',automaticCaptureEligible:false,reasonCode:permissionState==='prompt'?'permission-setup-required':'permission-unknown-setup-required',lastVerifiedAt:null});
+      // A persisted success hint is informational only; it is never proof that
+      // this page/session can still acquire a camera or produce native stills.
+      return publish({capability:'setup-required',automaticCaptureEligible:false,reasonCode:permissionState==='prompt'?'permission-setup-required':'permission-unknown-setup-required',lastVerifiedAt:null,
+        verifiedNativeStill:false,nativeStillCapability:'unverified',verifiedCameraRoles:Object.freeze([]),currentSessionVerified:false});
     })().finally(()=>{inspectionPromise=null;});
     return inspectionPromise;
   }
@@ -151,7 +176,9 @@ export function createCameraReadinessService({
     if(unsupported)return unsupported;
     // Do not place an awaited Permissions API query between the rider's tap and
     // getUserMedia: some browsers consume transient user activation narrowly.
-    if(current.permission==='denied')return failFromClassification({code:'CAMERA_PERMISSION_DENIED',permissionState:'denied',capabilityState:'manual-only'},{eventType:'camera_setup_denied'});
+    // Cached denial may be stale after the rider changes Safari/Chrome site
+    // settings. Each deliberate tap is allowed exactly one bounded recheck;
+    // there is no automatic retry loop.
     return verifyWithProbe('user-gesture-setup');
   }
 
@@ -159,35 +186,36 @@ export function createCameraReadinessService({
     inspect,
     setupFromUserGesture,
     state:()=>current,
-    assertAutomaticCaptureEligible(){if(!current.automaticCaptureEligible)throw new AutomaticCameraNotReadyError(current);return current;},
+    assertAutomaticCaptureEligible(){if(!current.automaticCaptureEligible||!current.verifiedNativeStill||!current.currentSessionVerified)throw new AutomaticCameraNotReadyError(current);return current;},
     async prepareAutomaticCapture(){
-      if(current.automaticCaptureEligible&&current.capability==='ready'&&adapter.cameraSessionReady?.()!==false)return current;
-      if(current.automaticCaptureEligible&&current.capability==='ready'&&adapter.cameraSessionReady?.()===false)publish({capability:'interrupted',automaticCaptureEligible:false,reasonCode:'camera-session-not-active',lastVerifiedAt:null});
+      if(current.automaticCaptureEligible&&current.verifiedNativeStill&&current.currentSessionVerified&&current.capability==='ready'&&adapter.cameraSessionReady?.()!==false)return current;
+      if(current.automaticCaptureEligible&&current.capability==='ready'&&adapter.cameraSessionReady?.()===false)publish({capability:'interrupted',automaticCaptureEligible:false,reasonCode:'camera-session-not-active',lastVerifiedAt:null,
+        verifiedNativeStill:false,nativeStillCapability:'unverified',verifiedCameraRoles:Object.freeze([]),currentSessionVerified:false});
       // A transient stream interruption is the only automatic recovery case.
       // Permission prompt/unknown/denied and platform manual-only states must
       // never discover camera access by initiating getUserMedia at a checkpoint.
       if(current.capability==='interrupted'&&current.permission==='granted')await inspect({force:true});
-      if(!current.automaticCaptureEligible)throw new AutomaticCameraNotReadyError(current);
+      if(!current.automaticCaptureEligible||!current.verifiedNativeStill||!current.currentSessionVerified)throw new AutomaticCameraNotReadyError(current);
       return current;
     },
     noteCaptureSuccess(){
       if(destroyed)return current;
       rememberSetupSucceeded(true);
-      const state=publish({permission:'granted',capability:'ready',automaticCaptureEligible:true,reasonCode:null,lastVerifiedAt:clock.iso()});
+      const state=publish({permission:'granted',capability:'ready',automaticCaptureEligible:true,reasonCode:null,lastVerifiedAt:clock.iso(),
+        verifiedNativeStill:true,nativeStillCapability:'verified',verifiedCameraRoles:Object.freeze(['rear','front']),currentSessionVerified:true});
       emit('camera_automatic_capture_verified',{lastVerifiedAt:state.lastVerifiedAt});return state;
     },
     async noteCaptureFailure(error,{requestedCamera=null}={}){
       if(destroyed)return current;
       const classification=adapter.classifyError?.(error)||{code:error?.code||'CAMERA_CAPTURE_FAILED',capabilityState:'interrupted'};
       emit('camera_capture_failure_classified',{requestedCamera,classification});
-      const failed=failFromClassification(classification,{eventType:'camera_capture_failure_revoked_readiness'});
-      if(failed.permission!=='denied'){
-        const permission=await adapter.queryPermission();
-        if(permission?.querySupported===false)publish({permissionQuerySupported:false});
-        if(permission?.state==='denied')return failFromClassification({code:'CAMERA_PERMISSION_DENIED',permissionState:'denied',capabilityState:'manual-only'},{eventType:'camera_capture_permission_revoked'});
-        if(permission?.state==='prompt')return publish({permission:'prompt',capability:'setup-required',automaticCaptureEligible:false,reasonCode:'permission-setup-required',lastVerifiedAt:null});
-        if(permission?.state!=='granted')return publish({permission:'unknown',capability:'interrupted',automaticCaptureEligible:false,reasonCode:'permission-unknown-reverify',lastVerifiedAt:null});
-      }
+      failFromClassification(classification,{eventType:'camera_capture_failure_revoked_readiness'});
+      const permission=await adapter.queryPermission();
+      if(permission?.querySupported===false)publish({permissionQuerySupported:false});
+      if(permission?.state==='denied')return failFromClassification({code:'CAMERA_PERMISSION_DENIED',permissionState:'denied',capabilityState:'manual-only'},{eventType:'camera_capture_permission_revoked'});
+      if(permission?.state==='prompt')return publish({permission:'prompt',capability:'setup-required',automaticCaptureEligible:false,reasonCode:'permission-setup-required',lastVerifiedAt:null});
+      if(permission?.state!=='granted')return publish({permission:'unknown',capability:'interrupted',automaticCaptureEligible:false,reasonCode:'permission-unknown-reverify',lastVerifiedAt:null});
+      publish({permission:'granted'});
       return current;
     },
     async destroy(){

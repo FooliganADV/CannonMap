@@ -7,6 +7,8 @@ const text=value=>String(value??'').trim();
 const recordsOf=value=>Array.isArray(value)?value:Array.isArray(value?.events)?value.events:[];
 const checkpointIdOf=event=>text(event?.references?.checkpointId||event?.metadata?.checkpointId||event?.metadata?.objectiveId);
 const pairIdOf=value=>text(value?.pairId||value?.references?.pairId||value?.metadata?.pairId||value?.abandonedPairId||value?.metadata?.abandonedPairId);
+const sessionIdOf=value=>text(value?.sessionId||value?.metadata?.sessionId||value?.references?.sessionId);
+const matchesSession=(value,sessionId,includeLegacyUnscoped)=>!sessionId||sessionIdOf(value)===text(sessionId)||(includeLegacyUnscoped&&!sessionIdOf(value));
 const mediaRole=record=>text(record?.role||record?.metadata?.role).toLowerCase();
 const cameraRole=record=>{
   const role=text(record?.cameraRole||record?.metadata?.cameraRole||record?.logicalSide||record?.metadata?.logicalSide).toLowerCase();
@@ -36,9 +38,9 @@ const mediaReference=record=>Object.freeze({
   pairedMediaId:record.pairedMediaId||null,sourceProvenance:record.sourceProvenance?structuredClone(record.sourceProvenance):null
 });
 
-function matchingEvents(journalEvents,checkpointId){
+function matchingEvents(journalEvents,checkpointId,{sessionId=null,includeLegacyUnscoped=false}={}){
   return recordsOf(journalEvents)
-    .filter(event=>checkpointIdOf(event)===checkpointId)
+    .filter(event=>checkpointIdOf(event)===checkpointId&&matchesSession(event,sessionId,includeLegacyUnscoped))
     .slice()
     .sort((left,right)=>occurredAt(left)-occurredAt(right)||text(left.eventId).localeCompare(text(right.eventId)));
 }
@@ -106,16 +108,16 @@ function projectedPhotoState(checkpoint,{hasMedia,completeSideCount,retryCount,c
 export function createCheckpointEvidenceReconciliationService({mediaRepository,photoEvidence=null}={}){
   if(!mediaRepository||typeof mediaRepository.listCheckpointPhotos!=='function')throw new TypeError('A mission media repository is required.');
 
-  async function inspect({projectId,checkpoint,journalEvents=[]}={}){
+  async function inspect({projectId,checkpoint,journalEvents=[],sessionId=null,includeLegacyUnscoped=false}={}){
     const checkpointId=text(checkpoint?.id);if(!projectId||!checkpointId)throw new TypeError('projectId and checkpoint are required.');
-    const events=matchingEvents(journalEvents,checkpointId),arrivalEvents=events.filter(event=>event.eventType==='checkpoint_arrival'&&trustworthyArrival(event)),manualWorkflowEvents=events.filter(event=>event.eventType==='checkpoint_photo_capture_started');
+    const events=matchingEvents(journalEvents,checkpointId,{sessionId,includeLegacyUnscoped}),arrivalEvents=events.filter(event=>event.eventType==='checkpoint_arrival'&&trustworthyArrival(event)),manualWorkflowEvents=events.filter(event=>event.eventType==='checkpoint_photo_capture_started');
     const arrivalConfirmed=trustworthyArrival(checkpoint)||arrivalEvents.length>0;
     const completionEvent=events.find(event=>COMPLETION_EVENTS.has(event.eventType)&&event.metadata?.objectiveCompletion!==false&&(
       checkpoint.photoRequired!==true||event.metadata?.photoEvidenceState==='complete'||event.metadata?.photoStatus==='recorded'
     ))||null;
     const storedPhotoState=text(checkpoint?.checkpointEvidence?.photo?.state||checkpoint?.photoEvidenceState||checkpoint?.photoStatus).toLowerCase(),evidenceGateComplete=checkpoint.photoRequired!==true||storedPhotoState==='complete'||storedPhotoState==='recorded'||checkpoint?.photoPair?.status==='complete';
     const alreadyCompleted=evidenceGateComplete&&(text(checkpoint?.status).toLowerCase()==='collected'||checkpoint?.checkpointEvidence?.completion?.state==='completed'||Boolean(checkpoint?.completedAt)||Boolean(completionEvent));
-    const records=uniqueByMediaId(await mediaRepository.listCheckpointPhotos(String(projectId),checkpointId));
+    const records=uniqueByMediaId((await mediaRepository.listCheckpointPhotos(String(projectId),checkpointId)).filter(record=>matchesSession(record,sessionId,includeLegacyUnscoped)));
     const groups=groupedMedia(records),pairId=selectPairId(checkpoint,events,groups),pairRecords=pairId?(groups.get(pairId)||[]):[];
     const analysis=analyzeSides(pairRecords,pairId),completeSides=['front','rear'].filter(role=>Boolean(analysis.sides[role])),missingSides=['front','rear'].filter(role=>!analysis.sides[role]);
     const retryOriginalIds=analysis.retry.map(record=>text(record.mediaId)).filter(Boolean),reattachOriginalIds=analysis.reattach.map(item=>text(item.original.mediaId)).filter(Boolean),completePair=completeSides.length===2&&reattachOriginalIds.length===0;
@@ -144,28 +146,28 @@ export function createCheckpointEvidenceReconciliationService({mediaRepository,p
     });
   }
 
-  async function recoverEvidence({projectId,checkpoint,journalEvents=[],inspection=null}={}){
-    let report=inspection||await inspect({projectId,checkpoint,journalEvents});
+  async function recoverEvidence({projectId,checkpoint,journalEvents=[],sessionId=null,includeLegacyUnscoped=false,inspection=null}={}){
+    let report=inspection||await inspect({projectId,checkpoint,journalEvents,sessionId,includeLegacyUnscoped});
     if(report.action!=='retry_evidence')return report;
     for(const originalMediaId of report.reattachOriginalIds||[]){
-      const original=await mediaRepository.getMedia?.(originalMediaId),records=await mediaRepository.listCheckpointPhotos(String(projectId),text(checkpoint?.id)),evidence=records.find(record=>mediaRole(record)==='evidence'&&(
+      const original=await mediaRepository.getMedia?.(originalMediaId),records=(await mediaRepository.listCheckpointPhotos(String(projectId),text(checkpoint?.id))).filter(record=>matchesSession(record,sessionId,includeLegacyUnscoped)),evidence=records.find(record=>mediaRole(record)==='evidence'&&(
         text(record.derivedFromMediaId)===text(originalMediaId)||text(record.pairedMediaId)===text(originalMediaId)||text(record.mediaGroupId)===text(original?.mediaGroupId)
       ));
       if(!original||!evidence||typeof mediaRepository.reattachRecoveredEvidencePair!=='function')continue;
       await mediaRepository.reattachRecoveredEvidencePair({originalMediaId,evidenceMediaId:evidence.mediaId,pairId:report.pairId,cameraRole:cameraRole(original),pairJournalEventId:report.pairJournalEventId});
     }
-    report=await inspect({projectId,checkpoint,journalEvents});
+    report=await inspect({projectId,checkpoint,journalEvents,sessionId,includeLegacyUnscoped});
     if(report.action!=='retry_evidence'||!report.retryOriginalIds.length)return report;
     if(!photoEvidence||typeof photoEvidence.retryEvidence!=='function')return report;
     for(const originalMediaId of report.retryOriginalIds){
       const record=await mediaRepository.getMedia?.(originalMediaId),role=cameraRole(record);
       await photoEvidence.retryEvidence(originalMediaId,{pairId:report.pairId,cameraRole:role,pairJournalEventId:report.pairJournalEventId});
     }
-    return inspect({projectId,checkpoint,journalEvents});
+    return inspect({projectId,checkpoint,journalEvents,sessionId,includeLegacyUnscoped});
   }
 
-  async function restoreWorkflow({projectId,checkpoint,journalEvents=[],cameraWorkflow,inspection=null,finalizeCompletePair=true,evidenceContext={},visibility='manual'}={}){
-    let report=inspection||await inspect({projectId,checkpoint,journalEvents});
+  async function restoreWorkflow({projectId,checkpoint,journalEvents=[],sessionId=null,includeLegacyUnscoped=false,cameraWorkflow,inspection=null,finalizeCompletePair=true,evidenceContext={},visibility='manual'}={}){
+    let report=inspection||await inspect({projectId,checkpoint,journalEvents,sessionId,includeLegacyUnscoped});
     if(!cameraWorkflow||!['resume_pair','finalize_pair'].includes(report.action))return Object.freeze({...report,workflowRestored:false});
     if(!report.arrivalEvent)return Object.freeze({...report,workflowRestored:false,workflowReason:'arrival-journal-event-missing'});
     const current=cameraWorkflow.getState?.()||{status:'idle',sides:{}},matchesExisting=report.pairId?

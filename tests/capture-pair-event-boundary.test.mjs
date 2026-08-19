@@ -13,6 +13,12 @@ test('Journey Photo uses the paired automatic media workflow',()=>{
   const body=functionBody('requestJourneyPhoto');assert.match(body,/captureAutomaticPair/);assert.match(body,/captureKind:'journey'/);assert.doesNotMatch(body,/triggerCameraCapture/);
 });
 
+test('Journey Photo manual fallback always exposes a durable cancel-and-return action',()=>{
+  const render=functionBody('renderCheckpointCameraState'),cancel=functionBody('continuePendingPhotoRoute');
+  assert.match(render,/CANCEL JOURNEY PHOTO/);assert.doesNotMatch(render,/rallyCameraContinueRoute'\)\.hidden=checkpoint\?\.type==='journey'/);
+  assert.match(cancel,/journey_photo_canceled/);assert.match(cancel,/checkpointCamera\?\.abandon\(\)/);assert.match(cancel,/resolveManualFallback\(\{status:'canceled'\}\)/);
+});
+
 test('day-complete arrival evaluation is terminal without repeated failure logging',()=>{
   const body=functionBody('evaluateCheckpointArrival');assert.match(body,/status==='complete'/);assert.doesNotMatch(body,/reason:.*day-complete/);
 });
@@ -45,5 +51,5 @@ test('unsafe Evidence cleanup starts a fresh pair before manual fallback',()=>{
 });
 
 test('out-of-order objective failure explicitly restores its prior active target',()=>{
-  const body=functionBody('failPendingPhotoObjective');assert.match(body,/priorTargetId=pendingMediaObjective\?\.priorTargetId/);assert.match(body,/preserveActiveTarget:Boolean\(priorTarget\)/);assert.match(body,/state\.selectedId=priorTarget\.id/);
+  const body=functionBody('failPendingPhotoObjective');assert.match(body,/pendingPhotoCheckpointId===checkpoint\.id\?pendingMediaObjective\?\.priorTargetId/);assert.match(body,/preserveActiveTarget:true/);assert.match(body,/state\.selectedId=priorTarget\.id/);
 });
