@@ -90,3 +90,11 @@ test('multiple nearby events receive distinct tappable display positions',()=>{
   const spread=spreadNearbyEvents(events);
   assert.equal(new Set(spread.map(event=>`${event.displayCenter.lat},${event.displayCenter.lon}`)).size,3);
 });
+
+test('a twelve-hour stationary trail is handled as one bounded-memory event',()=>{
+  const points=Array.from({length:43_200},(_,index)=>point(index/60,(index%7)-3));
+  const events=detectStationaryEvents(points,scope);
+  assert.equal(events.length,1);
+  assert.equal(events[0].status,'active');
+  assert.ok(events[0].durationMs>=43_199_000);
+});

@@ -11,7 +11,7 @@ export function createScreenWakeLockController({
   debugLog=null,
   onStateChange=null
 }={}){
-  let desired=false,sentinel=null,requestPromise=null,destroyed=false,generation=0,lastError=null;
+  let desired=false,sentinel=null,requestPromise=null,pendingRequestGeneration=null,destroyed=false,generation=0,lastError=null;
   const supported=Boolean(wakeLock&&typeof wakeLock.request==='function');
   const visible=()=>!documentRef||documentRef.visibilityState!=='hidden';
   const state=()=>frozenState({
@@ -49,12 +49,17 @@ export function createScreenWakeLockController({
     }
     if(!visible())return frozenState({acquired:false,reason:'hidden',state:state()});
     if(sentinel&&!sentinel.released)return frozenState({acquired:true,reason:'already-held',state:state()});
-    if(requestPromise)return requestPromise;
-    const requestGeneration=generation;
+    if(requestPromise){
+      if(pendingRequestGeneration===generation)return requestPromise;
+      const obsoleteRequest=requestPromise;
+      return obsoleteRequest.then(()=>acquire(reason));
+    }
+    const activeRequestGeneration=generation;
+    pendingRequestGeneration=activeRequestGeneration;
     requestPromise=(async()=>{
       try{
         const acquired=await wakeLock.request('screen');
-        if(destroyed||!desired||requestGeneration!==generation||!visible()){
+        if(destroyed||!desired||activeRequestGeneration!==generation||!visible()){
           try{await acquired?.release?.();}catch{}
           return frozenState({acquired:false,reason:'request-obsolete',state:state()});
         }
@@ -70,6 +75,7 @@ export function createScreenWakeLockController({
         return frozenState({acquired:false,reason:'request-failed',error:lastError,state:state()});
       }finally{
         requestPromise=null;
+        pendingRequestGeneration=null;
         try{onStateChange?.(state());}catch{}
       }
     })();
@@ -98,6 +104,7 @@ export function createScreenWakeLockController({
   return Object.freeze({
     async start(reason='rally-mode-active'){
       if(destroyed)return frozenState({acquired:false,reason:'destroyed',state:state()});
+      if(desired)return acquire(reason);
       desired=true;
       generation++;
       return acquire(reason);

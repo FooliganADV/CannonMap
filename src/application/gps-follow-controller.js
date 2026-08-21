@@ -14,7 +14,7 @@ export function createGpsFollowController({
   const zoomStep=Math.max(.1,finite(zoomSmoothing)??1),zoomInterval=Math.max(0,finite(minZoomIntervalMs)??1800);
   let mode='following',programmaticDepth=0,last=null,targetZoom=null,targetZoomReason=null,lastZoomChangeAt=null;
   const log=(type,details)=>debugLog?.record(type,details);
-  const performProgrammaticMapChange=(operation,{reason='application-map-change'}={})=>{
+  const performProgrammaticMapChange=(operation,{reason='application-map-change',recordCompletion=true}={})=>{
     if(typeof operation!=='function')throw new TypeError('A map change operation is required.');
     programmaticDepth++;
     let result;
@@ -22,7 +22,7 @@ export function createGpsFollowController({
     catch(error){programmaticDepth--;throw error;}
     if(result&&typeof result.then==='function')return Promise.resolve(result).finally(()=>{programmaticDepth--;});
     programmaticDepth--;
-    log('programmatic_map_change_completed',{reason});
+    if(recordCompletion)log('programmatic_map_change_completed',{reason});
     return result;
   };
   const normalizeZoom=value=>{
@@ -47,10 +47,9 @@ export function createGpsFollowController({
     const size=map.getSize(),currentZoom=normalizeZoom(map.getZoom())??map.getZoom(),zoomChoice=chooseZoom(currentZoom,options),zoom=zoomChoice.zoom,
       point=map.project([sample.lat,sample.lon],zoom),requested=typeof followScreenY==='function'?followScreenY():followScreenY,target=Math.min(.75,Math.max(.3,finite(requested)??.62));
     const centerPoint={x:point.x,y:point.y+(size.y/2-size.y*target)};
-    log('map_recenter_requested',{lat:sample.lat,lon:sample.lon,mode,zoom,targetZoom,zoomReason:targetZoomReason});
-    performProgrammaticMapChange(()=>map.setView(map.unproject(centerPoint,zoom),zoom,{animate:false}),{reason:'gps-follow'});
+    performProgrammaticMapChange(()=>map.setView(map.unproject(centerPoint,zoom),zoom,{animate:false}),{reason:'gps-follow',recordCompletion:false});
     if(zoomChoice.changed){lastZoomChangeAt=zoomChoice.timestamp;log('map_follow_zoom_changed',{zoom,targetZoom,reason:targetZoomReason});}
-    log('map_recenter_completed',{lat:sample.lat,lon:sample.lon,mode,zoom});return true;
+    return true;
   };
   const suspendForMapGesture=reason=>{if(programmaticDepth>0||mode==='suspended')return;mode='suspended';log('follow_mode_changed',{enabled:false,reason});};
   const onMoveStart=()=>suspendForMapGesture('manual-map-drag');

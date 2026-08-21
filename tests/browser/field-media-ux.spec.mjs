@@ -56,6 +56,7 @@ async function open(page,input=payload){
     day.value='1';
     day.dispatchEvent(new Event('change',{bubbles:true}));
   });
+  await expect(page.locator('#rallyDay')).toHaveText('Day 1');
   // This suite validates field-media behavior rather than permission setup.
   // Make the pre-ride degraded choice explicit so readiness cannot conceal
   // unrelated Rally controls in a fresh browser context.
@@ -165,7 +166,8 @@ test('slow-speed fallback expiration preserves confirmed arrival and withholds c
   expect(state).toMatchObject({pending:false,pendingCheckpointId:null});
   expect(result.mediaCount).toBe(0);
   expect(events.some(event=>event.eventType==='camera_failure'&&event.references.checkpointId==='cp-42'&&event.metadata.captureStatus==='manual_fallback_expired'&&Number(event.metadata.speedAtFailureMph)<=10)).toBeTruthy();
-  expectArrivalConfirmedPhotoMissing(result,{failureDisposition:'manual_fallback_expired'});
+  expect(events.some(event=>event.eventType==='checkpoint_pending_evidence_action'&&event.references.checkpointId==='cp-42'&&event.metadata.pendingEvidenceAction==='CONTINUE'&&event.metadata.reasonCode==='manual-fallback-expired')).toBeTruthy();
+  expectArrivalConfirmedPhotoMissing(result);
   await expect(page.locator('#rallyScore')).toHaveText('0');
 });
 
@@ -225,7 +227,7 @@ test('background position gap does not invent a checkpoint crossing without an a
 test('closely spaced out-of-order checkpoint hits are serialized and preserve the prior target',async({page},testInfo)=>{
   test.skip(testInfo.project.name!=='Android portrait');
   const clustered=structuredClone(payload);clustered.project.features.splice(2,0,{id:'cp-43',name:'1.43 Second Detected Target',type:'checkpoint',day:1,sequence:3,status:'upcoming',photoRequirement:'required',visible:true,geometry:{kind:'point',coordinates:[{lat:30.0002,lon:-90}]}});
-  await page.goto('/?e2e=field-media-queue');await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');await page.locator('#projectInput').setInputFiles({name:'clustered.cmap',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(clustered))});await page.evaluate(()=>{const day=document.getElementById('dayFilter');day.value='1';day.dispatchEvent(new Event('change',{bubbles:true}));});await proceedPastReadiness(page);
+  await page.goto('/?e2e=field-media-queue');await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');await page.locator('#projectInput').setInputFiles({name:'clustered.cmap',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(clustered))});await expect(page.locator('#status')).toContainText('Opened clustered.cmap');await page.evaluate(()=>{const day=document.getElementById('dayFilter');day.value='1';day.dispatchEvent(new Event('change',{bubbles:true}));});await expect(page.locator('#rallyDay')).toHaveText('Day 1');await proceedPastReadiness(page);
   await installAutomaticCapture(page);
   const detections=[{checkpointId:'cp-42',distanceFeet:4,accuracyFeet:6,radiusFeet:100},{checkpointId:'cp-43',distanceFeet:7,accuracyFeet:6,radiusFeet:100}];
   await page.evaluate(d=>window.CannonMapTest.observeCheckpointDetectionsForTest({observedAt:1000,speedMph:18,priorTargetId:'cp-37',gpsEvidence:{latitude:30,longitude:-90,accuracyFeet:6},detections:d}),detections);

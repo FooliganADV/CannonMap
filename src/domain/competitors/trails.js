@@ -4,10 +4,62 @@ export function distanceMeters(a,b){const dLat=rad(b.lat-a.lat),dLon=rad(b.lon-a
 export const pointTime=point=>{const raw=point?.time??point?.timestamp??point?.recordedAt;const value=typeof raw==='number'?raw:Date.parse(raw||'');return Number.isFinite(value)?value:0;};
 export function stableCompetitorId(entry,index=0){const props=entry?.properties||{},rider=entry?.competitor||entry?.rider||{};const value=entry?.competitorId??entry?.id_competitor??entry?.riderId??entry?.id??props.competitorId??props.riderId??props.id??rider.id??rider.competitorId??entry?.number??rider.number;return value===undefined||value===null||String(value).trim()===''?`unidentified-${index+1}`:String(value);}
 export const breadcrumbKey=point=>String(point?.observationId||point?.id||`${Number(point.lat).toFixed(6)}|${Number(point.lon).toFixed(6)}|${pointTime(point)}|${point?.sessionId||''}`);
+const NORMALIZED_TRAIL=Symbol('cannonmap.normalizedTrail');
+const TRAIL_KEYS=Symbol('cannonmap.trailKeys');
+const markNormalized=(points,keys=null)=>{try{if(!points[NORMALIZED_TRAIL])Object.defineProperty(points,NORMALIZED_TRAIL,{value:true,configurable:true});if(keys||!points[TRAIL_KEYS])Object.defineProperty(points,TRAIL_KEYS,{value:keys??new Set(points.map(breadcrumbKey)),configurable:true});}catch{}return points;};
+const comparePoints=(a,b)=>pointTime(a)-pointTime(b)||breadcrumbKey(a).localeCompare(breadcrumbKey(b));
 
 export function normalizeTrailPoints(points,{now=Date.now(),historyMs=8*24*60*60*1000,maxPoints=12000}={}){
+  if(points?.[NORMALIZED_TRAIL])return trimTrail(points,{now,historyMs,maxPoints,trimBatchPoints:Math.min(256,Math.max(1,maxPoints-1))});
   const unique=new Map();for(const point of points||[]){const lat=Number(point?.lat),lon=Number(point?.lon),time=pointTime(point);if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180||!time||time>now+60000||now-time>historyMs)continue;const normalized={...point,lat,lon,time:new Date(time).toISOString()};unique.set(breadcrumbKey(normalized),normalized);}
-  return [...unique.values()].sort((a,b)=>pointTime(a)-pointTime(b)||breadcrumbKey(a).localeCompare(breadcrumbKey(b))).slice(-maxPoints);
+  return markNormalized([...unique.values()].sort(comparePoints).slice(-maxPoints));
+}
+
+/**
+ * Keeps recent tactical breadcrumbs dense while bounding Leaflet geometry and
+ * fingerprint work. Durable competitor history remains untouched.
+ */
+export function compactTrailForRender(points,{now=Date.now(),historyMs=8*60*60*1000,maxRenderPoints=720,recentMs=5*60*1000,maxRecentPoints=360}={}){
+  const ordered=normalizeTrailPoints(points,{now,historyMs}),limit=Math.max(2,Number(maxRenderPoints)||720);
+  if(ordered.length<=limit)return ordered;
+  let recentStart=ordered.findIndex(point=>pointTime(point)>=now-Math.max(60_000,Number(recentMs)||5*60*1000));
+  if(recentStart<0)recentStart=ordered.length;
+  const sample=(rows,count)=>{
+    if(rows.length<=count)return rows;
+    if(count<=1)return [rows.at(-1)];
+    const selected=[];for(let index=0;index<count;index++)selected.push(rows[Math.round(index*(rows.length-1)/(count-1))]);return selected;
+  };
+  const recent=sample(ordered.slice(recentStart),Math.min(limit-1,Math.max(1,Number(maxRecentPoints)||360))),olderBudget=Math.max(1,limit-recent.length),older=sample(ordered.slice(0,recentStart),olderBudget);
+  const merged=[...older,...recent],seen=new Set();return merged.filter(point=>{const key=breadcrumbKey(point);if(seen.has(key))return false;seen.add(key);return true;}).slice(-limit);
+}
+
+function trimTrail(points,{now,historyMs,maxPoints,trimBatchPoints}){
+  if(!points.length)return markNormalized(points);
+  const cutoff=now-historyMs;let firstValid=0;
+  while(firstValid<points.length&&pointTime(points[firstValid])<cutoff)firstValid++;
+  if(firstValid){
+    const remaining=points.length-firstValid,minimumRetained=Math.min(remaining,Math.max(1,maxPoints-trimBatchPoints)),extra=Math.min(trimBatchPoints,Math.max(0,remaining-minimumRetained));
+    points=points.slice(firstValid+extra);
+  }
+  if(points.length>maxPoints){const target=Math.max(1,maxPoints-Math.min(trimBatchPoints,maxPoints-1));points=points.slice(-target);}
+  return markNormalized(points);
+}
+
+/**
+ * Incremental bounded merge. The common one-second append/duplicate path is
+ * O(new points); a linear merge is reserved for genuine out-of-order history.
+ */
+export function mergeTrailPoints(existing,incoming,{now=Date.now(),historyMs=8*24*60*60*1000,maxPoints=12000,trimBatchPoints=256}={}){
+  const limit=Math.max(1,Number(maxPoints)||12000),batch=Math.max(1,Math.min(limit-1||1,Number(trimBatchPoints)||256)),prior=existing?.[NORMALIZED_TRAIL]?existing:normalizeTrailPoints(existing,{now,historyMs,maxPoints:limit}),next=normalizeTrailPoints(incoming,{now,historyMs,maxPoints:limit});
+  if(!next.length)return {points:trimTrail(prior,{now,historyMs,maxPoints:limit,trimBatchPoints:batch}),added:0};
+  if(!prior.length)return {points:trimTrail(next,{now,historyMs,maxPoints:limit,trimBatchPoints:batch}),added:next.length};
+  const lastTime=pointTime(prior.at(-1)),appendable=next.every(point=>pointTime(point)>=lastTime);
+  if(appendable){let added=0;const known=prior[TRAIL_KEYS]??new Set(prior.map(breadcrumbKey));for(const point of next){const key=breadcrumbKey(point);if(known.has(key))continue;prior.push(point);known.add(key);added++;}
+    if(next.length>1)prior.sort(comparePoints);return {points:trimTrail(prior,{now,historyMs,maxPoints:limit,trimBatchPoints:batch}),added};
+  }
+  const priorKeys=new Set(prior.map(breadcrumbKey)),merged=[],seen=new Set();let left=0,right=0;
+  while(left<prior.length||right<next.length){const takeLeft=right>=next.length||(left<prior.length&&comparePoints(prior[left],next[right])<=0),point=takeLeft?prior[left++]:next[right++],key=breadcrumbKey(point);if(seen.has(key))continue;seen.add(key);merged.push(point);}
+  const points=trimTrail(merged,{now,historyMs,maxPoints:limit,trimBatchPoints:batch}),added=points.reduce((sum,point)=>sum+(priorKeys.has(breadcrumbKey(point))?0:1),0);return {points,added};
 }
 
 export function segmentTrail(points,{gapMs=20*60*1000,maxSpeedMph=130,maxJumpMeters=25000,now=Date.now(),historyMs=8*24*60*60*1000,maxPoints=12000}={}){
@@ -25,13 +77,13 @@ export function trailStatus(points,{now=Date.now(),freshMs=15*60*1000,offlineMs=
 }
 
 export function mergeCompetitorSnapshots(existing,incoming,options={}){
-  const byId=new Map((existing||[]).map(item=>[String(item.id),{...item,points:[...(item.points||[])]}]));let added=0;
-  for(const next of incoming||[]){const id=String(next.id),current=byId.get(id)||{id,name:next.name||`Rider ${id}`,points:[]};const before=new Set(current.points.map(breadcrumbKey));current.points=normalizeTrailPoints([...current.points,...(next.points||[])],options);added+=current.points.filter(point=>!before.has(breadcrumbKey(point))).length;for(const key of ['name','number','signature'])if(next[key]!==undefined&&next[key]!==null)current[key]=next[key];byId.set(id,current);}
+  const byId=new Map((existing||[]).map(item=>[String(item.id),{...item,points:item.points||[]}]));let added=0;
+  for(const next of incoming||[]){const id=String(next.id),current=byId.get(id)||{id,name:next.name||`Rider ${id}`,points:[]},result=mergeTrailPoints(current.points,next.points||[],options);current.points=result.points;added+=result.added;for(const key of ['name','number','signature'])if(next[key]!==undefined&&next[key]!==null)current[key]=next[key];byId.set(id,current);}
   return {competitors:[...byId.values()],added};
 }
 
 export function buildTacticalClusters(competitors,{radiusMeters=120,now=Date.now()}={}){
   const candidates=(competitors||[]).map(rider=>({rider,last:normalizeTrailPoints(rider.points,{now}).at(-1),status:trailStatus(rider.points,{now})})).filter(item=>item.last&&item.status.status!=='offline'),clusters=[];
-  for(const candidate of candidates){let cluster=clusters.find(item=>distanceMeters(item.center,candidate.last)<=radiusMeters);if(!cluster){cluster={id:'',center:{lat:candidate.last.lat,lon:candidate.last.lon},riders:[],latestUpdate:null};clusters.push(cluster);}cluster.riders.push({id:String(candidate.rider.id),name:candidate.rider.name,status:candidate.status.status,motion:candidate.status.motion,lastUpdate:candidate.last.time});cluster.center={lat:cluster.riders.reduce((sum,r)=>sum+candidates.find(c=>String(c.rider.id)===r.id).last.lat,0)/cluster.riders.length,lon:cluster.riders.reduce((sum,r)=>sum+candidates.find(c=>String(c.rider.id)===r.id).last.lon,0)/cluster.riders.length};cluster.latestUpdate=cluster.riders.map(r=>r.lastUpdate).sort().at(-1);}
-  return clusters.filter(item=>item.riders.length>1).map(item=>({...item,id:`cluster:${item.riders.map(r=>r.id).sort().join(',')}`,riders:item.riders.sort((a,b)=>a.id.localeCompare(b.id))}));
+  for(const candidate of candidates){let cluster=clusters.find(item=>distanceMeters(item.center,candidate.last)<=radiusMeters);if(!cluster){cluster={id:'',center:{lat:candidate.last.lat,lon:candidate.last.lon},sumLat:0,sumLon:0,riders:[],latestUpdate:null};clusters.push(cluster);}cluster.riders.push({id:String(candidate.rider.id),name:candidate.rider.name,status:candidate.status.status,motion:candidate.status.motion,lastUpdate:candidate.last.time});cluster.sumLat+=candidate.last.lat;cluster.sumLon+=candidate.last.lon;cluster.center={lat:cluster.sumLat/cluster.riders.length,lon:cluster.sumLon/cluster.riders.length};if(!cluster.latestUpdate||candidate.last.time>cluster.latestUpdate)cluster.latestUpdate=candidate.last.time;}
+  return clusters.filter(item=>item.riders.length>1).map(({sumLat,sumLon,...item})=>({...item,id:`cluster:${item.riders.map(r=>r.id).sort().join(',')}`,riders:item.riders.sort((a,b)=>a.id.localeCompare(b.id))}));
 }

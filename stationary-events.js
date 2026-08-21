@@ -45,8 +45,8 @@ function detectStationaryEvents(points,scope,previousEvents=[]){
   };
   for(const point of valid){
     if(!cluster.length){cluster=[point];outside=[];continue;}
-    const candidate=[...cluster,point],insideAnchor=distanceMeters(cluster[0],point)<=STATIONARY_RADIUS_METERS;
-    if(insideAnchor){cluster=candidate;outside=[];continue;}
+    const insideAnchor=distanceMeters(cluster[0],point)<=STATIONARY_RADIUS_METERS;
+    if(insideAnchor){cluster.push(point);outside=[];continue;}
     const current=clusterStats(cluster),exitDistance=distanceMeters(current.center,point);
     outside.push(point);
     if(exitDistance<=EXIT_RADIUS_METERS||outside.length<EXIT_CONFIRMATION_POINTS)continue;

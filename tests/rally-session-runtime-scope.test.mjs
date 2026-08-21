@@ -24,9 +24,11 @@ function functionSource(name){
 }
 
 test('GPS fixes cannot activate objectives or record execution telemetry before the session and preflight are accepted',()=>{
-  const gps=functionSource('startGps'),telemetry=functionSource('recordRallyTelemetry'),evaluation=functionSource('evaluateCheckpointArrival');
-  assert.doesNotMatch(gps,/\n\s*ensureNextCheckpoint\(\);/,'the raw GPS callback delegates objective activation to the gated arrival path');
-  assert.match(gps,/evaluateCheckpointArrival\(accuracyFeet\)/);
+  const gps=functionSource('startGps'),watchdog=functionSource('initializeGpsWatchdog'),position=functionSource('handleGpsPosition'),telemetry=functionSource('recordRallyTelemetry'),evaluation=functionSource('evaluateCheckpointArrival');
+  assert.match(gps,/gpsWatchdog\?\.start\?\.\(\)/,'GPS startup delegates to the single-watch watchdog');
+  assert.match(watchdog,/onPosition:handleGpsPosition/,'the watchdog owns the raw GPS callback');
+  assert.doesNotMatch(position,/\n\s*ensureNextCheckpoint\(\);/,'the raw GPS callback delegates objective activation to the gated arrival path');
+  assert.match(position,/evaluateCheckpointArrival\(accuracyFeet\)/);
   assert.match(evaluation,/showRallySessionChoice\(\)\|\|!currentRallySession\(\)\|\|acceptedRallySessionId!==currentRallySessionId\(\)/);
   assert.match(evaluation,/showDayPreflight\(\)/);
   for(const gate of ['acceptedRallySessionId!==session.sessionId','analyticsExecutionSessionId!==session.sessionId','rallyScopeSuspended','showRallySessionChoice()','showDayPreflight()'])assert.ok(telemetry.includes(gate),`telemetry must require ${gate}`);

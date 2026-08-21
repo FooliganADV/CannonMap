@@ -69,6 +69,44 @@ test('a wake lock resolving after stop is released instead of leaking',async()=>
   assert.equal(controller.state().held,false);
 });
 
+test('duplicate start while acquisition is pending reuses the request without invalidating it',async()=>{
+  let resolveRequest,requests=0;
+  const wakeLock={request(){requests++;return new Promise(resolve=>{resolveRequest=resolve;});}};
+  const controller=createScreenWakeLockController({wakeLock,documentRef:new FakeDocument()});
+  const first=controller.start('gps-started'),second=controller.start('preflight-retry');
+  assert.equal(requests,1);
+  const sentinel=new FakeSentinel();resolveRequest(sentinel);
+  const [firstResult,secondResult]=await Promise.all([first,second]);
+  assert.equal(firstResult.acquired,true);
+  assert.equal(secondResult.acquired,true);
+  assert.equal(controller.state().held,true);
+  assert.equal(sentinel.released,false);
+  await controller.destroy();
+});
+
+test('pagehide stop followed by pageshow start waits out an obsolete request and reacquires',async()=>{
+  const pending=[];let requests=0;
+  const wakeLock={request(){requests++;return new Promise(resolve=>pending.push(resolve));}};
+  const controller=createScreenWakeLockController({wakeLock,documentRef:new FakeDocument()});
+  const firstStart=controller.start('gps-started');
+  await controller.stop('page-hidden');
+  const restarted=controller.start('page-restored');
+  assert.equal(requests,1,'the replacement request waits for the obsolete platform request to settle');
+
+  const obsolete=new FakeSentinel();pending.shift()(obsolete);
+  assert.equal((await firstStart).reason,'request-obsolete');
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(obsolete.released,true);
+  assert.equal(requests,2,'the current generation must reacquire after releasing the obsolete sentinel');
+
+  const current=new FakeSentinel();pending.shift()(current);
+  assert.equal((await restarted).acquired,true);
+  assert.equal(controller.state().desired,true);
+  assert.equal(controller.state().held,true);
+  assert.equal(controller.state().requesting,false);
+  await controller.destroy();
+});
+
 test('permission failure is reported without making Rally Mode fail',async()=>{
   const states=[];
   const controller=createScreenWakeLockController({

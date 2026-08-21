@@ -13,7 +13,7 @@ test('v9 media storage is additive, durable, and project scoped',async({page},te
     const own=await repository.listCheckpointPhotos('project-1','cp-1'),other=await repository.listCheckpointPhotos('project-2','cp-1');
     const answer={version:database.version,reference,own:own.map(item=>({projectId:item.projectId,name:item.name,size:item.size,type:item.blob.type})),other};database.close();return answer;
   },`CannonMapDB-media-${testInfo.project.name}-${Date.now()}`);
-  expect(result.version).toBe(11);expect(result.reference.uri).toMatch(/^media:\/\//);
+  expect(result.version).toBe(12);expect(result.reference.uri).toMatch(/^media:\/\//);
   expect(result.own).toEqual([{projectId:'project-1',name:'checkpoint.jpg',size:5,type:'image/jpeg'}]);expect(result.other).toEqual([]);
 });
 
@@ -33,13 +33,25 @@ test('captured Original and Evidence retain their rally session identity after I
     const module=await import('/src/infrastructure/indexeddb/index.js');let database=await module.openIndexedDbV2({indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name});
     let repository=module.createMissionMediaRepository({database,createId:(()=>{let number=0;return()=>`session-media-${++number}`;})(),clock:{iso:()=> '2026-08-18T17:37:42.123Z'}});
     await repository.addEvidencePair({projectId:'project',checkpointId:'1.1',journalEventId:'pair-event',originalFile:new File(['original'],'camera.jpg',{type:'image/jpeg'}),evidenceBlob:new Blob(['evidence'],{type:'image/jpeg'}),metadata:{dayNumber:1,sessionId:'session-aug18-run2',sessionRunNumber:2,sessionCalendarDate:'2026-08-18'},identities:{mediaGroupId:'group',originalMediaId:'original',evidenceMediaId:'evidence'}});
+    await repository.addOriginal({projectId:'project',checkpointId:'other',journalEventId:'other-event',originalFile:new Blob(['other'],{type:'image/jpeg'}),metadata:{dayNumber:1,sessionId:'another-session'},identities:{mediaGroupId:'other-group',originalMediaId:'other-original'}});
     database.close();database=await module.openIndexedDbV2({indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name});repository=module.createMissionMediaRepository({database,createId:()=>'',clock:{iso:()=>''}});
-    const rows=await repository.listCheckpointPhotos('project','1.1'),answer=rows.map(row=>({role:row.role,sessionId:row.sessionId,metadataSessionId:row.metadata.sessionId,run:row.metadata.sessionRunNumber,date:row.metadata.sessionCalendarDate})).sort((a,b)=>a.role.localeCompare(b.role));database.close();return answer;
+    const rows=await repository.listProjectSessionPhotos('project','session-aug18-run2'),all=await repository.listProjectPhotos('project'),answer=rows.map(row=>({role:row.role,sessionId:row.sessionId,metadataSessionId:row.metadata.sessionId,run:row.metadata.sessionRunNumber,date:row.metadata.sessionCalendarDate})).sort((a,b)=>a.role.localeCompare(b.role));database.close();return {answer,allCount:all.length};
   },`CannonMapDB-session-media-${testInfo.project.name}-${Date.now()}`);
-  expect(result).toEqual([
+  expect(result.answer).toEqual([
     {role:'evidence',sessionId:'session-aug18-run2',metadataSessionId:'session-aug18-run2',run:2,date:'2026-08-18'},
     {role:'original',sessionId:'session-aug18-run2',metadataSessionId:'session-aug18-run2',run:2,date:'2026-08-18'}
-  ]);
+  ]);expect(result.allCount).toBe(3);
+});
+
+test('Ride Memory persists one exact Original with not-required evidence semantics',async({page},testInfo)=>{
+  const result=await page.evaluate(async name=>{
+    const module=await import('/src/infrastructure/indexeddb/index.js');let database=await module.openIndexedDbV2({indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name});
+    let repository=module.createMissionMediaRepository({database,createId:()=>'',clock:{iso:()=> '2026-08-20T13:00:00.000Z'}});
+    await repository.addOriginal({projectId:'project',checkpointId:'ride-memory:session-1:20260820T130000000Z',journalEventId:'memory-event',originalFile:new Blob(['samsung-memory-photo'],{type:'image/jpeg'}),metadata:{captureType:'ride_memory',evidenceRequired:false,dayNumber:1,sessionId:'session-1',scheduledCaptureAt:'2026-08-20T13:00:00.000Z',actualCaptureAt:'2026-08-20T13:00:01.000Z'},filenames:{original:'Day01_RideMemory_20260820_130001-000_Rear_Original.jpg'},identities:{mediaGroupId:'memory-group',originalMediaId:'memory-original'}});
+    database.close();database=await module.openIndexedDbV2({indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name});repository=module.createMissionMediaRepository({database,createId:()=>'',clock:{iso:()=>''}});
+    const rows=await repository.listProjectPhotos('project'),row=rows[0],answer={count:rows.length,role:row.role,evidenceStatus:row.evidenceStatus,pairId:row.pairId,pairedMediaId:row.pairedMediaId,captureType:row.metadata.captureType,sessionId:row.sessionId,name:row.name,bytes:await row.blob.text()};database.close();return answer;
+  },`CannonMapDB-ride-memory-${testInfo.project.name}-${Date.now()}`);
+  expect(result).toEqual({count:1,role:'original',evidenceStatus:'not_required',pairId:null,pairedMediaId:null,captureType:'ride_memory',sessionId:'session-1',name:'Day01_RideMemory_20260820_130001-000_Rear_Original.jpg',bytes:'samsung-memory-photo'});
 });
 
 test('camera File and Evidence Blob persist as exact byte buffers without Blob/File structured cloning',async({page},testInfo)=>{

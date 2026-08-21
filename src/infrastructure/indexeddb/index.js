@@ -22,3 +22,6 @@ export {createTemplateRepository} from './template-repository.js';
 export {createMissionMediaRepository} from './mission-media-repository.js';
 export {createJourneyRestoreRepository} from './journey-restore-repository.js';
 export {createFinalizedProjectRepository} from './finalized-project-repository.js';
+export {
+  createRecoverySnapshotRepository,createBackupDirectoryHandleRepository
+} from './automatic-backup-repository.js';

@@ -38,7 +38,7 @@ test('v7 migration adds empty lifecycle state without changing existing data',as
     database.close();return answer;
   },uniqueName(testInfo));
   expect(result).toEqual({
-    version:11,legacy:[{id:'p1',name:'Legacy'}],projects:[{projectId:'p1',name:'Project'}],
+    version:12,legacy:[{id:'p1',name:'Legacy'}],projects:[{projectId:'p1',name:'Project'}],
     journal:[{eventId:'e1',projectId:'p1'}],
     search:[{projectId:'p1',sourceType:'project',sourceId:'p1'}],lifecycle:[]
   });
@@ -172,6 +172,8 @@ test('atomic deletion removes one complete Project and preserves every other Pro
     const legacy=module.createLegacyCurrentProjectRepository({database});
     const lifecycle=module.createProjectLifecycleRepository({database});
     const p1=await projects.create({id:'p1',name:'One'}),p2=await projects.create({id:'p2',name:'Two'});
+    const recovery=module.createRecoverySnapshotRepository({database}),snapshot=(projectId,number)=>({snapshotId:`snapshot-${number}`,projectId,dayNumber:1,sessionId:`session-${number}`,trigger:'session_start',fingerprint:`fingerprint-${number}`,createdAt:`2026-07-30T12:00:0${number}Z`,verified:true,manifest:{sessionId:`session-${number}`,dayNumber:1,journalEventCount:0,mediaCount:0},recovery:{session:{sessionId:`session-${number}`,projectId,dayNumber:1},journal:[],mediaReferences:[]}});
+    await recovery.save(snapshot('p1',1));await recovery.save(snapshot('p2',2));
     await legacy.save(p1);await lifecycle.completeTransition('p1','2026-07-30T12:00:00Z');
     await journal.appendEvents([
       {eventId:'e1',projectId:'p1',timestamp:'2026-07-30T12:00:00Z',createdAt:'2026-07-30T12:00:00Z'},
@@ -205,6 +207,7 @@ test('atomic deletion removes one complete Project and preserves every other Pro
         daily:(await read('analyticsDailyStats')).map(value=>value.projectId)
       },
       search:(await search.listIndexStates()).map(state=>state.projectId),
+      recovery:(await read('recoverySnapshots')).map(snapshot=>snapshot.projectId),
       legacy:await legacy.get(),active:await lifecycle.getActiveProjectId(),otherName:(await projects.get(p2.projectId)).name
     };
     database.close();return answer;
@@ -212,7 +215,7 @@ test('atomic deletion removes one complete Project and preserves every other Pro
   expect(result).toEqual({
     deleted:true,projects:['p2'],journal:['p2'],
     analytics:{samples:['p2'],events:['p2'],sessions:['p2'],daily:['p2']},
-    search:['p2'],legacy:null,active:null,otherName:'Two'
+    search:['p2'],recovery:['p2'],legacy:null,active:null,otherName:'Two'
   });
 });
 
@@ -242,6 +245,7 @@ test('failure at every destructive boundary aborts deletion and leaves the compl
           normalizedContent:'',terms:['one'],scopedTerms:['p1\u0000one'],schemaVersion:1
         }]
       });
+      await module.createRecoverySnapshotRepository({database}).save({snapshotId:'snapshot-1',projectId:'p1',dayNumber:1,sessionId:'session-1',trigger:'session_start',fingerprint:'fingerprint-1',createdAt:'2026-07-30T12:00:00Z',verified:true,manifest:{sessionId:'session-1',dayNumber:1,journalEventCount:0,mediaCount:0},recovery:{session:{sessionId:'session-1',projectId:'p1',dayNumber:1},journal:[],mediaReferences:[]}});
       let error;
       try{
         await module.createProjectDeletionRepository({
@@ -249,7 +253,7 @@ test('failure at every destructive boundary aborts deletion and leaves the compl
         }).deleteProject('p1');
       }catch(value){error=value.message;}
       const counts={};
-      for(const store of ['projectRecords','journalEvents','telemetrySamples','telemetryEvents','analyticsSessions','analyticsDailyStats','searchDocuments','searchIndexState']){
+      for(const store of ['projectRecords','journalEvents','telemetrySamples','telemetryEvents','analyticsSessions','analyticsDailyStats','searchDocuments','searchIndexState','recoverySnapshots']){
         counts[store]=await new Promise((resolve,reject)=>{
           const request=database.transaction(store).objectStore(store).count();
           request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);
@@ -264,10 +268,10 @@ test('failure at every destructive boundary aborts deletion and leaves the compl
     }
     return outcomes;
   },uniqueName(testInfo));
-  expect(result).toHaveLength(11);
+  expect(result).toHaveLength(12);
   for(const outcome of result){
     expect(outcome.error).toBe(`fail:${outcome.boundary}`);
-    expect(Object.values(outcome.counts)).toEqual([1,1,1,1,1,1,1,1]);
+    expect(Object.values(outcome.counts)).toEqual([1,1,1,1,1,1,1,1,1]);
     expect(outcome).toMatchObject({legacy:true,active:'p1'});
   }
 });

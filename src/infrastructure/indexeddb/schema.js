@@ -1,7 +1,7 @@
 import {normalizeProject} from '../../domain/projects/model.js';
 
 export const DATABASE_NAME='CannonMapDB';
-export const DATABASE_VERSION=11;
+export const DATABASE_VERSION=12;
 export const V2_FEATURE_FLAG='architecture.indexeddb.v2';
 
 const stores=[
@@ -34,7 +34,14 @@ const stores=[
   ]},
   {name:'missionMedia',keyPath:'mediaId',indexes:[
     ['projectId','projectId'],['checkpointId','checkpointId'],['pairId','pairId'],['capturedAt','capturedAt'],
-    ['projectCheckpoint',['projectId','checkpointId']]
+    ['projectCheckpoint',['projectId','checkpointId']],['projectSession',['projectId','sessionId']]
+  ]},
+  {name:'recoverySnapshots',keyPath:'snapshotId',indexes:[
+    ['projectId','projectId'],['sessionId','sessionId'],['createdAt','createdAt'],
+    ['sessionFingerprint',['sessionId','fingerprint'],{unique:true}]
+  ]},
+  {name:'backupDirectoryHandles',keyPath:'key',indexes:[
+    ['updatedAt','updatedAt']
   ]},
   {name:'observations',keyPath:['eventId','observationId'],indexes:[
     ['riderTime',['eventId','riderId','occurredAt']],

@@ -5,8 +5,13 @@ const fixture=path.resolve('tests/fixtures/rally-project.cmap');
 const photoBuffer=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64');
 
 async function continueSelectedRallyDay(page){
-  const preflight=page.locator('#rallyDayPreflight');
-  await expect.poll(async()=>await preflight.isVisible()||await page.locator('#rallyDayComplete').isVisible()).toBeTruthy();
+  const choice=page.locator('#rallySessionChoice'),preflight=page.locator('#rallyDayPreflight');
+  await expect.poll(async()=>await choice.isVisible()||await preflight.isVisible()||await page.locator('#rallyDayComplete').isVisible()).toBeTruthy();
+  if(await choice.isVisible()){
+    await page.locator('#rallyResumeSessionButton').click();
+    await expect(choice).toBeHidden();
+    await expect.poll(async()=>await preflight.isVisible()||await page.locator('#rallyDayComplete').isVisible()).toBeTruthy();
+  }
   if(!await preflight.isVisible())return;
   await expect(page.locator('#rallyDayPreflightOverall')).not.toHaveText('CHECKING');
   const start=page.locator('#rallyDayPreflightStart');
@@ -140,10 +145,12 @@ test('mission navigation, Journal, Trail Intel, More grouping, Planner transitio
   await page.locator('#rallyJournalButton').click();await expect(page.locator('#rallyJournalSheet')).toBeVisible();await expect(page.locator('#rallyJournalTimeline')).toBeVisible();
   await page.locator('#rallyMoreButton').click();await expect(page.locator('#rallyMoreSheet')).toBeVisible();
   for(const heading of ['Documentation','Storage & Recovery','Settings','Project / Planner','Diagnostics'])await expect(page.locator('#rallyMoreSheet')).toContainText(heading);
-  const photos=page.locator('#rallyPhotoViewerButton'),storage=page.locator('.rally-storage-diagnostics').first();
+  for(const id of ['rallyInternalRecoveryStatus','rallyExternalBackupStatus','rallyRideMemoryStatus','rallyChooseBackupFolder','rideMemoryIntervalMinutes'])await expect(page.locator(`#${id}`)).toBeVisible();
+  const photos=page.locator('#rallyPhotoViewerButton'),storage=page.locator('.rally-storage-diagnostics').first(),backupFolder=page.locator('#rallyChooseBackupFolder'),memoryInterval=page.locator('#rideMemoryIntervalMinutes');
   for(const viewport of [{width:390,height:844},{width:844,height:390}]){
-    await page.setViewportSize(viewport);const a=await photos.boundingBox(),b=await storage.boundingBox();expect(a).not.toBeNull();expect(b).not.toBeNull();
+    await page.setViewportSize(viewport);const a=await photos.boundingBox(),b=await storage.boundingBox(),button=await backupFolder.boundingBox(),select=await memoryInterval.boundingBox();expect(a).not.toBeNull();expect(b).not.toBeNull();expect(button).not.toBeNull();expect(select).not.toBeNull();
     const overlap=a.x<b.x+b.width&&a.x+a.width>b.x&&a.y<b.y+b.height&&a.y+a.height>b.y;expect(overlap).toBeFalsy();
+    expect(button.height,'backup-folder touch target').toBeGreaterThanOrEqual(48);expect(select.height,'Ride Memory interval touch target').toBeGreaterThanOrEqual(44);for(const box of [button,select]){expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(viewport.width);}
   }
   await page.setViewportSize({width:390,height:844});await storage.locator('summary').click();
   page.once('dialog',dialog=>dialog.accept('Field Identity'));

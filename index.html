@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260818-session-recovery-1" />
+  <link rel="stylesheet" href="app.css?v=20260820-samsung-reliability-1" />
 </head>
 <body>
   <header class="topbar">
@@ -18,7 +18,7 @@
       <span class="brand-mark">CM</span>
       <div>
         <h1>CannonMap</h1>
-          <p>America 250 Planner · <span id="buildLabel">Beta 0.7.11</span></p>
+          <p>America 250 Planner · <span id="buildLabel">Beta 0.7.12</span></p>
       </div>
     </div>
     <div class="top-actions">
@@ -368,8 +368,15 @@
             <button id="rallyMoreJournalButton" type="button">Journal</button>
             <button id="rallyDebriefButton" type="button">Debrief</button>
             <h3>Storage &amp; Recovery</h3>
+            <div class="rally-reliability-status" aria-live="polite">
+              <span><b>Internal recovery</b><small id="rallyInternalRecoveryStatus">Not started</small></span>
+              <span><b>External backup</b><small id="rallyExternalBackupStatus">Checking…</small></span>
+              <span><b>Ride Memory</b><small id="rallyRideMemoryStatus">Off</small></span>
+            </div>
+            <button id="rallyChooseBackupFolder" type="button">CHOOSE BACKUP FOLDER</button>
             <button id="rallyBackUpDayButton" type="button">BACK UP DAY</button>
             <button id="rallyJournalExportButton" type="button">Export Journal</button>
+            <label class="rally-memory-interval">Ride Memory interval <select id="rideMemoryIntervalMinutes"><option value="1">1 min · field test</option><option value="15">15 min</option><option value="30">30 min</option><option value="60" selected>60 min</option><option value="120">120 min</option></select></label>
             <h3>Settings</h3>
             <button id="rallyWeatherButton" type="button">Weather &amp; Radar</button>
             <button id="rallyTrailSettingsButton" type="button">Trail Intel Advanced</button>
@@ -423,7 +430,7 @@
       <div class="map-status">
         <span id="cursorCoordinates">—</span>
         <span id="gpsStatus">GPS off</span>
-        <span id="appVersion">v0.7.11 · 2026.08.18.session-recovery-1</span>
+        <span id="appVersion">v0.7.12 · 2026.08.20.samsung-reliability-1</span>
       </div>
       <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open planner" aria-expanded="false">Planner</button>
       <button id="intelButton" class="intel-toggle" aria-label="Open live intelligence" aria-expanded="false">Intel</button>
@@ -520,6 +527,6 @@
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
   <script src="stationary-events.js?v=20260725-01"></script>
-  <script type="module" src="app.js?v=20260818-session-recovery-1"></script>
+  <script type="module" src="app.js?v=20260820-samsung-reliability-1"></script>
 </body>
 </html>

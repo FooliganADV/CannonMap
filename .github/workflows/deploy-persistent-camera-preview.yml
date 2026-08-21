@@ -1,16 +1,16 @@
-name: Deploy iOS session evidence recovery preview
+name: Deploy Samsung Android reliability preview
 
 on:
   push:
     branches:
-      - agent/ios-session-evidence-recovery
+      - agent/samsung-android-reliability
 
 permissions:
   contents: read
   deployments: write
 
 concurrency:
-  group: cannonmap-ios-session-evidence-recovery-preview
+  group: cannonmap-samsung-android-reliability-preview
   cancel-in-progress: true
 
 jobs:
@@ -18,7 +18,7 @@ jobs:
     name: Deploy exact commit to Cloudflare Pages preview
     runs-on: ubuntu-latest
     environment:
-      name: cannonmap-ios-session-evidence-recovery-preview
+      name: cannonmap-samsung-android-reliability-preview
       url: ${{ steps.deploy.outputs.deployment-url || steps.deploy.outputs.pages-deployment-alias-url }}
 
     steps:
@@ -36,7 +36,7 @@ jobs:
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing required repository secret CLOUDFLARE_API_TOKEN"; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing required repository secret CLOUDFLARE_ACCOUNT_ID"; exit 1; }
-          test "$GITHUB_REF_NAME" = "agent/ios-session-evidence-recovery" || { echo "::error::Unexpected preview branch"; exit 1; }
+          test "$GITHUB_REF_NAME" = "agent/samsung-android-reliability" || { echo "::error::Unexpected preview branch"; exit 1; }
 
       - name: Run P0 release gates
         shell: bash
@@ -56,7 +56,7 @@ jobs:
           command: >-
             pages deploy .
             --project-name=cannonmap
-            --branch=agent/ios-session-evidence-recovery
+            --branch=agent/samsung-android-reliability
             --commit-hash=${{ github.sha }}
             --commit-dirty=false
 
@@ -67,9 +67,9 @@ jobs:
         run: |
           test -n "$DEPLOYMENT_URL" || { echo "::error::Cloudflare did not return an immutable deployment URL"; exit 1; }
           curl --retry 12 --retry-delay 5 --retry-all-errors --fail --silent --show-error --location "$DEPLOYMENT_URL/" --output /tmp/cannonmap-index.html
-          curl --retry 12 --retry-delay 5 --retry-all-errors --fail --silent --show-error --location "$DEPLOYMENT_URL/app.js?20260818-session-recovery-1" --output /tmp/cannonmap-app.js
-          grep -F "2026.08.18.session-recovery-1" /tmp/cannonmap-index.html
-          grep -F "2026.08.18.session-recovery-1" /tmp/cannonmap-app.js
+          curl --retry 12 --retry-delay 5 --retry-all-errors --fail --silent --show-error --location "$DEPLOYMENT_URL/app.js?20260820-samsung-reliability-1" --output /tmp/cannonmap-app.js
+          grep -F "2026.08.20.samsung-reliability-1" /tmp/cannonmap-index.html
+          grep -F "2026.08.20.samsung-reliability-1" /tmp/cannonmap-app.js
 
       - name: Publish deployment summary
         if: ${{ always() }}
@@ -80,13 +80,13 @@ jobs:
           DEPLOYMENT_STATUS: ${{ job.status }}
         run: |
           {
-            echo "## CannonMap iOS session evidence recovery preview"
+            echo "## CannonMap Samsung Android reliability preview"
             echo
             echo "| Field | Value |"
             echo "| --- | --- |"
             echo "| Commit | \`${GITHUB_SHA}\` |"
             echo "| Project | \`cannonmap\` |"
-            echo "| Branch | \`agent/ios-session-evidence-recovery\` |"
+            echo "| Branch | \`agent/samsung-android-reliability\` |"
             echo "| Status | \`${DEPLOYMENT_STATUS}\` |"
             echo "| Deployment URL | ${DEPLOYMENT_URL:-Not returned} |"
             echo "| Branch alias URL | ${PREVIEW_ALIAS_URL:-Not returned} |"

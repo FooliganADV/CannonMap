@@ -1,6 +1,8 @@
-# CannonMap Planner — Beta 0.7.11 Session Recovery
+# CannonMap Planner — Beta 0.7.12 Samsung Reliability
 
-Build: `2026.08.18.session-recovery-1`
+Build: `2026.08.20.samsung-reliability-1`
+
+This build targets long, powered, screen-on Samsung Chrome/PWA rides. It preserves the field-proven retained front/rear checkpoint camera session while adding nonblocking automatic recovery, optional verified folder backups, independent hourly Ride Memory photos, foreground subsystem watchdogs, and bounded Trail Intel processing.
 
 Rally Mode now creates an immutable session for every deliberate run, asks riders to **Resume Existing** or **Start New**, and keeps unresolved photo evidence separate from GPS navigation. Camera preflight verifies an actual bounded still capture before reporting automatic capture ready; iPhone/iPad use a single-active-camera policy while supported Android browsers retain the paired-camera fast path. Browsers without verified native still capture continue through the full-screen manual recovery path intentionally.
 
@@ -10,6 +12,11 @@ CannonMap is a rally decision system. The primary live-rally function is display
 
 ## New in this release
 
+- Verified compact internal recovery after session start and checkpoint completion, plus a two-hour/day-complete schedule that never blocks rally execution
+- Optional File System Access folder grant with persisted-handle reuse, permission rechecks, unique session filenames, reopened archive verification, and partial-write isolation
+- Default-hourly Samsung Ride Memory capture with GPS metadata, checkpoint-camera priority, five-minute checkpoint coverage suppression, and durable missed/deferred state
+- Single-owner GPS, polling, reliability-health, Wake Lock, camera, timer, and listener lifecycles with foreground restart/reconnect behavior
+- Bounded incremental competitor history, coalesced persistence, one-second official-feed rendering batches, and compacted map geometry for long sessions
 - Session-scoped checkpoint, score, Journal, media, recovery, and backup state for repeated runs of the same itinerary day
 - A durable Pending Evidence queue: an unresolved photo at one checkpoint cannot block later GPS arrivals
 - Immediate, idempotent Journal persistence for retry, resume, fail, defer, and continue-route decisions
@@ -60,7 +67,7 @@ node --test tests/*.test.mjs
 
 ## First test
 
-1. Confirm the status shows `v0.7.11 · 2026.08.18.session-recovery-1`.
+1. Confirm the status shows `v0.7.12 · 2026.08.20.samsung-reliability-1`.
 2. Import `competitor-test.json`; verify the red trail appears and Rider 27 is listed.
 3. Open **Trail Intel** and select **Weather here**. No key is required.
 4. On a phone, select **Intel** and verify the compact bottom sheet opens without covering the entire map.

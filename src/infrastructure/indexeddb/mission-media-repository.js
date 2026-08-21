@@ -83,11 +83,11 @@ export function createMissionMediaRepository({database,createId,clock}={}){
   return Object.freeze({
     async addOriginal({projectId,checkpointId,journalEventId,originalFile,metadata={},filenames={},identities={},sourceProvenance=null}){
       if(!projectId||!checkpointId||!journalEventId||!originalFile)throw new TypeError('Original photo context is required.');
-      const mediaGroupId=identities.mediaGroupId||createId(),mediaId=identities.originalMediaId||createId(),capturedAt=metadata.capturedAt||clock.iso();
+      const mediaGroupId=identities.mediaGroupId||createId(),mediaId=identities.originalMediaId||createId(),capturedAt=metadata.capturedAt||clock.iso(),evidenceRequired=metadata.evidenceRequired!==false&&metadata.captureType!=='ride_memory';
       const record={projectId:String(projectId),checkpointId:String(checkpointId),journalEventId:String(journalEventId),mediaGroupId,capturedAt,
         sessionId:metadata.sessionId||null,pairId:metadata.pairId||null,cameraRole:metadata.cameraRole||null,pairStatus:metadata.pairId?'pending':null,metadata:structuredClone(metadata),mediaId,kind:'photo',role:'original',mimeType:String(originalFile.type||'image/jpeg'),
         name:String(filenames.original||originalFile.name||`${mediaId}.jpg`),sourceName:String(originalFile.name||''),size:Number(originalFile.size)||0,blob:originalFile,lastModified:Number(originalFile.lastModified)||null,sourceProvenance:originalProvenance(originalFile,metadata,sourceProvenance),
-        pairedMediaId:identities.evidenceMediaId||null,evidenceStatus:'pending'};
+        pairedMediaId:identities.evidenceMediaId||null,evidenceStatus:evidenceRequired?'pending':'not_required'};
       return (await commit({records:[record]}))[0];
     },
     async addEvidence({original,evidenceBlob,filename,evidenceMediaId}){
@@ -142,6 +142,7 @@ export function createMissionMediaRepository({database,createId,clock}={}){
     async listPairPhotos(pairId){const transaction=database.transaction(STORE,'readonly'),done=transactionDone(transaction),rows=await requestResult(transaction.objectStore(STORE).index('pairId').getAll(String(pairId)));await done;return rows.map(hydrateMissionMediaRecord);},
     async markPairComplete(pairId,journalEventId){const transaction=database.transaction(STORE,'readwrite'),done=transactionDone(transaction),store=transaction.objectStore(STORE),rows=await requestResult(store.index('pairId').getAll(String(pairId)));if(rows.length!==4)throw new Error('A complete pair must contain four durable media assets.');for(const row of rows)store.put({...row,pairStatus:'complete',pairJournalEventId:String(journalEventId)});await done;for(const row of rows)await verifyRecord({...row,pairStatus:'complete',pairJournalEventId:String(journalEventId)},await readStored(database,row.mediaId));return rows.length;},
     async listProjectPhotos(projectId){const transaction=database.transaction(STORE,'readonly'),done=transactionDone(transaction),rows=await requestResult(transaction.objectStore(STORE).index('projectId').getAll(String(projectId)));await done;return rows.map(hydrateMissionMediaRecord);},
+    async listProjectSessionPhotos(projectId,sessionId){const transaction=database.transaction(STORE,'readonly'),done=transactionDone(transaction),rows=await requestResult(transaction.objectStore(STORE).index('projectSession').getAll([String(projectId),String(sessionId)]));await done;return rows.map(hydrateMissionMediaRecord);},
     async listAllPhotos(){const transaction=database.transaction(STORE,'readonly'),done=transactionDone(transaction),rows=await requestResult(transaction.objectStore(STORE).getAll());await done;return rows.map(hydrateMissionMediaRecord);},
     async getMedia(mediaId){return hydrateMissionMediaRecord(await readStored(database,mediaId));},
     async discardEvidence(evidenceMediaId,originalMediaId,error){
