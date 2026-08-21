@@ -1,6 +1,6 @@
-# CannonMap Planner — Beta 0.7.12 Samsung Reliability
+# CannonMap Planner — Beta 0.7.13 Trail Intel History Hardening
 
-Build: `2026.08.20.samsung-reliability-1`
+Build: `2026.08.20.trail-intel-history-1`
 
 This build targets long, powered, screen-on Samsung Chrome/PWA rides. It preserves the field-proven retained front/rear checkpoint camera session while adding nonblocking automatic recovery, optional verified folder backups, independent hourly Ride Memory photos, foreground subsystem watchdogs, and bounded Trail Intel processing.
 
@@ -67,7 +67,7 @@ node --test tests/*.test.mjs
 
 ## First test
 
-1. Confirm the status shows `v0.7.12 · 2026.08.20.samsung-reliability-1`.
+1. Confirm the status shows `v0.7.13 · 2026.08.20.trail-intel-history-1`.
 2. Import `competitor-test.json`; verify the red trail appears and Rider 27 is listed.
 3. Open **Trail Intel** and select **Weather here**. No key is required.
 4. On a phone, select **Intel** and verify the compact bottom sheet opens without covering the entire map.

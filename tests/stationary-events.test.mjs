@@ -44,24 +44,44 @@ test('two meaningful exit points close the active event',()=>{
   assert.equal(events.length,1);
   assert.equal(events[0].status,'completed');
   assert.equal(events[0].endTime,new Date(origin+3*60000).toISOString());
+  assert.equal(events[0].endReason,'movement_confirmed');
 });
 
 test('continued stationary breadcrumbs update duration without duplicate events',()=>{
-  const first=detectStationaryEvents([point(0),point(3)],scope);
-  const updated=detectStationaryEvents([point(0),point(3),point(8,12)],scope,first);
+  const first=detectStationaryEvents([point(0),point(1),point(3)],scope);
+  const updated=detectStationaryEvents([point(0),point(1),point(3),point(4.5,5),point(6,8),point(8,12)],scope,first);
   assert.equal(updated.length,1);
   assert.equal(updated[0].durationMs,8*60000);
   assert.equal(updated[0].id,first[0].id);
 });
 
+test('missing telemetry and session changes never count as stopped dwell time',()=>{
+  assert.equal(detectStationaryEvents([point(0),point(3)],scope).length,0);
+  const established=detectStationaryEvents([point(0),point(1),point(3),point(10)],scope);
+  assert.equal(established.length,1);
+  assert.equal(established[0].status,'completed');
+  assert.equal(established[0].endTime,point(3).time);
+  assert.equal(established[0].endReason,'telemetry_gap');
+  const sessionBreak=detectStationaryEvents([
+    {...point(0),sessionId:'run-a'},
+    {...point(1),sessionId:'run-a'},
+    {...point(3),sessionId:'run-a'},
+    {...point(3.5),sessionId:'run-b'}
+  ],scope);
+  assert.equal(sessionBreak.length,1);
+  assert.equal(sessionBreak[0].status,'completed');
+  assert.equal(sessionBreak[0].endTime,point(3).time);
+  assert.equal(sessionBreak[0].endReason,'session_changed');
+});
+
 test('completed events persist locally and remain scoped by rally and competitor',()=>{
-  const project={competitors:[{id:'7',number:11,name:'Beau',points:[point(0),point(3),point(4,0,220),point(4.2,0,240)]}],stationaryEvents:[]};
+  const project={competitors:[{id:'7',number:11,name:'Beau',points:[point(0),point(1),point(3),point(4,0,220),point(4.2,0,240)]}],stationaryEvents:[]};
   updateStationaryEvents(project,'60');
   assert.equal(project.stationaryEvents[0].status,'completed');
   project.competitors[0].points=[point(10)];
   updateStationaryEvents(project,'60');
   assert.equal(project.stationaryEvents.length,1);
-  project.competitors.push({id:'8',number:8,name:'Simon',points:[point(0),point(3)]});
+  project.competitors.push({id:'8',number:8,name:'Simon',points:[point(0),point(1),point(3)]});
   updateStationaryEvents(project,'61');
   assert.ok(project.stationaryEvents.some(event=>event.rallyEventId==='60'&&event.competitorId==='7'));
   assert.ok(project.stationaryEvents.some(event=>event.rallyEventId==='61'&&event.competitorId==='8'));

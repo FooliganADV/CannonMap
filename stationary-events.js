@@ -4,6 +4,7 @@ const STATIONARY_RADIUS_METERS=150;
 const STATIONARY_THRESHOLD_MS=3*60*1000;
 const EXIT_RADIUS_METERS=190;
 const EXIT_CONFIRMATION_POINTS=2;
+const MAX_TELEMETRY_GAP_MS=2*60*1000;
 const EARTH_RADIUS_METERS=6371008.8;
 
 function pointTime(point){const value=typeof point?.time==='number'?point.time:Date.parse(point?.time||'');return Number.isFinite(value)?value:0;}
@@ -25,7 +26,7 @@ function competitorSignature(competitor){
   return initials||String(competitor?.id||'?').slice(-3);
 }
 function eventIdFor(eventId,competitorId,startTime){return `${eventId}:${competitorId}:${new Date(startTime).toISOString()}`;}
-function buildEvent(scope,cluster,status,endTime=null){
+function buildEvent(scope,cluster,status,endTime=null,endReason=null){
   const stats=clusterStats(cluster),start=pointTime(cluster[0]),last=pointTime(cluster.at(-1));
   return {
     id:eventIdFor(scope.eventId,scope.competitorId,start),
@@ -33,17 +34,24 @@ function buildEvent(scope,cluster,status,endTime=null){
     competitorNumber:scope.competitorNumber??'',riderName:scope.riderName||`Rider ${scope.competitorId}`,
     signature:scope.signature||competitorSignature({id:scope.competitorId,number:scope.competitorNumber,name:scope.riderName}),
     startTime:new Date(start).toISOString(),lastUpdateTime:new Date(last).toISOString(),
-    endTime:endTime?new Date(endTime).toISOString():null,durationMs:Math.max(0,(endTime||last)-start),
+    endTime:endTime?new Date(endTime).toISOString():null,endReason:endTime?endReason:null,durationMs:Math.max(0,(endTime||last)-start),
     center:stats.center,radiusMeters:Math.round(stats.radiusMeters),status
   };
 }
 function detectStationaryEvents(points,scope,previousEvents=[]){
   const valid=(points||[]).filter(point=>Number.isFinite(Number(point.lat))&&Number.isFinite(Number(point.lon))&&pointTime(point)>0).map(point=>({...point,lat:Number(point.lat),lon:Number(point.lon)})).sort((a,b)=>pointTime(a)-pointTime(b));
-  const detected=[];let cluster=[],outside=[];
-  const finish=(endTime,status='completed')=>{
-    if(cluster.length&&pointTime(cluster.at(-1))-pointTime(cluster[0])>=STATIONARY_THRESHOLD_MS)detected.push(buildEvent(scope,cluster,status,endTime));
+  const detected=[];let cluster=[],outside=[],previousPoint=null;
+  const finish=(endTime,status='completed',endReason=status==='completed'?'movement_confirmed':null)=>{
+    if(cluster.length&&pointTime(cluster.at(-1))-pointTime(cluster[0])>=STATIONARY_THRESHOLD_MS)detected.push(buildEvent(scope,cluster,status,endTime,endReason));
   };
   for(const point of valid){
+    const elapsedMs=previousPoint?pointTime(point)-pointTime(previousPoint):0;
+    const sessionChanged=Boolean(previousPoint?.sessionId&&point.sessionId&&String(previousPoint.sessionId)!==String(point.sessionId));
+    if(previousPoint&&(sessionChanged||elapsedMs>MAX_TELEMETRY_GAP_MS)){
+      finish(pointTime(cluster.at(-1)),'completed',sessionChanged?'session_changed':'telemetry_gap');
+      cluster=[point];outside=[];previousPoint=point;continue;
+    }
+    previousPoint=point;
     if(!cluster.length){cluster=[point];outside=[];continue;}
     const insideAnchor=distanceMeters(cluster[0],point)<=STATIONARY_RADIUS_METERS;
     if(insideAnchor){cluster.push(point);outside=[];continue;}
@@ -85,5 +93,5 @@ function spreadNearbyEvents(events){
 }
 function signatureIconSpec(event){return{label:event.signature||'?',size:48,className:'stationary-event-signature',title:`Stationary event · ${event.riderName}`};}
 function zoomToStationaryEvent(map,event){map.setView([event.center.lat,event.center.lon],18);return event;}
-return{STATIONARY_RADIUS_METERS,STATIONARY_THRESHOLD_MS,EXIT_RADIUS_METERS,EXIT_CONFIRMATION_POINTS,distanceMeters,clusterStats,competitorSignature,detectStationaryEvents,updateStationaryEvents,spreadNearbyEvents,signatureIconSpec,zoomToStationaryEvent};
+return{STATIONARY_RADIUS_METERS,STATIONARY_THRESHOLD_MS,EXIT_RADIUS_METERS,EXIT_CONFIRMATION_POINTS,MAX_TELEMETRY_GAP_MS,distanceMeters,clusterStats,competitorSignature,detectStationaryEvents,updateStationaryEvents,spreadNearbyEvents,signatureIconSpec,zoomToStationaryEvent};
 });

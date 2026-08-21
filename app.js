@@ -61,7 +61,7 @@ import {captureArrivalEvidence} from './src/application/arrival-evidence.js';
 import {createWeatherMaintenance} from './src/application/weather-maintenance.js';
 import {createFinalizedProjectService} from './src/application/finalized-project-service.js';
 import {createFinalizedProjectRepository} from './src/infrastructure/indexeddb/finalized-project-repository.js';
-import {stableCompetitorId,compactTrailForRender,segmentTrail,trailStatus,mergeCompetitorSnapshots,buildTacticalClusters} from './src/domain/competitors/trails.js';
+import {stableCompetitorId,breadcrumbKey,deriveTacticalTrail,compactTrailSegmentsForRender,trailStatus,mergeCompetitorSnapshots,buildTacticalClusters} from './src/domain/competitors/trails.js';
 import {
   createAnalyticsRepository,createJournalRepository,createLegacyCurrentProjectRepository,
   createObservationCaptureRepository,createProjectDeletionRepository,createProjectLifecycleRepository,
@@ -71,13 +71,13 @@ import {
 import {createFirebaseAuthentication} from './src/infrastructure/firebase/authentication.js';
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
-const APP_VERSION = '0.7.12';
-const BUILD_ID = '2026.08.20.samsung-reliability-1';
+const APP_VERSION = '0.7.13';
+const BUILD_ID = '2026.08.20.trail-intel-history-1';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const CAMERA_SETUP_HINT_KEY = 'cannonmap.camera-setup-succeeded.v1';
-const APP_SHELL_CACHE = 'cannonmap-v0.7.12-20260820-samsung-reliability-1';
-const PREFLIGHT_SHELL_ASSETS = Object.freeze(['./index.html','./app.js?v=20260820-samsung-reliability-1','./app.css?v=20260820-samsung-reliability-1']);
+const APP_SHELL_CACHE = 'cannonmap-v0.7.13-20260820-trail-intel-history-1';
+const PREFLIGHT_SHELL_ASSETS = Object.freeze(['./index.html','./app.js?v=20260820-trail-intel-history-1','./app.css?v=20260820-trail-intel-history-1']);
 const AUTOMATIC_BACKUP_INTERVAL_MS=2*60*60*1000;
 const RELIABILITY_HEALTH_INTERVAL_MS=5*60*1000;
 const GPS_FOREGROUND_STALL_MS=45*1000;
@@ -151,6 +151,8 @@ let pendingFinalizedExport=null;
 let restoredDayReview=null;
 let lastRestoreResult=null;
 let competitorPopupSelection=null;
+const competitorTacticalProjectionCache=new WeakMap();
+const competitorTacticalProjectionMetrics={hits:0,misses:0,compactions:0};
 let weatherMaintenance=null;
 let photoViewerGroups=[];
 let photoViewerIndex=0;
@@ -449,50 +451,60 @@ function pointTimestamp(point) {
   const ms = Date.parse(value);
   return Number.isFinite(ms) ? ms : 0;
 }
-function competitorFreshness(comp) {
-  const status=trailStatus(comp.points,{freshMs:Number(state.settings.competitorFreshMinutes||15)*60000});
+function competitorTacticalProjection(comp,{now=Date.now(),includeRenderSegments=false}={}) {
+  const points=Array.isArray(comp?.points)?comp.points:[],historyMs=Math.max(15,Number(state.settings.competitorTrailMinutes)||480)*60000;
+  if(!points.length)return {tactical:{points:[],segments:[],latest:null,pending:null,quarantined:[]},segments:[]};
+  const signature=`${points.length}|${breadcrumbKey(points[0])}|${breadcrumbKey(points.at(-1))}|${historyMs}|${Math.floor(now/60000)}`;
+  let cached=competitorTacticalProjectionCache.get(points);
+  if(cached?.signature!==signature){competitorTacticalProjectionMetrics.misses++;cached={signature,tactical:deriveTacticalTrail(points,{now,historyMs}),segments:null};competitorTacticalProjectionCache.set(points,cached);}else competitorTacticalProjectionMetrics.hits++;
+  if(includeRenderSegments&&!cached.segments){competitorTacticalProjectionMetrics.compactions++;cached.segments=compactTrailSegmentsForRender(cached.tactical.segments,{now});}
+  return {tactical:cached.tactical,segments:includeRenderSegments?cached.segments:[]};
+}
+function competitorFreshness(comp,tacticalTrail=null,now=Date.now()) {
+  const tactical=tacticalTrail||competitorTacticalProjection(comp,{now}).tactical,status=trailStatus(comp.points,{now,freshMs:Number(state.settings.competitorFreshMinutes||15)*60000,tacticalTrail:tactical});
   return {fresh:status.status==='live',ageMinutes:status.ageMs===null?null:status.ageMs/60000,...status};
 }
 function renderCompetitors() {
-  const models=[];
+  const models=[],tacticalByCompetitorId=new Map(),now=Date.now();
   state.project.competitors.forEach((comp,index) => {
     if (!Array.isArray(comp.points) || !comp.points.length) return;
     const competitorKey=comp.id||comp.name||`legacy-index:${index}`;
-    const freshness = competitorFreshness(comp);
+    const projection=competitorTacticalProjection(comp,{now,includeRenderSegments:true}),tactical=projection.tactical,segments=projection.segments,freshness=competitorFreshness(comp,tactical,now);
     const opacity = (freshness.fresh ? .88 : .32)*(Number(state.settings.competitorTrailOpacity??100)/100);
-    const historyMs=Math.max(15,Number(state.settings.competitorTrailMinutes)||480)*60000,points=compactTrailForRender(comp.points,{historyMs});
-    const segments=segmentTrail(points);
+    tacticalByCompetitorId.set(String(comp.id),tactical);
     if (state.settings.showCompetitorTrails !== false && comp.trailHidden!==true) {
       segments.filter(segment=>segment.length>1).forEach((segment,segmentIndex)=>models.push({key:`trail:${competitorKey}:${segmentIndex}:${pointTimestamp(segment[0])}`,kind:'trail',comp,freshness,opacity,points:segment}));
     }
-    if (state.settings.showCompetitorMarkers !== false) {
-      models.push({key:`marker:${competitorKey}`,kind:'marker',comp,freshness,opacity,points});
+    if (state.settings.showCompetitorMarkers !== false && tactical.latest) {
+      models.push({key:`marker:${competitorKey}`,kind:'marker',comp,freshness,opacity,point:tactical.latest});
     }
   });
   mapEngine.layers.reconcile('competitors',models,{
     key:model=>model.key,
     fingerprint:model=>JSON.stringify({
-      kind:model.kind,id:model.comp.id,name:model.comp.name,points:model.points,
+      kind:model.kind,id:model.comp.id,name:model.comp.name,points:model.points,point:model.point,
       fresh:model.freshness.fresh,age:model.freshness.ageMinutes===null?null:Math.round(model.freshness.ageMinutes)
     }),
     create:model=>{
       if(model.kind==='trail'){
         const line=L.polyline(model.points.map(p=>[p.lat,p.lon]),{pane:'competitorTrailsPane',color:COLORS.competitor,weight:model.freshness.fresh?4:3,dashArray:model.freshness.fresh?null:'7 7',opacity:model.opacity});
         line.bindTooltip(`${model.comp.name||model.comp.id} · ${model.freshness.ageMinutes===null?'unknown age':`${Math.round(model.freshness.ageMinutes)} min old`}`);
+        line._cannonMapRender={key:model.key,kind:model.kind,competitorId:String(model.comp.id),points:model.points};
         return line;
       }
-      const last=model.points.at(-1);
+      const last=model.point;
       const marker=L.circleMarker([last.lat,last.lon],{pane:'competitorTrailsPane',radius:model.freshness.fresh?7:5,color:'#fff',weight:2,fillColor:COLORS.competitor,fillOpacity:model.opacity});
       const speed=model.freshness.speedMph===null?'Unavailable':`${model.freshness.speedMph.toFixed(1)} mph`,direction=model.freshness.direction===null?'Unavailable':`${Math.round(model.freshness.direction)}°`;
       marker.bindPopup(`<strong>${escapeHtml(model.comp.name||model.comp.id)}</strong><br>${escapeHtml(last.time||'Time unavailable')}<br>${escapeHtml(model.freshness.status)} · ${escapeHtml(model.freshness.motion)}<br>Speed ${speed} · Direction ${direction}`);
       marker.on('popupopen',()=>competitorPopupSelection={type:'competitor',id:String(model.comp.id),openedAt:Date.now()});marker.on('popupclose',()=>{if(competitorPopupSelection?.id===String(model.comp.id))competitorPopupSelection=null;});
+      marker._cannonMapRender={key:model.key,kind:model.kind,competitorId:String(model.comp.id),points:[last]};
       return marker;
     }
   });
-  renderCompetitorClusters();
+  renderCompetitorClusters(tacticalByCompetitorId,now);
   if(competitorPopupSelection?.type==='competitor'){const marker=mapEngine.layers.get('competitors',`marker:${competitorPopupSelection.id}`);if(marker&&!marker.isPopupOpen?.())marker.openPopup();}
   const followed=state.project.competitors.find(comp=>String(state.followedCompetitorId)===String(comp.id));
-  const last=followed?.points?.at(-1);
+  const last=followed?tacticalByCompetitorId.get(String(followed.id))?.latest:null;
   if(last)performProgrammaticMapChange('competitor-follow',()=>state.map.setView([last.lat,last.lon],Math.max(14,state.map.getZoom()),{animate:false}));
 }
 function formatStationaryDuration(ms) {
@@ -534,7 +546,7 @@ function handleStationaryAction(action,event) {
 }
 function followCompetitor(id) {
   state.followedCompetitorId=String(id);
-  const competitor=state.project.competitors.find(item=>String(item.id)===String(id)),last=competitor?.points?.at(-1);
+  const competitor=state.project.competitors.find(item=>String(item.id)===String(id)),last=competitor?competitorTacticalProjection(competitor).tactical.latest:null;
   if(last)performProgrammaticMapChange('competitor-follow',()=>state.map.setView([last.lat,last.lon],Math.max(14,state.map.getZoom()),{animate:false}));
   setStatus(`Following ${competitor?.name||`Rider ${id}`}.`);
 }
@@ -619,9 +631,9 @@ function renderAll() {
   if($('competitorTrailOpacity'))$('competitorTrailOpacity').value=String(state.settings.competitorTrailOpacity??100);
   renderMapFeatures(); renderLayerList(); renderStats(); renderCompetitorSummary(); renderMissionControl(); renderTypeLayerControls(); renderSearch(); renderIntelSummary(); renderRallyMode();
 }
-function renderCompetitorClusters(){
+function renderCompetitorClusters(tacticalByCompetitorId=null,now=Date.now()){
   if(state.settings.showCompetitorClusters===false){mapEngine.layers.clear('competitorClusters');return;}
-  const clusters=buildTacticalClusters(state.project.competitors);mapEngine.layers.reconcile('competitorClusters',clusters,{key:cluster=>cluster.id,fingerprint:cluster=>JSON.stringify(cluster),create:cluster=>{
+  const clusters=buildTacticalClusters(state.project.competitors,{now,tacticalByCompetitorId});mapEngine.layers.reconcile('competitorClusters',clusters,{key:cluster=>cluster.id,fingerprint:cluster=>JSON.stringify(cluster),create:cluster=>{
     const marker=L.circleMarker([cluster.center.lat,cluster.center.lon],{pane:'stationaryPane',radius:12,color:'#fff',weight:2,fillColor:'#7c3aed',fillOpacity:.86});
     const nearby=state.project.features.filter(feature=>['checkpoint','hotel'].includes(feature.type)&&feature.geometry?.kind==='point').map(feature=>({feature,distance:haversine(cluster.center,feature.geometry.coordinates[0])})).filter(item=>item.distance<=500).sort((a,b)=>a.distance-b.distance)[0]?.feature;
     marker.bindPopup(`<strong>${cluster.riders.length} competitors nearby</strong><br>${cluster.riders.map(r=>`${escapeHtml(r.name||r.id)} · ${escapeHtml(r.motion)} · ${escapeHtml(r.status)}`).join('<br>')}<br>Latest ${escapeHtml(cluster.latestUpdate||'Unavailable')}<br>Nearby checkpoint: ${escapeHtml(nearby?.name||'None within 500 m')}<br><small>Observed convergence only; cause unknown.</small>`);return marker;
@@ -2148,7 +2160,7 @@ async function importCompetitorJson(file) {
 }
 function renderCompetitorSummary() {
   const box=$('competitorSummary');if(!box)return;if(!state.project.competitors.length){box.className='layer-list empty';box.textContent='No competitor data loaded.';return;}
-  box.className='layer-list';box.innerHTML=state.project.competitors.map(c=>{const fresh=competitorFreshness(c);const age=fresh.ageMinutes===null?'undated':`${Math.round(fresh.ageMinutes)} min`;return `<div class="layer-row"><span class="swatch" style="background:${fresh.fresh?COLORS.competitor:'#64748b'}"></span><button type="button" data-rider-id="${escapeHtml(c.id)}"><strong>${escapeHtml(c.name)}</strong><small>${c.points.length} breadcrumbs · ${age}</small></button><span class="fresh-dot ${fresh.fresh?'is-fresh':''}" title="${fresh.fresh?'Fresh':'Stale'}"></span></div>`;}).join('');
+  const now=Date.now();box.className='layer-list';box.innerHTML=state.project.competitors.map(c=>{const tactical=competitorTacticalProjection(c,{now}).tactical,fresh=competitorFreshness(c,tactical,now);const age=fresh.ageMinutes===null?'undated':`${Math.round(fresh.ageMinutes)} min`;return `<div class="layer-row"><span class="swatch" style="background:${fresh.fresh?COLORS.competitor:'#64748b'}"></span><button type="button" data-rider-id="${escapeHtml(c.id)}"><strong>${escapeHtml(c.name)}</strong><small>${c.points.length} breadcrumbs · ${age}</small></button><span class="fresh-dot ${fresh.fresh?'is-fresh':''}" title="${fresh.fresh?'Fresh':'Stale'}"></span></div>`;}).join('');
   box.querySelectorAll('[data-rider-id]').forEach(button=>button.onclick=()=>zoomCompetitor(button.dataset.riderId));
 }
 
@@ -2341,7 +2353,8 @@ async function clearCompetitors() {
 function zoomCompetitor(id) {
   const comp=state.project.competitors.find(item=>String(item.id)===String(id));
   if(!comp?.points?.length)return;
-  const bounds=L.latLngBounds(comp.points.map(point=>[point.lat,point.lon]));
+  const points=competitorTacticalProjection(comp).tactical.points;if(!points.length)return;
+  const bounds=L.latLngBounds(points.map(point=>[point.lat,point.lon]));
   if(bounds.isValid())performProgrammaticMapChange('fit-map',()=>state.map.fitBounds(bounds,{padding:[35,35],maxZoom:14,animate:false}));
 }
 function fitIntelligence() {
@@ -2756,15 +2769,15 @@ function contextualGpsLabel(){
 }
 function objectiveTrailIntel(next){
   const objective=next?.geometry?.coordinates?.[0];if(!objective)return '';
-  const radius=1609.344,freshWindow=Math.max(5,Number(state.settings.competitorFreshMinutes)||15)*60000,cutoff=Date.now()-freshWindow;
+  const now=Date.now(),radius=1609.344,freshWindow=Math.max(5,Number(state.settings.competitorFreshMinutes)||15)*60000,cutoff=now-freshWindow;
   let nearby=0,recentTrails=0,newest=0;
   for(const rider of state.project.competitors||[]){
-    const points=Array.isArray(rider.points)?rider.points:[],last=points.at(-1);if(last&&haversine(last,objective)<=radius)nearby++;
-    const recent=points.filter(point=>{const time=Date.parse(point.time||point.timestamp||point.updatedAt||'');return Number.isFinite(time)&&time>=cutoff&&haversine(point,objective)<=radius;});
-    if(recent.length){recentTrails++;for(const point of recent)newest=Math.max(newest,Date.parse(point.time||point.timestamp||point.updatedAt||'')||0);}
+    const points=competitorTacticalProjection(rider,{now}).tactical.points,last=points.at(-1);if(last&&haversine(last,objective)<=radius)nearby++;
+    let riderRecent=false;for(let index=points.length-1;index>=0;index--){const point=points[index],time=Date.parse(point.time||point.timestamp||point.updatedAt||'');if(Number.isFinite(time)&&time<cutoff)break;if(Number.isFinite(time)&&haversine(point,objective)<=radius){riderRecent=true;newest=Math.max(newest,time);}}
+    if(riderRecent)recentTrails++;
   }
   if(!nearby&&!recentTrails)return '';
-  const age=newest?Math.max(0,Math.round((Date.now()-newest)/60000)):null;
+  const age=newest?Math.max(0,Math.round((now-newest)/60000)):null;
   return `${nearby} rider${nearby===1?'':'s'} near objective · ${recentTrails} recent trail${recentTrails===1?'':'s'} within 1 mi${age===null?'':` · Newest activity ${age} min ago`}`;
 }
 function rallyEmptyState(rows,dayState,reviewMode){
@@ -3451,6 +3464,12 @@ function mapEngineDiagnostics(){
     groups:Object.fromEntries(types.map(type=>[type,mapEngine?.group(type).getLayers().length||0]))
   };
 }
+function competitorLayerDiagnostics(){
+  return (mapEngine?.group('competitors')?.getLayers?.()||[]).map(layer=>{
+    const metadata=layer._cannonMapRender||{},points=metadata.points||[];
+    return {key:metadata.key||null,kind:metadata.kind||null,competitorId:metadata.competitorId||null,pointCount:points.length,pointIds:points.map(breadcrumbKey),points:points.map(point=>({lat:point.lat,lon:point.lon,time:point.time}))};
+  });
+}
 function fieldMediaState(){
   const pending=pendingMediaObjective,camera=checkpointCamera?.getState()||null,coordinator=checkpointArrivalCoordinator?.state()||null;
   const cameraState=camera?{status:camera.status,visibility:camera.visibility||null,captureKind:camera.captureKind||null,pairId:camera.pairId||null,sides:{front:Boolean(camera.sides?.front),rear:Boolean(camera.sides?.rear)}}:null;
@@ -3468,7 +3487,7 @@ function observeCheckpointDetectionsForTest(input={}){
 }
 function checkpointEvidenceStateForTest(id){const checkpoint=state.project.features.find(feature=>feature.id===id);return checkpoint?structuredClone(checkpointEvidenceSnapshot(checkpoint)):null;}
 function rallySessionStateForTest(){return {current:currentRallySession({matchActiveDay:false}),choice:rallySessionChoiceState(),acceptedRallySessionId,pendingRallySessionId,pendingEvidence:structuredClone(pendingEvidenceQueue),activePendingEvidence:structuredClone(activePendingEvidenceEntries())};}
-window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,resumeDeferredQueue,finishDayFromDeferredQueue,startNextRallyDay,finalizePendingPhotoCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival,moveCheckpointInOrder,makeCheckpointNext,restoreImportedCheckpointOrder,handleStationaryAction,renderStationaryEvents,updateStationaryDetection,renderMapFeatures,mapEngineDiagnostics,observationCaptureDiagnostics,captureGpsObservation,replaySecureObservations,observationContext,missionControlJournalEvents,missionControlAppendTestPhotoReference,rideExportSnapshot,missionMediaRecords:async()=>Promise.all((await missionMedia.listProjectPhotos(state.project.projectId)).map(async row=>({role:row.role,metadata:row.metadata,name:row.name,bytes:[...new Uint8Array(await row.blob.arrayBuffer())]}))),rallySessionStateForTest,startNewRallySessionForTest:startNewRallySession,resumeRallySessionForTest:resumeExistingRallySession,pendingEvidenceActionForTest:handlePendingEvidenceAction,rallyDebugEntries:()=>rallyDebug.entries(),gpsFollowState:()=>gpsFollow?.state(),simulateManualMapPan:()=>state.map?.fire('dragstart',{originalEvent:{type:'field-test'}}),gpsMarkerBounds:()=>{if(!state.lastGpsPosition||!state.map)return null;const point=state.map.latLngToContainerPoint([state.lastGpsPosition.lat,state.lastGpsPosition.lon]),mapRect=$('map')?.getBoundingClientRect();return mapRect?{x:mapRect.left+point.x,y:mapRect.top+point.y}:null;},setCompetitorsForTest:competitors=>{state.project.competitors=structuredClone(competitors);renderCompetitors();return mapEngineDiagnostics();},openCompetitorPopupForTest:id=>mapEngine.layers.get('competitors',`marker:${id}`)?.openPopup(),competitorPopupState:()=>structuredClone(competitorPopupSelection),setAutomaticCameraCaptureForTest:handler=>{automaticCaptureOverride=typeof handler==='function'?handler:null;},cameraReadinessState:()=>structuredClone(cameraReadinessState()),cameraSessionState:()=>structuredClone(cameraSession?.state?.()||null),refreshCameraReadinessForTest:refreshCameraReadiness,dayPreflightState:()=>structuredClone(currentPreflightState()),refreshDayPreflightForTest:refreshDayPreflight,proceedFromDayPreflightForTest:proceedFromDayPreflight,checkpointEvidenceStateForTest,reconcilePendingCheckpointEvidenceForTest:options=>reconcilePendingCheckpointEvidence(options),observeCheckpointDetectionsForTest,awaitFieldMediaIdle:()=>checkpointArrivalCoordinator?.whenIdle(),expireManualFallbackForTest:expireManualFallback,fieldMediaState,missionStorageEstimate:()=>missionStorage?.estimate(state.project.projectId),wakeLockState:()=>screenWakeLock?.state()||null,setGpsPositionForTest,
+window.CannonMapTest={filterProhibitedFeatures,sanitizeProjectData,lineGeometriesMatch,lineDistanceMiles,planningMileage,normalizeCheckpoint,rallyCheckpointNumber,selectNextCheckpoint,completeCurrentCheckpoint,deferCurrentCheckpoint,resumeDeferredQueue,finishDayFromDeferredQueue,startNextRallyDay,finalizePendingPhotoCheckpoint,goToHotel,rallyScore,restoreSnapshot,evaluateCheckpointArrival,moveCheckpointInOrder,makeCheckpointNext,restoreImportedCheckpointOrder,handleStationaryAction,renderStationaryEvents,updateStationaryDetection,renderMapFeatures,mapEngineDiagnostics,competitorLayerDiagnostics,competitorTacticalProjectionMetrics:()=>({...competitorTacticalProjectionMetrics}),observationCaptureDiagnostics,captureGpsObservation,replaySecureObservations,observationContext,missionControlJournalEvents,missionControlAppendTestPhotoReference,rideExportSnapshot,missionMediaRecords:async()=>Promise.all((await missionMedia.listProjectPhotos(state.project.projectId)).map(async row=>({role:row.role,metadata:row.metadata,name:row.name,bytes:[...new Uint8Array(await row.blob.arrayBuffer())]}))),rallySessionStateForTest,startNewRallySessionForTest:startNewRallySession,resumeRallySessionForTest:resumeExistingRallySession,pendingEvidenceActionForTest:handlePendingEvidenceAction,rallyDebugEntries:()=>rallyDebug.entries(),gpsFollowState:()=>gpsFollow?.state(),simulateManualMapPan:()=>state.map?.fire('dragstart',{originalEvent:{type:'field-test'}}),gpsMarkerBounds:()=>{if(!state.lastGpsPosition||!state.map)return null;const point=state.map.latLngToContainerPoint([state.lastGpsPosition.lat,state.lastGpsPosition.lon]),mapRect=$('map')?.getBoundingClientRect();return mapRect?{x:mapRect.left+point.x,y:mapRect.top+point.y}:null;},setCompetitorsForTest:competitors=>{state.project.competitors=structuredClone(competitors);renderCompetitors();return mapEngineDiagnostics();},openCompetitorPopupForTest:id=>mapEngine.layers.get('competitors',`marker:${id}`)?.openPopup(),competitorPopupState:()=>structuredClone(competitorPopupSelection),followCompetitorForTest:followCompetitor,zoomCompetitorForTest:zoomCompetitor,mapViewForTest:()=>({center:state.map?.getCenter?.(),zoom:state.map?.getZoom?.()}),setAutomaticCameraCaptureForTest:handler=>{automaticCaptureOverride=typeof handler==='function'?handler:null;},cameraReadinessState:()=>structuredClone(cameraReadinessState()),cameraSessionState:()=>structuredClone(cameraSession?.state?.()||null),refreshCameraReadinessForTest:refreshCameraReadiness,dayPreflightState:()=>structuredClone(currentPreflightState()),refreshDayPreflightForTest:refreshDayPreflight,proceedFromDayPreflightForTest:proceedFromDayPreflight,checkpointEvidenceStateForTest,reconcilePendingCheckpointEvidenceForTest:options=>reconcilePendingCheckpointEvidence(options),observeCheckpointDetectionsForTest,awaitFieldMediaIdle:()=>checkpointArrivalCoordinator?.whenIdle(),expireManualFallbackForTest:expireManualFallback,fieldMediaState,missionStorageEstimate:()=>missionStorage?.estimate(state.project.projectId),wakeLockState:()=>screenWakeLock?.state()||null,setGpsPositionForTest,
   automaticBackupStateForTest:()=>structuredClone(automaticBackup?.state?.()||null),automaticBackupLatestForTest:sessionId=>automaticBackup?.latestRecovery?.(sessionId||currentRallySession()?.sessionId),runAutomaticBackupForTest:trigger=>requestAutomaticBackup(trigger||AUTOMATIC_BACKUP_TRIGGER.SCHEDULED),externalBackupStateForTest:()=>automaticBackup?.externalState?.(),backupHealthStateForTest:()=>structuredClone(backupSchedulerHealth?.state?.()||null),
   rideMemoryStateForTest:()=>structuredClone(rideMemoryCapture?.state?.()||null),runRideMemoryDueForTest:()=>rideMemoryCapture?.runDueNow?.(),setRideMemoryIntervalForTest:milliseconds=>rideMemoryCapture?.setInterval?.(milliseconds),gpsWatchdogStateForTest:()=>structuredClone(gpsWatchdog?.state?.()||null),checkGpsWatchdogForTest:()=>gpsWatchdog?.checkNow?.(),pollingStateForTest:()=>structuredClone(rallyPollingState()),forceReliabilityHealthCheckForTest:()=>runReliabilityHealthCheck({force:true}),
   runtimeDependencyReport,startApplication,registerServiceWorker};
