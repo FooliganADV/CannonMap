@@ -188,8 +188,20 @@ export function trailStatus(points,{now=Date.now(),freshMs=15*60*1000,offlineMs=
   const providerSpeed=last.speedMph===null||last.speedMph===undefined||last.speedMph===''?NaN:Number(last.speedMph);if(speedMph===null&&Number.isFinite(providerSpeed)&&providerSpeed>=0&&providerSpeed<=maxSpeedMph){speedMph=providerSpeed;speedSource='provider_reported';speedConfidence='reported';}
   const providerHeading=last.heading===null||last.heading===undefined||last.heading===''?NaN:Number(last.heading);let direction=Number.isFinite(providerHeading)&&providerHeading>=0&&providerHeading<360?providerHeading:null;
   const directionSample=samples.at(-1);if(direction===null&&directionSample){const {prior,point}=directionSample,y=Math.sin(rad(point.lon-prior.lon))*Math.cos(rad(point.lat)),x=Math.cos(rad(prior.lat))*Math.sin(rad(point.lat))-Math.sin(rad(prior.lat))*Math.cos(rad(point.lat))*Math.cos(rad(point.lon-prior.lon));direction=(Math.atan2(y,x)*180/Math.PI+360)%360;}
+  const pace=(windowMs,minimumCoverageMs)=>{
+    const cutoff=pointTime(last)-windowMs;let distance=0,duration=0;
+    for(let index=1;index<latestSegment.length;index++){
+      const from=latestSegment[index-1],to=latestSegment[index],toTime=pointTime(to),fromTime=pointTime(from);if(toTime<=cutoff)continue;
+      const start=Math.max(fromTime,cutoff),elapsed=toTime-start;if(elapsed<=0||toTime-fromTime>speedMaxIntervalMs)continue;
+      const intervalDistance=distanceMeters(from,to),fraction=Math.min(1,elapsed/(toTime-fromTime));if(intervalDistance/(Math.max(1,toTime-fromTime)/1000)*2.236936>maxSpeedMph)continue;
+      distance+=(intervalDistance<3?0:intervalDistance)*fraction;duration+=elapsed;
+    }
+    return duration>=minimumCoverageMs?distance/(duration/1000)*2.236936:null;
+  };
+  const rollingPaceMph=pace(3*60*1000,15*1000),sustainedPaceMph=pace(15*60*1000,10*60*1000);
+  const normalizedDirection=direction===null?null:(direction%360+360)%360,headingIndex=normalizedDirection===null?null:Math.round(normalizedDirection/45)%8;
   const motion=speedMph===null?'unknown':speedMph>=movingMinMph?'moving':speedMph<=stationaryMaxMph?'stationary':'unknown';
-  return {status,ageMs,lastUpdate:last.time,speedMph,direction,motion,speedSource,speedSampleCount:speeds.length,speedConfidence,pendingObservation:Boolean(tactical.pending)};
+  return {status,ageMs,lastUpdate:last.time,speedMph,currentSpeedMph:speedMph,recentSpeedMph:speedMph,rollingPaceMph,sustainedPaceMph,direction:normalizedDirection,headingDegrees:normalizedDirection,headingCardinal:headingIndex===null?null:['N','NE','E','SE','S','SW','W','NW'][headingIndex],headingArrow:headingIndex===null?null:['↑','↗','→','↘','↓','↙','←','↖'][headingIndex],motion,speedSource,speedSampleCount:speeds.length,speedConfidence,pendingObservation:Boolean(tactical.pending)};
 }
 
 export function mergeCompetitorSnapshots(existing,incoming,options={}){

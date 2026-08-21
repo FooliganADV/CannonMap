@@ -62,6 +62,8 @@ import {createWeatherMaintenance} from './src/application/weather-maintenance.js
 import {createFinalizedProjectService} from './src/application/finalized-project-service.js';
 import {createFinalizedProjectRepository} from './src/infrastructure/indexeddb/finalized-project-repository.js';
 import {stableCompetitorId,breadcrumbKey,deriveTacticalTrail,compactTrailSegmentsForRender,trailStatus,mergeCompetitorSnapshots,buildTacticalClusters} from './src/domain/competitors/trails.js';
+import {competitorMarkerIconSpec,competitorTrailStyle,compactRiderListHtml,shouldShowTacticalCluster,riderSourceLabel} from './src/ui/trail-intel/tactical-presentation.js';
+import {buildTargetActivity,mergeRecentTargetActivity} from './src/domain/competitors/target-intelligence.js';
 import {
   createAnalyticsRepository,createJournalRepository,createLegacyCurrentProjectRepository,
   createObservationCaptureRepository,createProjectDeletionRepository,createProjectLifecycleRepository,
@@ -71,13 +73,13 @@ import {
 import {createFirebaseAuthentication} from './src/infrastructure/firebase/authentication.js';
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
-const APP_VERSION = '0.7.13';
-const BUILD_ID = '2026.08.20.trail-intel-history-1';
+const APP_VERSION = '0.7.14';
+const BUILD_ID = '2026.08.21.trail-intel-tactical-1';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const CAMERA_SETUP_HINT_KEY = 'cannonmap.camera-setup-succeeded.v1';
-const APP_SHELL_CACHE = 'cannonmap-v0.7.13-20260820-trail-intel-history-1';
-const PREFLIGHT_SHELL_ASSETS = Object.freeze(['./index.html','./app.js?v=20260820-trail-intel-history-1','./app.css?v=20260820-trail-intel-history-1']);
+const APP_SHELL_CACHE = 'cannonmap-v0.7.14-20260821-trail-intel-tactical-1';
+const PREFLIGHT_SHELL_ASSETS = Object.freeze(['./index.html','./app.js?v=20260821-trail-intel-tactical-1','./app.css?v=20260821-trail-intel-tactical-1']);
 const AUTOMATIC_BACKUP_INTERVAL_MS=2*60*60*1000;
 const RELIABILITY_HEALTH_INTERVAL_MS=5*60*1000;
 const GPS_FOREGROUND_STALL_MS=45*1000;
@@ -151,6 +153,7 @@ let pendingFinalizedExport=null;
 let restoredDayReview=null;
 let lastRestoreResult=null;
 let competitorPopupSelection=null;
+let selectedCompetitorId=null;
 const competitorTacticalProjectionCache=new WeakMap();
 const competitorTacticalProjectionMetrics={hits:0,misses:0,compactions:0};
 let weatherMaintenance=null;
@@ -401,7 +404,8 @@ function featureStyle(feature) {
 function markerIcon(feature) {
   const color = ['checkpoint','hotel'].includes(feature.type)?checkpoints.CHECKPOINT_COLOR[checkpoints.checkpointState(feature.status)]:(COLORS[feature.type] || COLORS.waypoint);
   const label = feature.type === 'fuel' ? 'F' : feature.type === 'hotel' ? 'H' : feature.type === 'checkpoint' ? 'C' : '•';
-  return L.divIcon({ className:'', html:`<div style="width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:${color};color:#07111f;border:2px solid white;font-weight:900;font-size:12px;box-shadow:0 2px 8px #0008">${label}</div>`, iconSize:[24,24], iconAnchor:[12,12] });
+  const active=(state.project.recentTargetActivity||[]).some(item=>String(item.objectiveId)===String(feature.id)&&Date.now()-Date.parse(item.closestApproachTimestamp)<=30*60*1000);
+  return L.divIcon({ className:active?'checkpoint-recent-activity':'', html:`<div style="width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:${color};color:#07111f;border:2px solid white;font-weight:900;font-size:12px;box-shadow:0 2px 8px #0008">${label}</div>`, iconSize:[24,24], iconAnchor:[12,12] });
 }
 function createLeafletLayer(feature) {
   let layer;
@@ -439,7 +443,7 @@ function renderMapFeatures() {
   ).map(feature=>({feature,key:feature.id||`legacy-index:${state.project.features.indexOf(feature)}`}));
   const layers=mapEngine.layers.reconcile('features',visible,{
     key:model=>model.key,
-    fingerprint:model=>JSON.stringify({feature:deepClean(model.feature),lineOpacity:state.settings.lineOpacity}),
+    fingerprint:model=>JSON.stringify({feature:deepClean(model.feature),lineOpacity:state.settings.lineOpacity,targetActivity:(state.project.recentTargetActivity||[]).some(item=>String(item.objectiveId)===String(model.feature.id)&&Date.now()-Date.parse(item.closestApproachTimestamp)<=30*60*1000)}),
     create:model=>createLeafletLayer(model.feature)
   });
   visible.forEach(model=>model.feature._layer=layers.get(String(model.key)));
@@ -470,7 +474,7 @@ function renderCompetitors() {
     if (!Array.isArray(comp.points) || !comp.points.length) return;
     const competitorKey=comp.id||comp.name||`legacy-index:${index}`;
     const projection=competitorTacticalProjection(comp,{now,includeRenderSegments:true}),tactical=projection.tactical,segments=projection.segments,freshness=competitorFreshness(comp,tactical,now);
-    const opacity = (freshness.fresh ? .88 : .32)*(Number(state.settings.competitorTrailOpacity??100)/100);
+    const opacity=Number(state.settings.competitorTrailOpacity??100)/100;
     tacticalByCompetitorId.set(String(comp.id),tactical);
     if (state.settings.showCompetitorTrails !== false && comp.trailHidden!==true) {
       segments.filter(segment=>segment.length>1).forEach((segment,segmentIndex)=>models.push({key:`trail:${competitorKey}:${segmentIndex}:${pointTimestamp(segment[0])}`,kind:'trail',comp,freshness,opacity,points:segment}));
@@ -483,19 +487,21 @@ function renderCompetitors() {
     key:model=>model.key,
     fingerprint:model=>JSON.stringify({
       kind:model.kind,id:model.comp.id,name:model.comp.name,points:model.points,point:model.point,
-      fresh:model.freshness.fresh,age:model.freshness.ageMinutes===null?null:Math.round(model.freshness.ageMinutes)
+      fresh:model.freshness.fresh,age:model.freshness.ageMinutes===null?null:Math.round(model.freshness.ageMinutes),selectedCompetitorId
     }),
     create:model=>{
       if(model.kind==='trail'){
-        const line=L.polyline(model.points.map(p=>[p.lat,p.lon]),{pane:'competitorTrailsPane',color:COLORS.competitor,weight:model.freshness.fresh?4:3,dashArray:model.freshness.fresh?null:'7 7',opacity:model.opacity});
+        const line=L.polyline(model.points.map(p=>[p.lat,p.lon]),competitorTrailStyle(model.comp,{fresh:model.freshness.fresh,opacity:model.opacity,selectedRiderId:selectedCompetitorId}));
         line.bindTooltip(`${model.comp.name||model.comp.id} · ${model.freshness.ageMinutes===null?'unknown age':`${Math.round(model.freshness.ageMinutes)} min old`}`);
+        line.on('click',()=>selectCompetitor(model.comp.id));
         line._cannonMapRender={key:model.key,kind:model.kind,competitorId:String(model.comp.id),points:model.points};
         return line;
       }
       const last=model.point;
-      const marker=L.circleMarker([last.lat,last.lon],{pane:'competitorTrailsPane',radius:model.freshness.fresh?7:5,color:'#fff',weight:2,fillColor:COLORS.competitor,fillOpacity:model.opacity});
-      const speed=model.freshness.speedMph===null?'Unavailable':`${model.freshness.speedMph.toFixed(1)} mph`,direction=model.freshness.direction===null?'Unavailable':`${Math.round(model.freshness.direction)}°`;
-      marker.bindPopup(`<strong>${escapeHtml(model.comp.name||model.comp.id)}</strong><br>${escapeHtml(last.time||'Time unavailable')}<br>${escapeHtml(model.freshness.status)} · ${escapeHtml(model.freshness.motion)}<br>Speed ${speed} · Direction ${direction}`);
+      const iconSpec=competitorMarkerIconSpec(model.comp,{selectedRiderId:selectedCompetitorId}),marker=L.marker([last.lat,last.lon],{pane:selectedCompetitorId===String(model.comp.id)?'activeRiderPane':'competitorTrailsPane',icon:L.divIcon({className:iconSpec.className,html:iconSpec.html,iconSize:[iconSpec.size,iconSpec.size],iconAnchor:[iconSpec.size/2,iconSpec.size/2]}),zIndexOffset:iconSpec.zIndexOffset});
+      const value=value=>value===null||value===undefined?'—':`${Number(value).toFixed(1)} mph`;
+      marker.bindPopup(`<strong>Rider ${escapeHtml(riderSourceLabel(model.comp))} · ${escapeHtml(model.comp.name||'')}</strong><br>${escapeHtml(last.time||'Time unavailable')}<br>${escapeHtml(model.freshness.status)} · ${escapeHtml(model.freshness.motion)}<br>Current ${value(model.freshness.currentSpeedMph)}<br>3-minute pace ${value(model.freshness.rollingPaceMph)}<br>15-minute pace ${value(model.freshness.sustainedPaceMph)}<br>Heading ${escapeHtml(model.freshness.headingCardinal||'—')}`);
+      marker.on('click',()=>selectCompetitor(model.comp.id));
       marker.on('popupopen',()=>competitorPopupSelection={type:'competitor',id:String(model.comp.id),openedAt:Date.now()});marker.on('popupclose',()=>{if(competitorPopupSelection?.id===String(model.comp.id))competitorPopupSelection=null;});
       marker._cannonMapRender={key:model.key,kind:model.kind,competitorId:String(model.comp.id),points:[last]};
       return marker;
@@ -507,6 +513,7 @@ function renderCompetitors() {
   const last=followed?tacticalByCompetitorId.get(String(followed.id))?.latest:null;
   if(last)performProgrammaticMapChange('competitor-follow',()=>state.map.setView([last.lat,last.lon],Math.max(14,state.map.getZoom()),{animate:false}));
 }
+function selectCompetitor(id){selectedCompetitorId=id===null?null:String(id);renderCompetitors();renderCompetitorSummary();}
 function formatStationaryDuration(ms) {
   const minutes=Math.max(0,Math.floor(Number(ms||0)/60000)),hours=Math.floor(minutes/60);
   return hours?`${hours}h ${minutes%60}m`:`${minutes} min`;
@@ -632,7 +639,7 @@ function renderAll() {
   renderMapFeatures(); renderLayerList(); renderStats(); renderCompetitorSummary(); renderMissionControl(); renderTypeLayerControls(); renderSearch(); renderIntelSummary(); renderRallyMode();
 }
 function renderCompetitorClusters(tacticalByCompetitorId=null,now=Date.now()){
-  if(state.settings.showCompetitorClusters===false){mapEngine.layers.clear('competitorClusters');return;}
+  if(state.settings.showCompetitorClusters===false||selectedCompetitorId!==null||!shouldShowTacticalCluster({zoom:state.map?.getZoom?.(),riderCount:state.project.competitors.length})){mapEngine.layers.clear('competitorClusters');return;}
   const clusters=buildTacticalClusters(state.project.competitors,{now,tacticalByCompetitorId});mapEngine.layers.reconcile('competitorClusters',clusters,{key:cluster=>cluster.id,fingerprint:cluster=>JSON.stringify(cluster),create:cluster=>{
     const marker=L.circleMarker([cluster.center.lat,cluster.center.lon],{pane:'stationaryPane',radius:12,color:'#fff',weight:2,fillColor:'#7c3aed',fillOpacity:.86});
     const nearby=state.project.features.filter(feature=>['checkpoint','hotel'].includes(feature.type)&&feature.geometry?.kind==='point').map(feature=>({feature,distance:haversine(cluster.center,feature.geometry.coordinates[0])})).filter(item=>item.distance<=500).sort((a,b)=>a.distance-b.distance)[0]?.feature;
@@ -2159,9 +2166,8 @@ async function importCompetitorJson(file) {
   } catch(error){setStatus(`Competitor import failed: ${error.message}`,true);}
 }
 function renderCompetitorSummary() {
-  const box=$('competitorSummary');if(!box)return;if(!state.project.competitors.length){box.className='layer-list empty';box.textContent='No competitor data loaded.';return;}
-  const now=Date.now();box.className='layer-list';box.innerHTML=state.project.competitors.map(c=>{const tactical=competitorTacticalProjection(c,{now}).tactical,fresh=competitorFreshness(c,tactical,now);const age=fresh.ageMinutes===null?'undated':`${Math.round(fresh.ageMinutes)} min`;return `<div class="layer-row"><span class="swatch" style="background:${fresh.fresh?COLORS.competitor:'#64748b'}"></span><button type="button" data-rider-id="${escapeHtml(c.id)}"><strong>${escapeHtml(c.name)}</strong><small>${c.points.length} breadcrumbs · ${age}</small></button><span class="fresh-dot ${fresh.fresh?'is-fresh':''}" title="${fresh.fresh?'Fresh':'Stale'}"></span></div>`;}).join('');
-  box.querySelectorAll('[data-rider-id]').forEach(button=>button.onclick=()=>zoomCompetitor(button.dataset.riderId));
+  const boxes=[$('competitorSummary'),$('mobileCompetitorSummary')].filter(Boolean),now=Date.now();if(!boxes.length)return;
+  for(const box of boxes){if(!state.project.competitors.length){box.className='layer-list empty';box.textContent='No competitor data loaded.';continue;}box.className='tactical-competitor-summary';box.innerHTML=compactRiderListHtml(state.project.competitors,{selectedRiderId:selectedCompetitorId,statusForRider:rider=>competitorFreshness(rider,competitorTacticalProjection(rider,{now}).tactical,now)});box.querySelectorAll('[data-rider-id]').forEach(button=>button.onclick=()=>selectCompetitor(button.dataset.riderId));box.querySelector('[data-rider-view-all]')?.addEventListener('click',()=>selectCompetitor(null));}
 }
 
 function formatAge(minutes) {
@@ -2219,7 +2225,7 @@ function normalizeCompetitorPayload(payload) {
   }).filter(comp=>comp.points.length);
 }
 function mergeCompetitorData(incoming) {
-  const priorIds=new Set(state.project.competitors.map(item=>String(item.id))),result=mergeCompetitorSnapshots(state.project.competitors,incoming,{historyMs:Math.max(15,Number(state.settings.competitorTrailMinutes)||480)*60000,maxPoints:12000});state.project.competitors=result.competitors;return {added:result.added,riders:result.competitors.filter(item=>!priorIds.has(String(item.id))).length};
+  const priorIds=new Set(state.project.competitors.map(item=>String(item.id))),result=mergeCompetitorSnapshots(state.project.competitors,incoming,{historyMs:Math.max(15,Number(state.settings.competitorTrailMinutes)||480)*60000,maxPoints:12000});state.project.competitors=result.competitors;const target=currentCheckpoint();if(target)state.project.recentTargetActivity=mergeRecentTargetActivity(state.project.recentTargetActivity,buildTargetActivity(result.competitors,target));return {added:result.added,riders:result.competitors.filter(item=>!priorIds.has(String(item.id))).length};
 }
 async function fetchWithTimeout(url,options={},timeout=15000) {
   const controller=new AbortController(),upstream=options.signal,relay=()=>controller.abort(upstream?.reason);if(upstream?.aborted)relay();else upstream?.addEventListener?.('abort',relay,{once:true});
@@ -2769,6 +2775,8 @@ function contextualGpsLabel(){
 }
 function objectiveTrailIntel(next){
   const objective=next?.geometry?.coordinates?.[0];if(!objective)return '';
+  const activity=buildTargetActivity(state.project.competitors||[],next),recent=mergeRecentTargetActivity(state.project.recentTargetActivity,activity).filter(item=>String(item.objectiveId)===String(next.id));
+  if(recent.length){const counts=recent.reduce((all,item)=>(all[item.state]=(all[item.state]||0)+1,all),{}),parts=[];if(counts['approaching-target'])parts.push(`${counts['approaching-target']} approaching`);if(counts['stopped-near-target'])parts.push(`${counts['stopped-near-target']} stopped near target`);if(counts['passed-target-vicinity'])parts.push(`${counts['passed-target-vicinity']} passed vicinity`);if(counts['departed-target'])parts.push(`${counts['departed-target']} departed`);if(parts.length)return parts.join(' · ');}
   const now=Date.now(),radius=1609.344,freshWindow=Math.max(5,Number(state.settings.competitorFreshMinutes)||15)*60000,cutoff=now-freshWindow;
   let nearby=0,recentTrails=0,newest=0;
   for(const rider of state.project.competitors||[]){
