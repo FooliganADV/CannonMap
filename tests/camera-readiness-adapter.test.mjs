@@ -176,7 +176,7 @@ test('a hung native still readiness probe is bounded and its stream is stopped',
 
 test('persistent session owns readiness probes and is disposed on revocation and adapter destroy',async()=>{
   const status=new FakePermissionStatus('granted'),reasons=[];let initialized=0,destroyed=0;
-  const cameraSession={initialize:async input=>{initialized++;assert.deepEqual(input,{scopeToken:'project-a:1',timeoutMs:10000});return {ready:true,verifiedNativeStill:true,verifiedRoles:['rear','front'],probes:[]};},state:()=>({ready:true,retainedStreamCount:2}),teardown:reason=>reasons.push(reason),destroy:()=>{destroyed++;}};
+  const cameraSession={initialize:async input=>{initialized++;assert.deepEqual(input,{scopeToken:'project-a:1',timeoutMs:10000});return {ready:true,verifiedNativeStill:true,verifiedRoles:['rear','front'],probes:[]};},state:()=>({ready:true,retainedStreamCount:0}),teardown:reason=>reasons.push(reason),destroy:()=>{destroyed++;}};
   const adapter=createBrowserCameraReadinessAdapter({permissions:{async query(){return status;}},mediaDevices:{getUserMedia:async()=>{throw new Error('session owns acquisition');}},imageCaptureFactory:()=>({takePhoto(){}}),cameraSession,sessionScopeProvider:()=> 'project-a:1'});
   await adapter.queryPermission();await adapter.probeCameras();assert.equal(initialized,1);assert.equal(adapter.cameraSessionReady(),true);
   status.change('denied');assert.deepEqual(reasons,['camera-permission-denied']);adapter.destroy();assert.equal(destroyed,1);

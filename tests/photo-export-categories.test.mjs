@@ -27,6 +27,7 @@ const serviceFor=rows=>createPhotoExportService({repository:{listProjectPhotos:a
 
 test('photo categories distinguish checkpoint, hotel, and Journey media without changing blobs',()=>{
   assert.equal(photoArchiveCategory(records[0]),'Checkpoints');assert.equal(photoArchiveCategory(records[2]),'Hotels');assert.equal(photoArchiveCategory(records[4]),'Journey');
+  assert.equal(photoArchiveCategory({metadata:{captureType:'camera_diagnostic',diagnosticOnly:true}}),'Camera_Diagnostics');
 });
 
 test('Day Photos includes checkpoint, Journal-resolved hotel, and Journey media with exact names and bytes',async()=>{

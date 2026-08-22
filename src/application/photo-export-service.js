@@ -141,6 +141,7 @@ function resolvedMediaRecord(record,journalIndex){
 export function photoArchiveCategory(record){
   const type=String(record.metadata?.objectiveType||'').toLowerCase(),eventName=String(record.metadata?.eventName||'').toLowerCase(),checkpointId=String(record.checkpointId||'').toLowerCase();
   if(type==='ride_memory'||record.metadata?.captureType==='ride_memory'||checkpointId.startsWith('ride-memory:'))return 'Ride_Memories';
+  if(type==='camera_diagnostic'||record.metadata?.captureType==='camera_diagnostic'||record.metadata?.diagnosticOnly===true)return 'Camera_Diagnostics';
   if(type==='journey'||checkpointId.startsWith('journey:')||eventName==='journey photo')return 'Journey';
   if(type==='hotel'||eventName==='hotel arrival'||/_hotel/i.test(String(record.name||'')))return 'Hotels';
   return 'Checkpoints';

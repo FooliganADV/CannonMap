@@ -9,6 +9,7 @@ const checkpointIdOf=event=>text(event?.references?.checkpointId||event?.metadat
 const pairIdOf=value=>text(value?.pairId||value?.references?.pairId||value?.metadata?.pairId||value?.abandonedPairId||value?.metadata?.abandonedPairId);
 const sessionIdOf=value=>text(value?.sessionId||value?.metadata?.sessionId||value?.references?.sessionId);
 const matchesSession=(value,sessionId,includeLegacyUnscoped)=>!sessionId||sessionIdOf(value)===text(sessionId)||(includeLegacyUnscoped&&!sessionIdOf(value));
+const diagnosticMedia=value=>value?.diagnosticOnly===true||value?.metadata?.diagnosticOnly===true||text(value?.captureType||value?.metadata?.captureType||value?.objectiveType||value?.metadata?.objectiveType).toLowerCase()==='camera_diagnostic';
 const mediaRole=record=>text(record?.role||record?.metadata?.role).toLowerCase();
 const cameraRole=record=>{
   const role=text(record?.cameraRole||record?.metadata?.cameraRole||record?.logicalSide||record?.metadata?.logicalSide).toLowerCase();
@@ -121,7 +122,7 @@ export function createCheckpointEvidenceReconciliationService({mediaRepository,p
     ))||null;
     const storedPhotoState=text(checkpoint?.checkpointEvidence?.photo?.state||checkpoint?.photoEvidenceState||checkpoint?.photoStatus).toLowerCase(),evidenceGateComplete=checkpoint.photoRequired!==true||storedPhotoState==='complete'||storedPhotoState==='recorded'||checkpoint?.photoPair?.status==='complete';
     const alreadyCompleted=evidenceGateComplete&&(text(checkpoint?.status).toLowerCase()==='collected'||checkpoint?.checkpointEvidence?.completion?.state==='completed'||Boolean(checkpoint?.completedAt)||Boolean(completionEvent));
-    const records=uniqueByMediaId((await mediaRepository.listCheckpointPhotos(String(projectId),checkpointId)).filter(record=>matchesSession(record,sessionId,includeLegacyUnscoped)));
+    const records=uniqueByMediaId((await mediaRepository.listCheckpointPhotos(String(projectId),checkpointId)).filter(record=>matchesSession(record,sessionId,includeLegacyUnscoped)&&!diagnosticMedia(record)));
     const groups=groupedMedia(records),pairId=selectPairId(checkpoint,events,groups),pairRecords=pairId?(groups.get(pairId)||[]):[];
     const analysis=analyzeSides(pairRecords,pairId),completeSides=['front','rear'].filter(role=>Boolean(analysis.sides[role])),missingSides=['front','rear'].filter(role=>!analysis.sides[role]);
     const retryOriginalIds=analysis.retry.map(record=>text(record.mediaId)).filter(Boolean),reattachOriginalIds=analysis.reattach.map(item=>text(item.original.mediaId)).filter(Boolean),completePair=completeSides.length===2&&reattachOriginalIds.length===0;
@@ -154,7 +155,7 @@ export function createCheckpointEvidenceReconciliationService({mediaRepository,p
     let report=inspection||await inspect({projectId,checkpoint,journalEvents,sessionId,includeLegacyUnscoped});
     if(report.action!=='retry_evidence')return report;
     for(const originalMediaId of report.reattachOriginalIds||[]){
-      const original=await mediaRepository.getMedia?.(originalMediaId),records=(await mediaRepository.listCheckpointPhotos(String(projectId),text(checkpoint?.id))).filter(record=>matchesSession(record,sessionId,includeLegacyUnscoped)),evidence=records.find(record=>mediaRole(record)==='evidence'&&(
+      const original=await mediaRepository.getMedia?.(originalMediaId),records=(await mediaRepository.listCheckpointPhotos(String(projectId),text(checkpoint?.id))).filter(record=>matchesSession(record,sessionId,includeLegacyUnscoped)&&!diagnosticMedia(record)),evidence=records.find(record=>mediaRole(record)==='evidence'&&(
         text(record.derivedFromMediaId)===text(originalMediaId)||text(record.pairedMediaId)===text(originalMediaId)||text(record.mediaGroupId)===text(original?.mediaGroupId)
       ));
       if(!original||!evidence||typeof mediaRepository.reattachRecoveredEvidencePair!=='function')continue;

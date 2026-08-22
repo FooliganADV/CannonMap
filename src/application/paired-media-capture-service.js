@@ -9,8 +9,18 @@ const captureSummary=capture=>({
   mimeType:String(capture?.provenance?.mimeType||capture?.blob?.type||'application/octet-stream'),
   byteLength:Number(capture?.provenance?.byteLength||capture?.blob?.size)||0,
   width:finitePositive(capture?.provenance?.width),height:finitePositive(capture?.provenance?.height),
-  sourceKind:capture?.provenance?.sourceKind||'unknown',nativeStill:capture?.provenance?.nativeStill===true
+  sourceKind:capture?.provenance?.sourceKind||'unknown',nativeStill:capture?.provenance?.nativeStill===true,
+  derivedFromVideoFrame:capture?.provenance?.derivedFromVideoFrame===true,
+  recoveryPath:capture?.provenance?.recoveryPath||'none',nativeRetryCount:Number(capture?.provenance?.nativeRetryCount)||0
 });
+const validNativeStill=capture=>capture?.provenance?.nativeStill===true&&capture?.provenance?.derivedFromVideoFrame!==true&&capture?.provenance?.cameraSelectionHonored!==false;
+const recoveredCapture=capture=>Number(capture?.provenance?.nativeRetryCount)>0||String(capture?.provenance?.recoveryPath||'none')!=='none';
+
+function degradedCaptureError(capture,side){
+  return Object.assign(new Error('Automatic checkpoint Evidence requires a native still; the recovered video frame was retained only as degraded capture context.'),{
+    code:'NON_NATIVE_AUTOMATIC_CAPTURE',degradedCapture:capture,degradedCaptures:Object.freeze({[side.key]:capture})
+  });
+}
 
 /** Conservative and metadata-only: no decoded pixels or camera bytes enter diagnostics. */
 export function assessNativeStillQuality(capture,{minimumWidth=960,minimumHeight=720,minimumBytesPerPixel=.012}={}){
@@ -32,7 +42,7 @@ export function selectBestNativeStill(primary,backup,{assess=assessNativeStillQu
 }
 
 export class PairedMediaCaptureError extends Error{
-  constructor(message,{cause,pairId,failedSide,failureStage=null,partial={},recoverableOriginal=null}={}){
+  constructor(message,{cause,pairId,failedSide,failureStage=null,partial={},recoverableOriginal=null,degradedCapture=null,degradedCaptures=null}={}){
     super(message,{cause});this.name='PairedMediaCaptureError';this.code='PAIRED_MEDIA_CAPTURE_FAILED';this.pairId=pairId||null;this.failedSide=failedSide||null;this.partial=Object.freeze({...partial});
     this.failureStage=failureStage||cause?.failureStage||'unknown';
     this.recoverableOriginal=recoverableOriginal||cause?.originalMedia||null;
@@ -40,6 +50,8 @@ export class PairedMediaCaptureError extends Error{
     this.originalDurablyDetached=Boolean(cause?.originalDurablyDetached);
     this.requiresNewPair=Boolean(cause?.requiresNewPair);
     this.cleanupErrors=Object.freeze([...(cause?.cleanupErrors||[])]);
+    this.degradedCapture=degradedCapture||cause?.degradedCapture||null;
+    this.degradedCaptures=Object.freeze({...cause?.degradedCaptures,...degradedCaptures});
   }
 }
 
@@ -49,7 +61,7 @@ function withFailureStage(error,failureStage){
   if(error?.failureStage)return error;
   const wrapped=new Error(error?.message||String(error),{cause:error});
   wrapped.name=error?.name||'Error';wrapped.code=error?.code||null;wrapped.failureStage=failureStage;
-  for(const key of ['originalMedia','evidenceRetryable','originalDurablyDetached','requiresNewPair','cleanupErrors'])if(error?.[key]!==undefined)wrapped[key]=error[key];
+  for(const key of ['originalMedia','evidenceRetryable','originalDurablyDetached','requiresNewPair','cleanupErrors','degradedCapture','degradedCaptures'])if(error?.[key]!==undefined)wrapped[key]=error[key];
   return wrapped;
 }
 
@@ -69,22 +81,27 @@ export function createPairedMediaCaptureService({captureStill,photoEvidence=null
     let primary,failureStage='camera-capture';
     try{
     try{
-      primary=await captureStill(side.requestedCamera,{signal,onPhase:(phase,details)=>emit(onEvent,phase,{...common,side:side.key,...details})});
+      primary=await captureStill(side.requestedCamera,{signal,captureType:'checkpoint_evidence',onPhase:(phase,details)=>emit(onEvent,phase,{...common,side:side.key,...details})});
     }catch(error){
       await emit(onEvent,'camera_failure',{...common,side:side.key,errorName:error?.name||'Error',errorCode:error?.code||null});throw error;
     }
-    if(primary?.provenance?.nativeStill!==true||primary?.provenance?.derivedFromVideoFrame===true)throw new Error('Automatic Original must come from a native still source.');
+    if(!validNativeStill(primary)){
+      await emit(onEvent,'automatic_degraded_capture_rejected',{...common,side:side.key,...captureSummary(primary),reason:'checkpoint-evidence-requires-native-still'});
+      throw degradedCaptureError(primary,side);
+    }
     const primaryQuality=assess(primary);
     await emit(onEvent,'automatic_primary_capture',{...common,side:side.key,quality:primaryQuality});
 
     let backup=null,backupAttempted=false;
-    if(primaryQuality.poor){
+    if(primaryQuality.poor&&!recoveredCapture(primary)){
       backupAttempted=true;
       await emit(onEvent,'automatic_backup_capture_initiated',{...common,side:side.key,reasons:primaryQuality.reasons});
-      try{backup=await captureStill(side.requestedCamera,{signal,onPhase:(phase,details)=>emit(onEvent,phase,{...common,side:side.key,attempt:'backup',...details})});}
+      try{backup=await captureStill(side.requestedCamera,{signal,captureType:'checkpoint_evidence',onPhase:(phase,details)=>emit(onEvent,phase,{...common,side:side.key,attempt:'backup',...details})});}
       catch(error){await emit(onEvent,'automatic_backup_capture_failed',{...common,side:side.key,errorName:error?.name||'Error',errorCode:error?.code||null});}
+    }else if(primaryQuality.poor){
+      await emit(onEvent,'automatic_quality_backup_suppressed',{...common,side:side.key,reasons:primaryQuality.reasons,recoveryPath:primary.provenance?.recoveryPath||'none',nativeRetryCount:Number(primary.provenance?.nativeRetryCount)||0});
     }
-    if(backup&&(backup.provenance?.nativeStill!==true||backup.provenance?.derivedFromVideoFrame===true)){
+    if(backup&&!validNativeStill(backup)){
       await emit(onEvent,'automatic_backup_capture_failed',{...common,side:side.key,errorName:'InvalidSource',errorCode:'NON_NATIVE_BACKUP'});backup=null;
     }
     const choice=selectBestNativeStill(primary,backup,{assess});
@@ -110,7 +127,7 @@ export function createPairedMediaCaptureService({captureStill,photoEvidence=null
       await emit(onEvent,'paired_capture_initiated',base);
       for(const side of SIDES){
         try{sides[side.key]=await captureSide(side,{signal,pairId,pairJournalEventId,projectId,checkpointId,journalEventId,context,onEvent});}
-        catch(error){throw new PairedMediaCaptureError(`Automatic ${side.key} capture failed.`,{cause:error,pairId,failedSide:side.key,failureStage:error?.failureStage,partial:sides,recoverableOriginal:error?.originalMedia||null});}
+        catch(error){throw new PairedMediaCaptureError(`Automatic ${side.key} capture failed.`,{cause:error,pairId,failedSide:side.key,failureStage:error?.failureStage,partial:sides,recoverableOriginal:error?.originalMedia||null,degradedCapture:error?.degradedCapture||null,degradedCaptures:error?.degradedCaptures||null});}
       }
       // Pair completion belongs to checkpoint-camera-workflow, which first writes the
       // durable photo_added Journal relationship and then marks all four assets complete.

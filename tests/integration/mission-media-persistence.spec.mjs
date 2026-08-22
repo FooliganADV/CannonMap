@@ -54,6 +54,15 @@ test('Ride Memory persists one exact Original with not-required evidence semanti
   expect(result).toEqual({count:1,role:'original',evidenceStatus:'not_required',pairId:null,pairedMediaId:null,captureType:'ride_memory',sessionId:'session-1',name:'Day01_RideMemory_20260820_130001-000_Rear_Original.jpg',bytes:'samsung-memory-photo'});
 });
 
+test('scoped backup descriptors omit binary bytes and diagnostic Originals cannot enter evidence pairs',async({page},testInfo)=>{
+  const result=await page.evaluate(async name=>{
+    const module=await import('/src/infrastructure/indexeddb/index.js'),database=await module.openIndexedDbV2({indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name}),repository=module.createMissionMediaRepository({database,createId:()=>'',clock:{iso:()=> '2026-08-22T12:00:00.000Z'}});
+    await repository.addOriginal({projectId:'project',checkpointId:'cp-1',journalEventId:'diagnostic-event',originalFile:new Blob(['fallback-frame'],{type:'image/jpeg'}),metadata:{dayNumber:1,sessionId:'session-1',pairId:'checkpoint-pair',cameraRole:'rear',diagnosticOnly:true,captureType:'camera_diagnostic'},identities:{mediaGroupId:'diagnostic-group',originalMediaId:'diagnostic-original',evidenceMediaId:'must-not-link'}});
+    const descriptor=(await repository.listProjectSessionPhotoDescriptors('project','session-1'))[0],stored=await repository.getMedia('diagnostic-original'),answer={descriptorHasBlob:'blob'in descriptor,descriptorHasBinaryData:'binaryData'in descriptor,descriptor,stored:{pairId:stored.pairId,pairStatus:stored.pairStatus,pairedMediaId:stored.pairedMediaId,evidenceStatus:stored.evidenceStatus,metadataPairId:stored.metadata.pairId,captureType:stored.metadata.captureType}};database.close();return answer;
+  },`CannonMapDB-backup-descriptors-${testInfo.project.name}-${Date.now()}`);
+  expect(result.descriptorHasBlob).toBeFalsy();expect(result.descriptorHasBinaryData).toBeFalsy();expect(result.descriptor.size).toBe(14);expect(result.stored).toEqual({pairId:null,pairStatus:null,pairedMediaId:null,evidenceStatus:'not_required',metadataPairId:'checkpoint-pair',captureType:'camera_diagnostic'});
+});
+
 test('camera File and Evidence Blob persist as exact byte buffers without Blob/File structured cloning',async({page},testInfo)=>{
   const result=await page.evaluate(async name=>{
     const module=await import('/src/infrastructure/indexeddb/index.js');let database=await module.openIndexedDbV2({indexedDB,featureFlags:{isEnabled:()=>true},databaseName:name}),number=0;

@@ -26,6 +26,16 @@ test('compact recovery snapshots and external directory grant metadata survive d
   expect(result.directory).toMatchObject({permission:'granted',handle:{kind:'directory',name:'CannonMap Backups'}});
 });
 
+test('recovery snapshot repository rejects nested JPEG Blob, ArrayBuffer, and typed-array payloads',async({page},testInfo)=>{
+  await page.goto('/');
+  const result=await page.evaluate(async databaseName=>{
+    const indexed=await import('/src/infrastructure/indexeddb/index.js'),database=await indexed.openIndexedDbV2({indexedDB,featureFlags:{isEnabled:()=>true},databaseName}),snapshots=indexed.createRecoverySnapshotRepository({database}),base={snapshotId:'snapshot',projectId:'project',dayNumber:1,sessionId:'session',trigger:'session_start',fingerprint:'fingerprint',createdAt:new Date().toISOString(),verified:true,manifest:{sessionId:'session'},recovery:{project:{},settings:{},session:{},journal:[],mediaReferences:[]}},failures=[];
+    for(const binary of [new Blob(['jpeg']),new Uint8Array([1,2,3]).buffer,new Uint8Array([1,2,3])]){try{await snapshots.save({...base,snapshotId:`snapshot-${failures.length}`,fingerprint:`fingerprint-${failures.length}`,recovery:{...base.recovery,mediaReferences:[{mediaId:'media',nested:{binary}}]}});failures.push(null);}catch(error){failures.push(error.message);}}
+    database.close();return failures;
+  },`automatic-backup-binary-rejection-${Date.now()}`);
+  expect(result).toHaveLength(3);expect(result.every(message=>/without binary media payloads/.test(message))).toBeTruthy();
+});
+
 test('Samsung external backup adapter reuses a granted handle and verifies reopened final bytes',async({page},testInfo)=>{
   test.skip(testInfo.project.name!=='Android portrait');await page.goto('/');
   const result=await page.evaluate(async()=>{

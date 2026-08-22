@@ -2,12 +2,18 @@ import {requestResult,transactionDone} from './request.js';
 
 const SNAPSHOTS='recoverySnapshots',HANDLES='backupDirectoryHandles';
 const clone=value=>value==null?value:structuredClone(value);
+const binaryValue=value=>globalThis.Blob&&value instanceof globalThis.Blob||value instanceof ArrayBuffer||ArrayBuffer.isView(value);
+function containsBinary(value,seen=new WeakSet()){
+  if(binaryValue(value))return true;
+  if(value==null||typeof value!=='object'||seen.has(value))return false;
+  seen.add(value);return Object.values(value).some(item=>containsBinary(item,seen));
+}
 
 export function createRecoverySnapshotRepository({database}={}){
   if(!database)throw new TypeError('database is required.');
   return Object.freeze({
     async save(record){
-      if(!record?.snapshotId||!record?.sessionId||record.verified!==true||!record.recovery||Object.hasOwn(record,'blob'))throw new TypeError('A compact verified recovery snapshot is required.');
+      if(!record?.snapshotId||!record?.sessionId||record.verified!==true||!record.recovery||Object.hasOwn(record,'blob')||containsBinary(record.recovery?.mediaReferences))throw new TypeError('A compact verified recovery snapshot without binary media payloads is required.');
       const transaction=database.transaction(SNAPSHOTS,'readwrite'),done=transactionDone(transaction);
       await requestResult(transaction.objectStore(SNAPSHOTS).add(clone(record)));await done;return clone(record);
     },

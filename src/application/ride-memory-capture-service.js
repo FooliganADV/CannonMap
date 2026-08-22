@@ -18,6 +18,10 @@ const clone=value=>value===null||value===undefined?value:structuredClone(value);
 const safeStamp=value=>iso(value).replace(/[-:]/g,'').replace('T','_').replace('Z','').replace('.','-');
 const activeSession=value=>Boolean(value&&value.active!==false&&value.projectId&&value.sessionId&&Number(value.dayNumber)>0);
 const abortLike=error=>error?.name==='AbortError'||error?.code==='CAMERA_SCOPE_CHANGED';
+const captureProvenance=record=>record?.sourceProvenance||record?.metadata?.originalSourceProvenance||{};
+const fallbackProvenance=provenance=>provenance?.nativeStill===false||provenance?.derivedFromVideoFrame===true||String(provenance?.sourceKind||'').includes('fallback-video-frame');
+const degradedRecord=record=>fallbackProvenance(captureProvenance(record));
+const captureQuality=provenance=>fallbackProvenance(provenance)?'degraded-video-frame':provenance?.nativeStill===true?'native-still':'unverified';
 
 function gpsMetadata(position,now){
   const raw=position?.coords?{
@@ -48,7 +52,7 @@ function nextFutureSlot(scheduledAt,intervalMs,now){
 /**
  * Samsung-first hourly Ride Memory capture. The service owns schedule metadata,
  * not a camera session. Camera acquisition is injected and must share CannonMap's
- * existing retained Android session through cameraArbiter.
+ * exclusive camera lease through cameraArbiter.
  */
 export function createRideMemoryCaptureService({
   captureStill,mediaRepository,journal,createId,stateStore,cameraArbiter,
@@ -185,6 +189,9 @@ export function createRideMemoryCaptureService({
       scheduledCaptureAt:pending.scheduledAt,actualCaptureAt:capturedAt,capturedAt,captureTimestamp:capturedAt,
       cameraRole,requestedCamera:provenance.requestedCamera||cameraRole,actualCamera:provenance.actualCamera||'unknown',
       cameraSelectionHonored:provenance.cameraSelectionHonored??'unknown',captureMethod:provenance.captureMethod||'getUserMedia-imagecapture',
+      sourceKind:provenance.sourceKind||'unknown',nativeStill:provenance.nativeStill===true,derivedFromVideoFrame:provenance.derivedFromVideoFrame===true,
+      recoveryPath:provenance.recoveryPath||'none',nativeRetryCount:Number(provenance.nativeRetryCount)||0,
+      captureQuality:captureQuality(provenance),
       originalSourceProvenance:clone(provenance),...gps
     };
   }
@@ -197,10 +204,10 @@ export function createRideMemoryCaptureService({
   }
 
   async function recoverExisting(pending,rear,front){
-    validateExisting(rear);validateExisting(front);const rows=[rear,front].filter(Boolean),capturedAt=rows.map(row=>row.metadata?.actualCaptureAt||row.capturedAt).sort().at(-1)||iso(now());
+    validateExisting(rear);validateExisting(front);const rows=[rear,front].filter(Boolean),capturedAt=rows.map(row=>row.metadata?.actualCaptureAt||row.capturedAt).sort().at(-1)||iso(now()),degradedRoles=rows.filter(degradedRecord).map(row=>row.metadata?.cameraRole||captureProvenance(row).requestedCamera).filter(Boolean);
     await appendOrQueue(journalInput({
       eventId:pending.journalEventId,eventType:'ride_memory_captured',title:'Ride Memory Captured',summary:'Sequential Samsung rear and front Ride Memory Originals were stored independently from checkpoint evidence.',timestamp:capturedAt,
-      metadata:{scheduledCaptureAt:pending.scheduledAt,actualCaptureAt:capturedAt,status:'complete',cameraRoles:['rear','front']},references:{rideMemoryId:pending.slotId,rearMediaId:rear.mediaId,frontMediaId:front.mediaId,mediaIds:[rear.mediaId,front.mediaId]},
+      metadata:{scheduledCaptureAt:pending.scheduledAt,actualCaptureAt:capturedAt,status:'complete',cameraRoles:['rear','front'],degradedRoles,captureQuality:degradedRoles.length?'degraded-video-frame':'native-still'},references:{rideMemoryId:pending.slotId,rearMediaId:rear.mediaId,frontMediaId:front.mediaId,mediaIds:[rear.mediaId,front.mediaId]},
       attachments:{photos:rows.map(record=>({mediaId:record.mediaId,uri:`media://${record.mediaId}`,kind:'photo',role:'original',cameraRole:record.metadata?.cameraRole,captureType:RIDE_MEMORY_CAPTURE_TYPE,mimeType:record.mimeType,name:record.name,size:record.size,capturedAt:record.capturedAt}))}
     }));
     emit('ride_memory_reconciled',{mediaIds:rows.map(row=>row.mediaId),scheduledCaptureAt:pending.scheduledAt});
@@ -208,8 +215,8 @@ export function createRideMemoryCaptureService({
   }
 
   async function recordPartial(pending,rear,error,stage){
-    const failedAt=iso(now()),reason=error?.code||error?.name||stage;
-    await appendOrQueue(journalInput({eventId:pending.journalEventId,eventType:'ride_memory_partially_captured',title:'Ride Memory Partially Captured',summary:'Rear Ride Memory Original was retained; front capture failed without affecting Rally operation.',timestamp:failedAt,metadata:{scheduledCaptureAt:pending.scheduledAt,actualCaptureAt:rear.capturedAt,status:'partial',completedRoles:['rear'],missingRoles:['front'],stage,reason,message:String(error?.message||error).slice(0,240)},references:{rideMemoryId:pending.slotId,rearMediaId:rear.mediaId,mediaIds:[rear.mediaId]},attachments:{photos:[{mediaId:rear.mediaId,uri:`media://${rear.mediaId}`,kind:'photo',role:'original',cameraRole:'rear',captureType:RIDE_MEMORY_CAPTURE_TYPE,mimeType:rear.mimeType,name:rear.name,size:rear.size,capturedAt:rear.capturedAt}]}}));
+    const failedAt=iso(now()),reason=error?.code||error?.name||stage,rearDegraded=degradedRecord(rear);
+    await appendOrQueue(journalInput({eventId:pending.journalEventId,eventType:'ride_memory_partially_captured',title:'Ride Memory Partially Captured',summary:'Rear Ride Memory Original was retained; front capture failed without affecting Rally operation.',timestamp:failedAt,metadata:{scheduledCaptureAt:pending.scheduledAt,actualCaptureAt:rear.capturedAt,status:'partial',completedRoles:['rear'],missingRoles:['front'],degradedRoles:rearDegraded?['rear']:[],captureQuality:rearDegraded?'degraded-video-frame':captureQuality(captureProvenance(rear)),stage,reason,message:String(error?.message||error).slice(0,240)},references:{rideMemoryId:pending.slotId,rearMediaId:rear.mediaId,mediaIds:[rear.mediaId]},attachments:{photos:[{mediaId:rear.mediaId,uri:`media://${rear.mediaId}`,kind:'photo',role:'original',cameraRole:'rear',captureType:RIDE_MEMORY_CAPTURE_TYPE,mimeType:rear.mimeType,name:rear.name,size:rear.size,capturedAt:rear.capturedAt}]}}));
     emit('ride_memory_partially_captured',{scheduledCaptureAt:pending.scheduledAt,rearMediaId:rear.mediaId,reason});await advance('partial',{actualCaptureAt:rear.capturedAt,mediaIds:[rear.mediaId],missingRoles:['front'],reason});
   }
 
@@ -232,13 +239,18 @@ export function createRideMemoryCaptureService({
     const covered=!rear&&!front?coverageCandidate(pending.scheduledAt):null;if(covered){await recordCoverage(covered);return;}
     if(!ownsGeneration(token))return;
     const captureRole=async role=>{
-      const result=await cameraArbiter.tryRunMemory(({signal})=>captureStill(role,{signal,captureType:RIDE_MEMORY_CAPTURE_TYPE,scheduledCaptureAt:pending.scheduledAt}));if(!result.started)return {deferred:result.reason||'camera-busy'};
+      const result=await cameraArbiter.tryRunMemory(({signal})=>captureStill(role,{
+        signal,captureType:RIDE_MEMORY_CAPTURE_TYPE,scheduledCaptureAt:pending.scheduledAt,
+        onPhase:(phase,details)=>emit(phase,{...details,captureType:RIDE_MEMORY_CAPTURE_TYPE,cameraRole:role,scheduledAt:pending.scheduledAt})
+      }));if(!result.started)return {deferred:result.reason||'camera-busy'};
       const capture=result.value,file=capture instanceof Blob?capture:capture?.blob,provenance=capture instanceof Blob?{}:capture?.provenance;if(!(file instanceof Blob))throw Object.assign(new Error(`Ride Memory ${role} camera returned no JPEG bytes.`),{code:'RIDE_MEMORY_EMPTY_CAPTURE'});
       const capturedAt=iso(now()),metadata=captureMetadata(pending,capturedAt,{provenance},role),mediaId=role==='rear'?pending.rearMediaId:pending.frontMediaId;
-      return {stored:await mediaRepository.addOriginal({
+      const stored=await mediaRepository.addOriginal({
         projectId:context.projectId,checkpointId:`ride-memory:${context.sessionId}:${String(pending.scheduledAt).replace(/[^0-9]/g,'')}`,
         journalEventId:pending.journalEventId,originalFile:file,metadata,filenames:{original:memoryFilename(capturedAt,role)},identities:{mediaGroupId:role==='rear'?pending.rearMediaGroupId:pending.frontMediaGroupId,originalMediaId:mediaId},sourceProvenance:provenance
-      })};
+      });
+      if(fallbackProvenance(provenance))emit('ride_memory_degraded_capture_persisted',{cameraRole:role,mediaId:stored.mediaId,sourceKind:provenance?.sourceKind||'unknown',recoveryPath:provenance?.recoveryPath||'none',nativeRetryCount:Number(provenance?.nativeRetryCount)||0});
+      return {stored};
     };
     if(!rear){try{const result=await captureRole('rear');if(result.deferred){await deferPending(result.deferred);return;}rear=result.stored;}catch(error){if(abortLike(error)){if(!visible()){pending.retryAt=null;await recordMissed('background-interrupted');return;}await deferPending('checkpoint-preempted');return;}try{rear=validateExisting(await mediaRepository.getMedia(pending.rearMediaId));}catch{}if(!rear){await recordFailure(pending,error,'rear-capture-or-persistence');return;}}}
     if(!ownsGeneration(token))return;

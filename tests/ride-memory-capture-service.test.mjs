@@ -51,6 +51,7 @@ test('default hourly scheduler stores sequential rear and front Originals with c
   assert.equal(Date.parse(h.service.state().schedule.nextScheduledAt)-h.clock.now(),DEFAULT_RIDE_MEMORY_INTERVAL_MS);
   h.advance(DEFAULT_RIDE_MEMORY_INTERVAL_MS);await h.service.runDueNow();
   assert.deepEqual(h.captures.map(item=>item.camera),['rear','front']);assert.equal(h.media.size,2);assert.equal(h.mediaInputs.length,2);
+  assert.ok(h.captures.every(item=>item.options.captureType===RIDE_MEMORY_CAPTURE_TYPE&&typeof item.options.onPhase==='function'));
   const records=[...h.media.values()],record=records[0],metadata=record.metadata;
   assert.equal(new Set(records.map(item=>item.mediaGroupId)).size,2,'rear and front Originals remain independently visible in the gallery');
   assert.equal(record.role,'original');assert.equal(record.evidenceStatus,'not_required');assert.equal(metadata.captureType,RIDE_MEMORY_CAPTURE_TYPE);assert.equal(metadata.evidenceRequired,false);
@@ -112,6 +113,23 @@ test('memory camera failure is nonblocking and advances to a later slot',async()
 });
 
 test('front Ride Memory failure preserves rear Original and the next slot still captures both roles',async()=>{let frontAttempts=0;const h=harness({intervalMs:60_000,captureStill:async camera=>{h.captures.push({camera});if(camera==='front'&&++frontAttempts===1)throw Object.assign(new Error('front unavailable'),{code:'FRONT_UNAVAILABLE'});return {blob:new Blob([camera],{type:'image/jpeg'}),provenance:{requestedCamera:camera,actualCamera:camera}};}});await h.service.start();h.advance(60_000);await h.service.runDueNow();assert.equal(h.media.size,1);const rear=[...h.media.values()][0];assert.equal(rear.metadata.cameraRole,'rear');const partial=[...h.journalEvents.values()].find(event=>event.eventType==='ride_memory_partially_captured');assert.equal(rear.journalEventId,partial.eventId,'retained media must reference its truthful partial terminal event');assert.deepEqual(partial.metadata.completedRoles,['rear']);assert.deepEqual(partial.metadata.missingRoles,['front']);h.advance(60_000);await h.service.runDueNow();assert.equal(h.media.size,3);assert.deepEqual([...h.media.values()].slice(-2).map(row=>row.metadata.cameraRole),['rear','front']);});
+
+test('Ride Memory persists recovered fallback frames as truthful non-Evidence Originals',async()=>{
+  const checkpointState={status:'active',score:25},h=harness({intervalMs:60_000,captureStill:async camera=>{h.captures.push({camera});return {blob:new Blob([`${camera}-fallback`],{type:'image/jpeg'}),provenance:{sourceKind:'fallback-video-frame',nativeStill:false,derivedFromVideoFrame:true,requestedCamera:camera,actualCamera:camera,cameraSelectionHonored:true,captureMethod:'video-frame-fallback',recoveryPath:'fallback-video-frame-after-native-retry',nativeRetryCount:1}};}});
+  await h.service.start();h.advance(60_000);await h.service.runDueNow();
+  const rows=[...h.media.values()];assert.equal(rows.length,2);assert.ok(rows.every(row=>row.role==='original'&&row.evidenceStatus==='not_required'));
+  assert.ok(rows.every(row=>row.sourceProvenance.sourceKind==='fallback-video-frame'&&row.sourceProvenance.nativeStill===false&&row.sourceProvenance.recoveryPath==='fallback-video-frame-after-native-retry'));
+  assert.ok(rows.every(row=>row.metadata.captureQuality==='degraded-video-frame'&&row.metadata.nativeStill===false&&row.metadata.derivedFromVideoFrame===true&&row.metadata.nativeRetryCount===1));
+  const event=[...h.journalEvents.values()].find(item=>item.eventType==='ride_memory_captured');assert.deepEqual(event.metadata.degradedRoles,['rear','front']);assert.equal(event.metadata.captureQuality,'degraded-video-frame');
+  assert.deepEqual(h.diagnostics.filter(item=>item.eventType==='ride_memory_degraded_capture_persisted').map(item=>item.cameraRole),['rear','front']);assert.deepEqual(checkpointState,{status:'active',score:25});
+});
+
+test('a fallback rear Ride Memory Original survives a later front failure',async()=>{
+  const h=harness({intervalMs:60_000,captureStill:async camera=>{if(camera==='front')throw Object.assign(new Error('front failed'),{code:'FRONT_FAILED'});return {blob:new Blob(['rear-fallback'],{type:'image/jpeg'}),provenance:{sourceKind:'fallback-video-frame',nativeStill:false,derivedFromVideoFrame:true,requestedCamera:'rear',actualCamera:'rear',recoveryPath:'fallback-video-frame-after-native-retry',nativeRetryCount:1}};}});
+  await h.service.start();h.advance(60_000);await h.service.runDueNow();
+  assert.equal(h.media.size,1);const rear=[...h.media.values()][0];assert.equal(rear.metadata.cameraRole,'rear');assert.equal(rear.metadata.captureQuality,'degraded-video-frame');assert.equal(rear.evidenceStatus,'not_required');
+  const partial=[...h.journalEvents.values()].find(item=>item.eventType==='ride_memory_partially_captured');assert.deepEqual(partial.references.mediaIds,[rear.mediaId]);assert.deepEqual(partial.metadata.missingRoles,['front']);assert.deepEqual(partial.metadata.degradedRoles,['rear']);assert.equal(partial.metadata.captureQuality,'degraded-video-frame');
+});
 
 test('checkpoint coverage cannot discard a rear Original after front preemption',async()=>{let releaseFront,frontStarted,frontAttempt=0;const began=new Promise(resolve=>{frontStarted=resolve;}),h=harness({intervalMs:60_000,captureStill:async(camera,{signal})=>{h.captures.push({camera});if(camera==='front'&&frontAttempt++===0)return new Promise((resolve,reject)=>{releaseFront=resolve;frontStarted();signal.addEventListener('abort',()=>reject(signal.reason||Object.assign(new Error('aborted'),{name:'AbortError'})),{once:true});});return {blob:new Blob([camera],{type:'image/jpeg'}),provenance:{requestedCamera:camera,actualCamera:camera}};}});await h.service.start();h.advance(60_000);const due=h.service.runDueNow();await began;await h.arbiter.runCheckpoint(async()=>{});await due;assert.equal(h.media.size,1);h.arbiter.noteCheckpointCapture({capturedAt:new Date(h.clock.now()).toISOString(),checkpointId:'cp-nearby',mediaIds:['cp-rear','cp-front']});h.advance(60_000);await h.service.runDueNow();assert.equal(h.media.size,2);assert.ok([...h.journalEvents.values()].some(event=>event.eventType==='ride_memory_captured'));assert.ok(![...h.journalEvents.values()].some(event=>event.eventType==='ride_memory_covered'));void releaseFront;});
 

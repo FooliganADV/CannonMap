@@ -1,10 +1,10 @@
-# CannonMap Planner — Beta 0.7.14 Samsung Rally State Correction
+# CannonMap Planner — Beta 0.7.15 Samsung Camera and Backup P0
 
-Build: `2026.08.21.samsung-rally-state-1`
+Build: `2026.08.22.samsung-camera-backup-p0-1`
 
-This build targets long, powered, screen-on Samsung Chrome/PWA rides. It preserves the field-proven retained front/rear checkpoint camera session while adding nonblocking automatic recovery, optional verified folder backups, independent hourly Ride Memory photos, foreground subsystem watchdogs, and bounded Trail Intel processing.
+This build targets long, powered, screen-on Samsung Chrome/PWA rides in landscape. It preserves the accepted 0.7.14 rally/session/evidence behavior while replacing retained dual-camera ownership with exclusive sequential camera leases and replacing large automatic day ZIPs with bounded, manifest-last external generations.
 
-Rally Mode now creates an immutable session for every deliberate run, asks riders to **Resume Existing** or **Start New**, and keeps unresolved photo evidence separate from GPS navigation. Camera preflight verifies an actual bounded still capture before reporting automatic capture ready; iPhone/iPad use a single-active-camera policy while supported Android browsers retain the paired-camera fast path. Browsers without verified native still capture continue through the full-screen manual recovery path intentionally.
+Rally Mode creates an immutable session for every deliberate run, asks riders to **Resume Existing** or **Start New**, and keeps unresolved photo evidence separate from GPS navigation. Camera preflight verifies rear and front native-still capability, closes both streams, and reports READY with zero retained streams. Every checkpoint and Ride Memory side then opens, captures, persists, and fully closes before the next camera opens.
 
 ## Purpose
 
@@ -12,8 +12,13 @@ CannonMap is a rally decision system. The primary live-rally function is display
 
 ## New in this release
 
+- Exclusive one-stream camera ownership with a 10-second native-still deadline, full teardown, one fresh-stream retry, truthful frame fallback, and bounded recovery backoff
+- Checkpoint fallback frames are retained only as diagnostic Originals and are fenced from Evidence generation and scoring, including after reload reconciliation
+- Scalable external backup writes and SHA-256 verifies one immutable media file at a time, then commits a unique verified generation manifest last
+- Interrupted external generations resume from verified media; revoked permission leaves internal recovery and prior verified external files untouched
+- Manual **Back Up Day** waits for its own requested generation and labels external folder output separately from legacy restorable `.cmapday.zip` packages
 - Verified compact internal recovery after session start and checkpoint completion, plus a two-hour/day-complete schedule that never blocks rally execution
-- Optional File System Access folder grant with persisted-handle reuse, permission rechecks, unique session filenames, reopened archive verification, and partial-write isolation
+- Optional File System Access folder grant with persisted-handle reuse, permission rechecks, unique session folders/manifests, reopened byte verification, and partial-write isolation
 - Default-hourly Samsung Ride Memory capture with GPS metadata, checkpoint-camera priority, five-minute checkpoint coverage suppression, and durable missed/deferred state
 - Single-owner GPS, polling, reliability-health, Wake Lock, camera, timer, and listener lifecycles with foreground restart/reconnect behavior
 - Bounded incremental competitor history, coalesced persistence, one-second official-feed rendering batches, and compacted map geometry for long sessions
@@ -21,7 +26,7 @@ CannonMap is a rally decision system. The primary live-rally function is display
 - A durable Pending Evidence queue: an unresolved photo at one checkpoint cannot block later GPS arrivals
 - Immediate, idempotent Journal persistence for retry, resume, fail, defer, and continue-route decisions
 - Unique Day artifact filenames plus manifest identity for Project, rally, day, run, build, cache, Journal, media, and checkpoint evidence
-- Bounded iOS camera verification/capture and truthful separation of permission, usable stream, native still support, and automatic-capture eligibility
+- Truthful separation of permission, verified native-still capability, current stream ownership, and automatic-capture eligibility
 - Trip/day selectors and execution storage tested through at least 60 sequential days
 - Dedicated phone-first Rally Mode while preserving the desktop Planner
 - Checkpoint states, 10/21 point scoring, completion, defer, restore, skip, and sequence preservation
@@ -67,7 +72,7 @@ node --test tests/*.test.mjs
 
 ## First test
 
-1. Confirm the status shows `v0.7.14 · 2026.08.21.samsung-rally-state-1`.
+1. Confirm the status shows `v0.7.15 · 2026.08.22.samsung-camera-backup-p0-1`.
 2. Import `competitor-test.json`; verify the red trail appears and Rider 27 is listed.
 3. Open **Trail Intel** and select **Weather here**. No key is required.
 4. On a phone, select **Intel** and verify the compact bottom sheet opens without covering the entire map.

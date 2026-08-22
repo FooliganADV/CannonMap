@@ -26,7 +26,7 @@ function functionSource(name){
   throw new Error(`${name} has no closing brace`);
 }
 
-test('app composes Ride Memory with the retained camera session and accepted-session context',()=>{
+test('app composes Ride Memory with the exclusive camera session and accepted-session context',()=>{
   assert.match(app,/createCameraCaptureArbiter/);assert.match(app,/createRideMemoryCaptureService/);assert.match(app,/createRideMemoryStateStore\(\{storage:localStorage\}\)/);
   const initialization=functionSource('initializeMissionControlFoundations'),context=functionSource('rideMemorySessionContext'),status=functionSource('handleRideMemoryState');
   assert.match(initialization,/captureNativeCameraStill\(camera,\{\.\.\.options,cameraSession,scopeToken:preflightScopeKey\(\)\}\)/,'Ride Memory must reuse the existing scoped camera session');

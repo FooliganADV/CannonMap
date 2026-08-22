@@ -59,6 +59,19 @@ test('a confirmed arrival with no pair starts one recovery workflow only once',a
   assert.equal(second.action,'resume_pair');assert.equal(workflow.starts,1,'repeated recovery must reuse the active generated pair');
 });
 
+test('reload reconciliation never upgrades a degraded camera diagnostic into Evidence',async()=>{
+  const persisted=structuredClone([{
+    mediaId:'diagnostic-front',projectId:'project',checkpointId:'cp-1',sessionId:'session-1',pairId:null,pairStatus:null,
+    cameraRole:'front',role:'original',evidenceStatus:'not_required',capturedAt:'2026-08-17T12:00:01.000Z',
+    metadata:{sessionId:'session-1',pairId:'pair-1',diagnosticPairId:'pair-1',captureType:'camera_diagnostic',objectiveType:'camera_diagnostic',diagnosticOnly:true,cameraRole:'front'}
+  }]),retryCalls=[],service=createCheckpointEvidenceReconciliationService({
+    mediaRepository:repository(persisted),photoEvidence:{async retryEvidence(mediaId){retryCalls.push(mediaId);}}
+  }),input={projectId:'project',checkpoint:checkpoint(),journalEvents:[arrival()],sessionId:'session-1',recoverEvidence:true};
+  const inspected=await service.inspect(input),reconciled=await service.reconcile(input);
+  assert.equal(inspected.action,'resume_pair');assert.deepEqual(inspected.mediaIds,[]);assert.deepEqual(inspected.retryOriginalIds,[]);
+  assert.equal(reconciled.action,'resume_pair');assert.deepEqual(retryCalls,[],'diagnostic fallback bytes must never be rendered into Evidence after reload');
+});
+
 test('a complete durable pair is recognized and prepared for normal completion idempotently',async()=>{
   const records=['front','rear'].flatMap(role=>[media('original',role),media('evidence',role)]),events=[arrival(),{eventId:'pair-journal-1',eventType:'photo_added',timestamp:'2026-08-17T12:00:02.000Z',references:{checkpointId:'cp-1',pairId:'pair-1'}}],service=createCheckpointEvidenceReconciliationService({mediaRepository:repository(records)}),workflow=workflowHarness(),input={projectId:'project',checkpoint:checkpoint(),journalEvents:events,cameraWorkflow:workflow};
   const first=await service.reconcile(input),second=await service.reconcile(input);
