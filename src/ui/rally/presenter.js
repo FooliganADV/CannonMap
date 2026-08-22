@@ -110,8 +110,9 @@ export function renderRally({getElement,model,escapeHtml}){
   if(fab){
     const active=Boolean(model.gpsActive)||(model.gpsStatus&&!/off/i.test(model.gpsStatus));
     fab.textContent=active?'GPS':'START';
+    fab.disabled=Boolean(!active&&!model.executableDay);
     fab.classList.toggle('is-active',active&&model.followMode!=='suspended');
-    fab.setAttribute('aria-label',active?(model.followMode==='suspended'?'Restore GPS follow':'GPS follow active'):'Start GPS tracking');
+    fab.setAttribute('aria-label',active?(model.followMode==='suspended'?'Restore GPS follow':'GPS follow active'):(model.executableDay?'Start GPS tracking':'Choose a numbered Rally Day before starting GPS'));
   }
   for(const id of ['rallyDeferIcon','rallyCompleteButton']){
     const el=getElement(id);if(el)el.disabled=Boolean(!model.next||model.dayComplete);

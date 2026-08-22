@@ -58,8 +58,12 @@ function groupedMedia(records){
 function selectPairId(checkpoint,events,groups){
   const explicit=[checkpoint?.checkpointEvidence?.photo?.pairId,checkpoint?.pendingPhotoPair?.pairId,checkpoint?.photoPair?.pairId]
     .map(text).find(Boolean);
+  const journalPairs=[...events].reverse().filter(event=>event.eventType==='photo_added').map(pairIdOf).filter(Boolean),complete=pairId=>{const analysis=analyzeSides(groups.get(pairId)||[],pairId);return Boolean(analysis.sides.front&&analysis.sides.rear);};
+  const completeJournal=journalPairs.find(pairId=>groups.has(pairId)&&complete(pairId));if(completeJournal)return completeJournal;
+  if(explicit&&groups.has(explicit)&&complete(explicit))return explicit;
+  const completeStored=[...groups].filter(([pairId])=>complete(pairId)).sort((left,right)=>Math.max(0,...right[1].map(occurredAt))-Math.max(0,...left[1].map(occurredAt)))[0]?.[0];if(completeStored)return completeStored;
   if(explicit)return explicit;
-  const journalPair=[...events].reverse().map(pairIdOf).find(Boolean);
+  const journalPair=journalPairs[0]||[...events].reverse().map(pairIdOf).find(Boolean);
   if(journalPair)return journalPair;
   return [...groups]
     .sort((left,right)=>{

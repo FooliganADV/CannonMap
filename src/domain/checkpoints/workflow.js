@@ -105,8 +105,9 @@ export function normalizeCheckpoint(feature,index=0){
 }
 
 export function activeRallyDay(settings){
+  if(settings?.dayFilter===null||settings?.dayFilter===undefined||String(settings.dayFilter).trim()===''||String(settings.dayFilter).toLowerCase()==='all')return null;
   const value=Number(settings?.dayFilter);
-  return Number.isInteger(value)&&value>=1?value:0;
+  return Number.isInteger(value)&&value>=1?value:null;
 }
 
 export function dayCheckpoints(project,settings){
@@ -201,7 +202,9 @@ export function completeCheckpoint(rows,checkpoint,now,{photoRecorded=false,phot
   const decision=checkpointCompletionDecision(checkpoint);if(!decision.allowed)return null;
   recordCheckpointFinalCompletion(checkpoint,{completedAt:now});checkpoint.photoStatus=photoRecorded?'recorded':checkpoint.photoRequired?'required_pending':'not_taken';
   checkpoint.photoFailureDisposition=null;checkpoint.deferredAt=null;checkpoint.deferReason=null;delete checkpoint.arrivalPriorState;
-  if(preserveActiveTarget)return rows.find(feature=>feature.id!==checkpoint.id&&feature.status===CHECKPOINT_STATE.ACTIVE)||null;
+  const activeTarget=rows.find(feature=>feature.id!==checkpoint.id&&feature.status===CHECKPOINT_STATE.ACTIVE)||null;
+  if(activeTarget)return activeTarget;
+  if(preserveActiveTarget)return null;
   return activateNextPlanned(rows);
 }
 
@@ -212,11 +215,11 @@ export function finishDayWithHotel(rows,now){
 
 /** Returns the next executable day but never activates it. Explicit rider action owns activation. */
 export function nextRallyDay(project,day){
-  const current=Number(day)||0;
+  const current=Number.isInteger(Number(day))&&Number(day)>0?Number(day):null;if(current===null)return null;
   return [...new Set((project?.features||[])
     .filter(feature=>['checkpoint','hotel'].includes(feature?.type))
     .map(feature=>Number(feature.day))
-    .filter(value=>Number.isInteger(value)&&value>current))].sort((a,b)=>a-b)[0]||0;
+    .filter(value=>Number.isInteger(value)&&value>current))].sort((a,b)=>a-b)[0]||null;
 }
 
 export function startRallyDay(project,settings,day){

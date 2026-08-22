@@ -6,7 +6,7 @@ import {DEFAULT_RIDE_MEMORY_INTERVAL_MS,RIDE_MEMORY_CAPTURE_TYPE,createRideMemor
 const uuidFactory=()=>{let value=0;return()=>`00000000-0000-4000-8000-${String(++value).padStart(12,'0')}`;};
 const clone=value=>value===undefined?value:structuredClone(value);
 
-function harness({intervalMs=DEFAULT_RIDE_MEMORY_INTERVAL_MS,captureStill,mediaLookup=null,journalFailure=false,stateWriteFailure=false,checkpointActivity=()=>({})}={}){
+function harness({intervalMs=DEFAULT_RIDE_MEMORY_INTERVAL_MS,captureStill,mediaLookup=null,journalFailure=false,stateWriteFailure=false,postCommitFailureRole=null,checkpointActivity=()=>({})}={}){
   let current=Date.parse('2026-08-20T12:00:00.000Z'),journalShouldFail=journalFailure,stateWriteShouldFail=stateWriteFailure;
   const clock={now:()=>current},timers=new Map();let timerId=0;
   const timerApi={
@@ -19,19 +19,19 @@ function harness({intervalMs=DEFAULT_RIDE_MEMORY_INTERVAL_MS,captureStill,mediaL
     async save(value){if(stateWriteShouldFail)throw new Error('schedule storage unavailable');durable.set(value.sessionId,clone(value));return clone(value);}
   };
   const journalEvents=new Map(),journal={async appendEventIdempotent(event){if(journalShouldFail)throw new Error('journal unavailable');if(!journalEvents.has(event.eventId))journalEvents.set(event.eventId,clone(event));return journalEvents.get(event.eventId);}};
-  const media=new Map(),mediaInputs=[];
+  const media=new Map(),mediaInputs=[];let postCommitFailurePending=postCommitFailureRole;
   const mediaRepository={
     async getMedia(mediaId){return mediaLookup?mediaLookup(mediaId):media.get(mediaId)||null;},
     async addOriginal(input){
       mediaInputs.push(input);if(media.has(input.identities.originalMediaId))throw new Error('duplicate media');
       const record={mediaId:input.identities.originalMediaId,mediaGroupId:input.identities.mediaGroupId,projectId:input.projectId,checkpointId:input.checkpointId,journalEventId:input.journalEventId,sessionId:input.metadata.sessionId,role:'original',kind:'photo',mimeType:input.originalFile.type,name:input.filenames.original,size:input.originalFile.size,capturedAt:input.metadata.capturedAt,metadata:clone(input.metadata),blob:input.originalFile,sourceProvenance:clone(input.sourceProvenance),evidenceStatus:input.metadata.evidenceRequired===false?'not_required':'pending'};
-      media.set(record.mediaId,record);return record;
+      media.set(record.mediaId,record);if(postCommitFailurePending===record.metadata.cameraRole){postCommitFailurePending=null;throw new Error(`${record.metadata.cameraRole} post-commit verification failed`);}return record;
     }
   };
   const context={active:true,projectId:'project-1',projectName:'America 250',rallyName:'America 250',sessionId:'session-1',sessionRunNumber:1,sessionCalendarDate:'2026-08-20',sessionStartedAt:'2026-08-20T12:00:00.000Z',dayNumber:1};
   const arbiter=createCameraCaptureArbiter({clock}),captures=[],createId=uuidFactory();
   const diagnostics=[],published=[],options={
-    captureStill:captureStill|| (async(camera,options)=>{captures.push({camera,options});return {blob:new Blob(['samsung-native-still'],{type:'image/jpeg'}),provenance:{sourceKind:'image-capture-photo',nativeStill:true,requestedCamera:'rear',actualCamera:'rear',cameraSelectionHonored:true,captureMethod:'getUserMedia-imagecapture',width:3072,height:4080}};}),
+    captureStill:captureStill|| (async(camera,options)=>{captures.push({camera,options});return {blob:new Blob([`samsung-${camera}-native-still`],{type:'image/jpeg'}),provenance:{sourceKind:'image-capture-photo',nativeStill:true,requestedCamera:camera,actualCamera:camera,cameraSelectionHonored:true,captureMethod:'getUserMedia-imagecapture',width:camera==='rear'?3072:2448,height:camera==='rear'?4080:3440}};}),
     mediaRepository,journal,createId,stateStore,cameraArbiter:arbiter,sessionProvider:()=>context,
     positionProvider:()=>({lat:38.12345,lon:-105.54321,speedMps:10,heading:87,accuracyFeet:12,time:new Date(current-250).toISOString()}),
     checkpointActivity,documentRef,clock,timerApi,intervalMs,retryDelayMs:60_000,missedGraceMs:60_000,onDiagnostic:event=>diagnostics.push(event),onState:snapshot=>published.push(snapshot)
@@ -45,18 +45,19 @@ function harness({intervalMs=DEFAULT_RIDE_MEMORY_INTERVAL_MS,captureStill,mediaL
   };
 }
 
-test('default hourly scheduler stores one rear Original with complete Ride Memory and GPS metadata',async()=>{
+test('default hourly scheduler stores sequential rear and front Originals with complete Ride Memory and GPS metadata',async()=>{
   const h=harness(),checkpointState={status:'active',score:40};
   await h.service.start();
   assert.equal(Date.parse(h.service.state().schedule.nextScheduledAt)-h.clock.now(),DEFAULT_RIDE_MEMORY_INTERVAL_MS);
   h.advance(DEFAULT_RIDE_MEMORY_INTERVAL_MS);await h.service.runDueNow();
-  assert.equal(h.captures.length,1);assert.equal(h.captures[0].camera,'rear');assert.equal(h.media.size,1);assert.equal(h.mediaInputs.length,1);
-  const record=[...h.media.values()][0],metadata=record.metadata;
+  assert.deepEqual(h.captures.map(item=>item.camera),['rear','front']);assert.equal(h.media.size,2);assert.equal(h.mediaInputs.length,2);
+  const records=[...h.media.values()],record=records[0],metadata=record.metadata;
+  assert.equal(new Set(records.map(item=>item.mediaGroupId)).size,2,'rear and front Originals remain independently visible in the gallery');
   assert.equal(record.role,'original');assert.equal(record.evidenceStatus,'not_required');assert.equal(metadata.captureType,RIDE_MEMORY_CAPTURE_TYPE);assert.equal(metadata.evidenceRequired,false);
   assert.equal(metadata.sessionId,'session-1');assert.equal(metadata.dayNumber,1);assert.equal(metadata.scheduledCaptureAt,'2026-08-20T13:00:00.000Z');assert.equal(metadata.actualCaptureAt,'2026-08-20T13:00:00.000Z');
   assert.equal(metadata.latitude,38.12345);assert.equal(metadata.longitude,-105.54321);assert.ok(Math.abs(metadata.speedMph-22.3694)<.0001);assert.equal(metadata.deviceHeading,87);assert.equal(metadata.gpsSampleAgeMs,250);
   const event=[...h.journalEvents.values()].find(item=>item.eventType==='ride_memory_captured');
-  assert.equal(event.sessionId,'session-1');assert.equal(event.references.mediaId,record.mediaId);assert.equal(event.attachments.photos[0].uri,`media://${record.mediaId}`);
+  assert.equal(event.sessionId,'session-1');assert.deepEqual(event.references.mediaIds,records.map(item=>item.mediaId));assert.deepEqual(event.attachments.photos.map(item=>item.cameraRole),['rear','front']);assert.ok(records.every(item=>item.evidenceStatus==='not_required'));
   assert.deepEqual(checkpointState,{status:'active',score:40},'Ride Memory must not mutate checkpoint or score state');
   assert.equal(Date.parse(h.service.state().schedule.nextScheduledAt),Date.parse('2026-08-20T14:00:00.000Z'));
 });
@@ -74,7 +75,7 @@ test('active checkpoint defers Ride Memory and captures after checkpoint release
   let checkpointActive=true;
   const h=harness({intervalMs:60_000,checkpointActivity:()=>({active:checkpointActive})});await h.service.start();h.advance(60_000);await h.service.runDueNow();
   assert.equal(h.captures.length,0);assert.equal(h.service.state().schedule.pending.status,'deferred');assert.equal([...h.journalEvents.values()].filter(event=>event.eventType==='ride_memory_deferred').length,1);
-  checkpointActive=false;h.advance(60_000);await h.service.runDueNow();assert.equal(h.captures.length,1);assert.equal(h.media.size,1);
+  checkpointActive=false;h.advance(60_000);await h.service.runDueNow();assert.deepEqual(h.captures.map(item=>item.camera),['rear','front']);assert.equal(h.media.size,2);
 });
 
 test('checkpoint request preempts an in-flight memory camera without persisting fabricated media',async()=>{
@@ -99,7 +100,7 @@ test('background due time is recorded as missed and recovered only after foregro
   assert.equal(h.captures.length,0);assert.equal(h.service.state().schedule.pending.status,'missed');
   const missed=[...h.journalEvents.values()].find(event=>event.eventType==='ride_memory_missed');assert.equal(missed.metadata.reason,'background-hidden');
   await h.visibility('visible');await h.service.whenIdle();
-  assert.equal(h.captures.length,1);const record=[...h.media.values()][0];assert.equal(record.metadata.scheduledCaptureAt,'2026-08-20T12:01:00.000Z');assert.equal(record.metadata.actualCaptureAt,'2026-08-20T12:02:00.000Z');
+  assert.equal(h.captures.length,2);const record=[...h.media.values()][0];assert.equal(record.metadata.scheduledCaptureAt,'2026-08-20T12:01:00.000Z');assert.equal(record.metadata.actualCaptureAt,'2026-08-20T12:02:00.000Z');
 });
 
 test('memory camera failure is nonblocking and advances to a later slot',async()=>{
@@ -107,30 +108,36 @@ test('memory camera failure is nonblocking and advances to a later slot',async()
   const h=harness({intervalMs:60_000,captureStill:async()=>{attempts+=1;if(attempts===1)throw Object.assign(new Error('camera busy'),{code:'CAMERA_BUSY'});return {blob:new Blob(['later'],{type:'image/jpeg'}),provenance:{requestedCamera:'rear',actualCamera:'rear'}};}});
   await h.service.start();h.advance(60_000);await assert.doesNotReject(()=>h.service.runDueNow());assert.equal(h.media.size,0);
   const failure=[...h.journalEvents.values()].find(event=>event.eventType==='ride_memory_capture_failed');assert.equal(failure.metadata.reason,'CAMERA_BUSY');assert.equal(h.service.state().schedule.pending,null);
-  h.advance(60_000);await h.service.runDueNow();assert.equal(h.media.size,1);assert.equal(attempts,2);
+  h.advance(60_000);await h.service.runDueNow();assert.equal(h.media.size,2);assert.equal(attempts,3);
 });
+
+test('front Ride Memory failure preserves rear Original and the next slot still captures both roles',async()=>{let frontAttempts=0;const h=harness({intervalMs:60_000,captureStill:async camera=>{h.captures.push({camera});if(camera==='front'&&++frontAttempts===1)throw Object.assign(new Error('front unavailable'),{code:'FRONT_UNAVAILABLE'});return {blob:new Blob([camera],{type:'image/jpeg'}),provenance:{requestedCamera:camera,actualCamera:camera}};}});await h.service.start();h.advance(60_000);await h.service.runDueNow();assert.equal(h.media.size,1);const rear=[...h.media.values()][0];assert.equal(rear.metadata.cameraRole,'rear');const partial=[...h.journalEvents.values()].find(event=>event.eventType==='ride_memory_partially_captured');assert.equal(rear.journalEventId,partial.eventId,'retained media must reference its truthful partial terminal event');assert.deepEqual(partial.metadata.completedRoles,['rear']);assert.deepEqual(partial.metadata.missingRoles,['front']);h.advance(60_000);await h.service.runDueNow();assert.equal(h.media.size,3);assert.deepEqual([...h.media.values()].slice(-2).map(row=>row.metadata.cameraRole),['rear','front']);});
+
+test('checkpoint coverage cannot discard a rear Original after front preemption',async()=>{let releaseFront,frontStarted,frontAttempt=0;const began=new Promise(resolve=>{frontStarted=resolve;}),h=harness({intervalMs:60_000,captureStill:async(camera,{signal})=>{h.captures.push({camera});if(camera==='front'&&frontAttempt++===0)return new Promise((resolve,reject)=>{releaseFront=resolve;frontStarted();signal.addEventListener('abort',()=>reject(signal.reason||Object.assign(new Error('aborted'),{name:'AbortError'})),{once:true});});return {blob:new Blob([camera],{type:'image/jpeg'}),provenance:{requestedCamera:camera,actualCamera:camera}};}});await h.service.start();h.advance(60_000);const due=h.service.runDueNow();await began;await h.arbiter.runCheckpoint(async()=>{});await due;assert.equal(h.media.size,1);h.arbiter.noteCheckpointCapture({capturedAt:new Date(h.clock.now()).toISOString(),checkpointId:'cp-nearby',mediaIds:['cp-rear','cp-front']});h.advance(60_000);await h.service.runDueNow();assert.equal(h.media.size,2);assert.ok([...h.journalEvents.values()].some(event=>event.eventType==='ride_memory_captured'));assert.ok(![...h.journalEvents.values()].some(event=>event.eventType==='ride_memory_covered'));void releaseFront;});
+
+test('post-commit media errors reconcile deterministic rear and front Originals instead of projecting failure',async()=>{const h=harness({intervalMs:60_000,postCommitFailureRole:'front'});await h.service.start();h.advance(60_000);await h.service.runDueNow();assert.equal(h.media.size,2);assert.ok([...h.journalEvents.values()].some(event=>event.eventType==='ride_memory_captured'));assert.ok(![...h.journalEvents.values()].some(event=>['ride_memory_partially_captured','ride_memory_capture_failed'].includes(event.eventType)));});
 
 test('restart and interval changes retain one timer, one listener, and no duplicate media',async()=>{
   const h=harness();await h.service.start();await h.service.start();assert.equal(h.timers.size,1);assert.equal(h.listeners.size,1);
-  await h.service.setInterval(5*60_000);h.advance(5*60_000);await h.service.runDueNow();assert.equal(h.media.size,1);
+  await h.service.setInterval(5*60_000);h.advance(5*60_000);await h.service.runDueNow();assert.equal(h.media.size,2);
   assert.equal(Date.parse(h.service.state().schedule.nextScheduledAt),Date.parse('2026-08-20T12:10:00.000Z'),'subsequent slots keep the configured interval');
   h.service.stop('test-restart');assert.equal(h.timers.size,0);assert.equal(h.listeners.size,0);
-  const reloaded=h.createService();await reloaded.start();assert.equal(reloaded.state().schedule.intervalMs,5*60_000,'a reload reuses the durable configured interval');assert.equal(h.timers.size,1);assert.equal(h.listeners.size,1);assert.equal(h.media.size,1);
+  const reloaded=h.createService();await reloaded.start();assert.equal(reloaded.state().schedule.intervalMs,5*60_000,'a reload reuses the durable configured interval');assert.equal(h.timers.size,1);assert.equal(h.listeners.size,1);assert.equal(h.media.size,2);
   reloaded.destroy();assert.equal(h.timers.size,0);assert.equal(h.listeners.size,0);
 });
 
 test('twelve-hour synthetic foreground ride keeps timers/listeners bounded',async()=>{
   const h=harness();await h.service.start();
   for(let hour=0;hour<12;hour+=1){h.advance(DEFAULT_RIDE_MEMORY_INTERVAL_MS);await h.service.runDueNow();assert.equal(h.timers.size,1);assert.equal(h.listeners.size,1);}
-  assert.equal(h.media.size,12);assert.equal(h.captures.length,12);assert.equal([...h.journalEvents.values()].filter(event=>event.eventType==='ride_memory_captured').length,12);
+  assert.equal(h.media.size,24);assert.equal(h.captures.length,24);assert.equal([...h.journalEvents.values()].filter(event=>event.eventType==='ride_memory_captured').length,12);
   h.service.destroy();assert.equal(h.timers.size,0);assert.equal(h.listeners.size,0);
 });
 
 test('failed Journal writes queue durably and replay idempotently without recapturing media',async()=>{
   const h=harness({intervalMs:60_000,journalFailure:true});await h.service.start();h.advance(60_000);await h.service.runDueNow();
-  assert.equal(h.media.size,1);assert.equal(h.captures.length,1);assert.equal(h.service.state().schedule.journalBacklog.length,1);
+  assert.equal(h.media.size,2);assert.equal(h.captures.length,2);assert.equal(h.service.state().schedule.journalBacklog.length,1);
   h.setJournalFailure(false);h.service.stop('reload');await h.service.start();
-  assert.equal(h.captures.length,1);assert.equal(h.media.size,1);assert.equal(h.service.state().schedule.journalBacklog.length,0);assert.equal([...h.journalEvents.values()].filter(event=>event.eventType==='ride_memory_captured').length,1);
+  assert.equal(h.captures.length,2);assert.equal(h.media.size,2);assert.equal(h.service.state().schedule.journalBacklog.length,0);assert.equal([...h.journalEvents.values()].filter(event=>event.eventType==='ride_memory_captured').length,1);
 });
 
 test('schedule persistence failure is nonblocking, visible, and clears after a successful write',async()=>{

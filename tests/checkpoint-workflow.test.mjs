@@ -72,8 +72,15 @@ test('checkpoint reordering and make-next preserve imported sequence metadata',(
 test('next-day resolution ignores stale current-day values and requires an executable later day',()=>{
   const project={features:[checkpoint('day-1',1,'completed'),checkpoint('day-2',1,'planned',{day:2}),{id:'route-3',type:'route',day:3}]};
   assert.equal(workflow.nextRallyDay(project,1),2);
-  assert.equal(workflow.nextRallyDay(project,2),0);
+  assert.equal(workflow.nextRallyDay(project,2),null);
 });
+
+test('missing and All Days selections never synthesize executable Day 0',()=>{
+  assert.equal(workflow.activeRallyDay({dayFilter:null}),null);assert.equal(workflow.activeRallyDay({}),null);assert.equal(workflow.activeRallyDay({dayFilter:'all'}),null);assert.equal(workflow.activeRallyDay({dayFilter:'0'}),null);
+  const project={features:[checkpoint('day-1',1,'planned',{day:1})]};assert.deepEqual(workflow.dayCheckpoints(project,{dayFilter:'all'}),[]);assert.equal(workflow.startRallyDay(project,{dayFilter:'all'},null),null);assert.equal(workflow.nextRallyDay(project,null),null);
+});
+
+test('normal sequential evidence completion keeps exactly one successor active',()=>{const rows=[checkpoint('R01',1,'next',{photoRequired:true}),checkpoint('R02',2,'planned',{photoRequired:true}),checkpoint('R03',3,'planned',{photoRequired:true})],first=rows[0];workflow.recordCheckpointArrivalEvidence(first,{timestamp:'2026-08-21T14:56:39.338Z',latitude:30.308,longitude:-89.745,gpsAccuracyFeet:10,source:'gps-radius-dwell'});workflow.recordDetectedArrival(first,'2026-08-21T14:56:39.338Z');assert.equal(workflow.advanceRouteAfterDetectedArrival(rows,first),rows[1]);assert.equal(workflow.completeCheckpoint(rows,first,'2026-08-21T14:56:46.616Z',{photoRecorded:true,preserveActiveTarget:false}),rows[1]);assert.equal(rows[0].status,'collected');assert.equal(rows[1].status,'active');assert.equal(rows[2].status,'upcoming');assert.deepEqual(rows.filter(item=>item.status==='active').map(item=>item.id),['R02']);});
 
 test('rally day resolution supports 31 days, nonconsecutive days, and days beyond eight',()=>{
   const project={features:[checkpoint('day-9',1,'completed',{day:9}),checkpoint('day-17',1,'planned',{day:17}),checkpoint('day-31',1,'planned',{day:31})]};

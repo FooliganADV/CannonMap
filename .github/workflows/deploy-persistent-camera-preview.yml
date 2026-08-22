@@ -1,16 +1,16 @@
-name: Deploy Trail Intel history hardening preview
+name: Deploy Samsung Rally state correction preview
 
 on:
   push:
     branches:
-      - agent/trail-intel-history-hardening
+      - agent/samsung-rally-state-correction
 
 permissions:
   contents: read
   deployments: write
 
 concurrency:
-  group: cannonmap-trail-intel-history-hardening-preview
+  group: cannonmap-samsung-rally-state-correction-preview
   cancel-in-progress: true
 
 jobs:
@@ -18,7 +18,7 @@ jobs:
     name: Deploy exact commit to Cloudflare Pages preview
     runs-on: ubuntu-latest
     environment:
-      name: cannonmap-trail-intel-history-hardening-preview
+      name: cannonmap-samsung-rally-state-correction-preview
       url: ${{ steps.deploy.outputs.deployment-url || steps.deploy.outputs.pages-deployment-alias-url }}
 
     steps:
@@ -36,7 +36,7 @@ jobs:
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing required repository secret CLOUDFLARE_API_TOKEN"; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing required repository secret CLOUDFLARE_ACCOUNT_ID"; exit 1; }
-          test "$GITHUB_REF_NAME" = "agent/trail-intel-history-hardening" || { echo "::error::Unexpected preview branch"; exit 1; }
+          test "$GITHUB_REF_NAME" = "agent/samsung-rally-state-correction" || { echo "::error::Unexpected preview branch"; exit 1; }
 
       - name: Run P0 release gates
         shell: bash
@@ -56,7 +56,7 @@ jobs:
           command: >-
             pages deploy .
             --project-name=cannonmap
-            --branch=agent/trail-intel-history-hardening
+            --branch=agent/samsung-rally-state-correction
             --commit-hash=${{ github.sha }}
             --commit-dirty=false
 
@@ -67,9 +67,9 @@ jobs:
         run: |
           test -n "$DEPLOYMENT_URL" || { echo "::error::Cloudflare did not return an immutable deployment URL"; exit 1; }
           curl --retry 12 --retry-delay 5 --retry-all-errors --fail --silent --show-error --location "$DEPLOYMENT_URL/" --output /tmp/cannonmap-index.html
-          curl --retry 12 --retry-delay 5 --retry-all-errors --fail --silent --show-error --location "$DEPLOYMENT_URL/app.js?20260820-trail-intel-history-1" --output /tmp/cannonmap-app.js
-          grep -F "2026.08.20.trail-intel-history-1" /tmp/cannonmap-index.html
-          grep -F "2026.08.20.trail-intel-history-1" /tmp/cannonmap-app.js
+          curl --retry 12 --retry-delay 5 --retry-all-errors --fail --silent --show-error --location "$DEPLOYMENT_URL/app.js?20260821-samsung-rally-state-1" --output /tmp/cannonmap-app.js
+          grep -F "2026.08.21.samsung-rally-state-1" /tmp/cannonmap-index.html
+          grep -F "2026.08.21.samsung-rally-state-1" /tmp/cannonmap-app.js
 
       - name: Publish deployment summary
         if: ${{ always() }}
@@ -80,13 +80,13 @@ jobs:
           DEPLOYMENT_STATUS: ${{ job.status }}
         run: |
           {
-            echo "## CannonMap Trail Intel history hardening preview"
+            echo "## CannonMap Samsung Rally state correction preview"
             echo
             echo "| Field | Value |"
             echo "| --- | --- |"
             echo "| Commit | \`${GITHUB_SHA}\` |"
             echo "| Project | \`cannonmap\` |"
-            echo "| Branch | \`agent/trail-intel-history-hardening\` |"
+            echo "| Branch | \`agent/samsung-rally-state-correction\` |"
             echo "| Status | \`${DEPLOYMENT_STATUS}\` |"
             echo "| Deployment URL | ${DEPLOYMENT_URL:-Not returned} |"
             echo "| Branch alias URL | ${PREVIEW_ALIAS_URL:-Not returned} |"

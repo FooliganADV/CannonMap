@@ -118,12 +118,13 @@ export function createRideMemoryCaptureService({
   }
 
   function ensurePending(){
-    if(state.pending)return state.pending;
+    if(state.pending){state.pending.rearMediaId||=state.pending.mediaId;state.pending.frontMediaId||=createId();state.pending.rearMediaGroupId||=state.pending.mediaGroupId||createId();state.pending.frontMediaGroupId||=createId();return state.pending;}
     const scheduledAt=state.nextScheduledAt,slotKey=String(scheduledAt).replace(/[^0-9]/g,'');
     state.pending={
       slotId:`${context.sessionId}:${slotKey}`,scheduledAt,retryAt:null,status:'due',
-      mediaId:createId(),mediaGroupId:createId(),journalEventId:createId(),failureEventId:createId(),missedEventId:createId(),deferredEventId:createId(),coverageEventId:createId()
+      mediaId:createId(),rearMediaId:null,frontMediaId:createId(),rearMediaGroupId:createId(),frontMediaGroupId:createId(),journalEventId:createId(),failureEventId:createId(),missedEventId:createId(),deferredEventId:createId(),coverageEventId:createId()
     };
+    state.pending.rearMediaId=state.pending.mediaId;
     return state.pending;
   }
 
@@ -174,7 +175,7 @@ export function createRideMemoryCaptureService({
     await advance('covered',{checkpointId:reference.checkpointId||null,checkpointCapturedAt:coveredAt});
   }
 
-  function captureMetadata(pending,capturedAt,source){
+  function captureMetadata(pending,capturedAt,source,cameraRole){
     const gps=gpsMetadata(positionProvider?.(),now()),provenance=source?.provenance||{};
     return {
       captureType:RIDE_MEMORY_CAPTURE_TYPE,evidenceRequired:false,objectiveType:RIDE_MEMORY_CAPTURE_TYPE,eventName:'Ride Memory',points:0,
@@ -182,24 +183,34 @@ export function createRideMemoryCaptureService({
       sessionId:context.sessionId,sessionRunNumber:context.sessionRunNumber??null,sessionCalendarDate:context.sessionCalendarDate??null,
       sessionStartedAt:context.sessionStartedAt||context.sessionStartTimestamp||null,
       scheduledCaptureAt:pending.scheduledAt,actualCaptureAt:capturedAt,capturedAt,captureTimestamp:capturedAt,
-      cameraRole:'rear',requestedCamera:provenance.requestedCamera||'rear',actualCamera:provenance.actualCamera||'unknown',
+      cameraRole,requestedCamera:provenance.requestedCamera||cameraRole,actualCamera:provenance.actualCamera||'unknown',
       cameraSelectionHonored:provenance.cameraSelectionHonored??'unknown',captureMethod:provenance.captureMethod||'getUserMedia-imagecapture',
       originalSourceProvenance:clone(provenance),...gps
     };
   }
 
-  function memoryFilename(capturedAt){return `Day${String(context.dayNumber).padStart(2,'0')}_RideMemory_${safeStamp(capturedAt)}_Rear_Original.jpg`;}
+  function memoryFilename(capturedAt,cameraRole){return `Day${String(context.dayNumber).padStart(2,'0')}_RideMemory_${safeStamp(capturedAt)}_${cameraRole==='front'?'Front':'Rear'}_Original.jpg`;}
 
-  async function recoverExisting(pending,existing){
-    if(String(existing.projectId)!==String(context.projectId)||String(existing.sessionId||existing.metadata?.sessionId||'')!==String(context.sessionId)||existing.metadata?.captureType!==RIDE_MEMORY_CAPTURE_TYPE)throw new Error('The persisted Ride Memory identity belongs to another session.');
-    const capturedAt=existing.metadata?.actualCaptureAt||existing.capturedAt||iso(now()),metadata=existing.metadata||{};
+  function validateExisting(existing){
+    if(existing&&(String(existing.projectId)!==String(context.projectId)||String(existing.sessionId||existing.metadata?.sessionId||'')!==String(context.sessionId)||existing.metadata?.captureType!==RIDE_MEMORY_CAPTURE_TYPE))throw new Error('The persisted Ride Memory identity belongs to another session.');
+    return existing;
+  }
+
+  async function recoverExisting(pending,rear,front){
+    validateExisting(rear);validateExisting(front);const rows=[rear,front].filter(Boolean),capturedAt=rows.map(row=>row.metadata?.actualCaptureAt||row.capturedAt).sort().at(-1)||iso(now());
     await appendOrQueue(journalInput({
-      eventId:pending.journalEventId,eventType:'ride_memory_captured',title:'Ride Memory Captured',summary:'One Samsung rear-camera Ride Memory photo was stored independently from checkpoint evidence.',timestamp:capturedAt,
-      metadata:{...metadata,scheduledCaptureAt:pending.scheduledAt,actualCaptureAt:capturedAt,status:'complete'},references:{rideMemoryId:pending.slotId,mediaId:existing.mediaId},
-      attachments:{photos:[{mediaId:existing.mediaId,uri:`media://${existing.mediaId}`,kind:'photo',role:'original',captureType:RIDE_MEMORY_CAPTURE_TYPE,mimeType:existing.mimeType,name:existing.name,size:existing.size,capturedAt}]}
+      eventId:pending.journalEventId,eventType:'ride_memory_captured',title:'Ride Memory Captured',summary:'Sequential Samsung rear and front Ride Memory Originals were stored independently from checkpoint evidence.',timestamp:capturedAt,
+      metadata:{scheduledCaptureAt:pending.scheduledAt,actualCaptureAt:capturedAt,status:'complete',cameraRoles:['rear','front']},references:{rideMemoryId:pending.slotId,rearMediaId:rear.mediaId,frontMediaId:front.mediaId,mediaIds:[rear.mediaId,front.mediaId]},
+      attachments:{photos:rows.map(record=>({mediaId:record.mediaId,uri:`media://${record.mediaId}`,kind:'photo',role:'original',cameraRole:record.metadata?.cameraRole,captureType:RIDE_MEMORY_CAPTURE_TYPE,mimeType:record.mimeType,name:record.name,size:record.size,capturedAt:record.capturedAt}))}
     }));
-    emit('ride_memory_reconciled',{mediaId:existing.mediaId,scheduledCaptureAt:pending.scheduledAt});
-    await advance('captured',{actualCaptureAt:capturedAt,mediaId:existing.mediaId,reconciled:true});
+    emit('ride_memory_reconciled',{mediaIds:rows.map(row=>row.mediaId),scheduledCaptureAt:pending.scheduledAt});
+    await advance('captured',{actualCaptureAt:capturedAt,mediaIds:rows.map(row=>row.mediaId),reconciled:true});
+  }
+
+  async function recordPartial(pending,rear,error,stage){
+    const failedAt=iso(now()),reason=error?.code||error?.name||stage;
+    await appendOrQueue(journalInput({eventId:pending.journalEventId,eventType:'ride_memory_partially_captured',title:'Ride Memory Partially Captured',summary:'Rear Ride Memory Original was retained; front capture failed without affecting Rally operation.',timestamp:failedAt,metadata:{scheduledCaptureAt:pending.scheduledAt,actualCaptureAt:rear.capturedAt,status:'partial',completedRoles:['rear'],missingRoles:['front'],stage,reason,message:String(error?.message||error).slice(0,240)},references:{rideMemoryId:pending.slotId,rearMediaId:rear.mediaId,mediaIds:[rear.mediaId]},attachments:{photos:[{mediaId:rear.mediaId,uri:`media://${rear.mediaId}`,kind:'photo',role:'original',cameraRole:'rear',captureType:RIDE_MEMORY_CAPTURE_TYPE,mimeType:rear.mimeType,name:rear.name,size:rear.size,capturedAt:rear.capturedAt}]}}));
+    emit('ride_memory_partially_captured',{scheduledCaptureAt:pending.scheduledAt,rearMediaId:rear.mediaId,reason});await advance('partial',{actualCaptureAt:rear.capturedAt,mediaIds:[rear.mediaId],missingRoles:['front'],reason});
   }
 
   async function recordFailure(pending,error,stage){
@@ -214,40 +225,25 @@ export function createRideMemoryCaptureService({
 
   async function capturePending(pending,token){
     if(!ownsGeneration(token))return;
-    const existing=await mediaRepository.getMedia(pending.mediaId);
-    if(!ownsGeneration(token))return;
-    if(existing){await recoverExisting(pending,existing);return;}
+    pending.rearMediaId||=pending.mediaId;pending.frontMediaId||=createId();pending.rearMediaGroupId||=pending.mediaGroupId||createId();pending.frontMediaGroupId||=createId();let rear=validateExisting(await mediaRepository.getMedia(pending.rearMediaId));if(!ownsGeneration(token))return;let front=validateExisting(await mediaRepository.getMedia(pending.frontMediaId));if(!ownsGeneration(token))return;if(rear&&front){await recoverExisting(pending,rear,front);return;}
     const activity=checkpointActivity?.()||{};
     if(!ownsGeneration(token))return;
     if(activity.active){await deferPending('checkpoint-active');return;}
-    const covered=coverageCandidate(pending.scheduledAt);if(covered){await recordCoverage(covered);return;}
+    const covered=!rear&&!front?coverageCandidate(pending.scheduledAt):null;if(covered){await recordCoverage(covered);return;}
     if(!ownsGeneration(token))return;
-    let capture;
-    try{
-      const result=await cameraArbiter.tryRunMemory(({signal})=>captureStill('rear',{signal,captureType:RIDE_MEMORY_CAPTURE_TYPE,scheduledCaptureAt:pending.scheduledAt}));
-      if(!result.started){await deferPending(result.reason||'camera-busy');return;}
-      capture=result.value;
-    }catch(error){
-      if(abortLike(error)){
-        if(!visible()){pending.retryAt=null;await recordMissed('background-interrupted');return;}
-        await deferPending('checkpoint-preempted');return;
-      }
-      await recordFailure(pending,error,'camera-capture');return;
-    }
-    if(!running||destroyed||token!==generation)return;
-    const file=capture instanceof Blob?capture:capture?.blob,provenance=capture instanceof Blob?{}:capture?.provenance;
-    if(!(file instanceof Blob)){await recordFailure(pending,Object.assign(new Error('Ride Memory camera returned no JPEG bytes.'),{code:'RIDE_MEMORY_EMPTY_CAPTURE'}),'camera-capture');return;}
-    const capturedAt=iso(now()),metadata=captureMetadata(pending,capturedAt,{provenance});
-    let stored;
-    try{
-      stored=await mediaRepository.addOriginal({
+    const captureRole=async role=>{
+      const result=await cameraArbiter.tryRunMemory(({signal})=>captureStill(role,{signal,captureType:RIDE_MEMORY_CAPTURE_TYPE,scheduledCaptureAt:pending.scheduledAt}));if(!result.started)return {deferred:result.reason||'camera-busy'};
+      const capture=result.value,file=capture instanceof Blob?capture:capture?.blob,provenance=capture instanceof Blob?{}:capture?.provenance;if(!(file instanceof Blob))throw Object.assign(new Error(`Ride Memory ${role} camera returned no JPEG bytes.`),{code:'RIDE_MEMORY_EMPTY_CAPTURE'});
+      const capturedAt=iso(now()),metadata=captureMetadata(pending,capturedAt,{provenance},role),mediaId=role==='rear'?pending.rearMediaId:pending.frontMediaId;
+      return {stored:await mediaRepository.addOriginal({
         projectId:context.projectId,checkpointId:`ride-memory:${context.sessionId}:${String(pending.scheduledAt).replace(/[^0-9]/g,'')}`,
-        journalEventId:pending.journalEventId,originalFile:file,metadata,filenames:{original:memoryFilename(now())},
-        identities:{mediaGroupId:pending.mediaGroupId,originalMediaId:pending.mediaId},sourceProvenance:provenance
-      });
-    }catch(error){await recordFailure(pending,error,'media-persistence');return;}
-    if(!running||destroyed||token!==generation)return;
-    await recoverExisting(pending,stored);
+        journalEventId:pending.journalEventId,originalFile:file,metadata,filenames:{original:memoryFilename(capturedAt,role)},identities:{mediaGroupId:role==='rear'?pending.rearMediaGroupId:pending.frontMediaGroupId,originalMediaId:mediaId},sourceProvenance:provenance
+      })};
+    };
+    if(!rear){try{const result=await captureRole('rear');if(result.deferred){await deferPending(result.deferred);return;}rear=result.stored;}catch(error){if(abortLike(error)){if(!visible()){pending.retryAt=null;await recordMissed('background-interrupted');return;}await deferPending('checkpoint-preempted');return;}try{rear=validateExisting(await mediaRepository.getMedia(pending.rearMediaId));}catch{}if(!rear){await recordFailure(pending,error,'rear-capture-or-persistence');return;}}}
+    if(!ownsGeneration(token))return;
+    if(!front){try{const result=await captureRole('front');if(result.deferred){await deferPending(result.deferred);return;}front=result.stored;}catch(error){if(abortLike(error)){await deferPending(visible()?'checkpoint-preempted':'background-interrupted');return;}try{front=validateExisting(await mediaRepository.getMedia(pending.frontMediaId));}catch{}if(!front){await recordPartial(pending,rear,error,'front-capture-or-persistence');return;}}}
+    if(!ownsGeneration(token))return;await recoverExisting(pending,rear,front);
   }
 
   async function performTick(token){
