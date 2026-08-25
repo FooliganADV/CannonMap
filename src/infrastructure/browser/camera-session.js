@@ -191,7 +191,8 @@ export function createCameraSession({
     });
   }
 
-  async function verifyNativeStill(role,entry,{signal=null,timeoutMs=photoProbeTimeoutMs}={}){
+  async function verifyNativeStill(role,entry,{signal=null,timeoutMs=photoProbeTimeoutMs,assertCurrent=()=>{}}={}){
+    assertCurrent();
     if(!usable(entry?.stream,entry?.track))throw Object.assign(new Error(`${role} camera became unusable before native still verification.`),{code:'CAMERA_TRACK_UNAVAILABLE'});
     if(entry.actualCamera!=='unknown'&&entry.actualCamera!==role)throw Object.assign(new Error(`${role} camera request opened the ${entry.actualCamera} camera.`),{code:'CAMERA_ROLE_MISMATCH',requestedCamera:role,actualCamera:entry.actualCamera});
     emit('camera_native_still_probe_started',{cameraRole:role,leaseId:entry.leaseId});let capabilities={};
@@ -199,10 +200,12 @@ export function createCameraSession({
       try{capabilities=await bounded(()=>entry.imageCapture.getPhotoCapabilities(),{timeoutMs:Math.min(positiveMs(timeoutMs,photoProbeTimeoutMs),positiveMs(capabilityTimeoutMs,1000)),signal,timeoutCode:'CAMERA_PHOTO_CAPABILITIES_TIMEOUT',timeoutMessage:`${role} native still capability lookup timed out.`})||{};}
       catch(error){if(error?.name==='AbortError')throw error;emit('camera_native_still_capabilities_unavailable',{cameraRole:role,errorCode:error?.code||null});}
     }
+    assertCurrent();
     const photoSettings=highestResolutionSettings(capabilities);
     const blob=await bounded(()=>Object.keys(photoSettings).length?entry.imageCapture.takePhoto(photoSettings):entry.imageCapture.takePhoto(),{
       timeoutMs,signal,timeoutCode:'CAMERA_NATIVE_STILL_PROBE_TIMEOUT',timeoutMessage:`${role} native still verification timed out.`,onLateResolve:()=>emit('camera_late_probe_photo_discarded',{cameraRole:role})
     });
+    assertCurrent();
     if(!blob?.arrayBuffer||!Number(blob.size))throw Object.assign(new Error(`${role} native still verification returned no image bytes.`),{code:'EMPTY_NATIVE_STILL'});
     verifiedRoles.add(role);lastSuccessfulVerificationAt=clock();
     emit('camera_native_still_probe_verified',{cameraRole:role,mimeType:String(blob.type||''),byteLength:Number(blob.size),photoSettings});
@@ -210,21 +213,24 @@ export function createCameraSession({
   }
 
   async function initialize({scopeToken:requestedScope=null,signal=null,timeoutMs=initializationTimeoutMs}={}){
-    const boundScope=bindScope(requestedScope),started=clock(),total=positiveMs(timeoutMs,initializationTimeoutMs),probes=[];
+    const boundScope=bindScope(requestedScope),initializationGeneration=generation,started=clock(),total=positiveMs(timeoutMs,initializationTimeoutMs),probes=[];
+    const assertCurrent=()=>{if(destroyed||generation!==initializationGeneration||scopeToken!==boundScope||visibilityState!=='visible')throw scopeError();};
     const remaining=limit=>{const value=total-(clock()-started);if(value<=0)throw timeoutError('Camera session initialization timed out.','CAMERA_SESSION_INITIALIZATION_TIMEOUT');return Math.max(1,Math.min(positiveMs(limit,value),value));};
     emit('camera_session_initializing',{permissionState:'requesting'});verifiedRoles.clear();
     try{
       for(const role of ['rear','front']){
+        assertCurrent();
         let entry=null,verified=false;
-        try{entry=await acquire(role,{reason:'rally-day-preflight',scopeToken:boundScope,signal,timeoutMs:remaining(acquisitionTimeoutMs)});probes.push(await verifyNativeStill(role,entry,{signal,timeoutMs:remaining(photoProbeTimeoutMs)}));verified=true;}
+        try{entry=await acquire(role,{reason:'rally-day-preflight',scopeToken:boundScope,signal,timeoutMs:remaining(acquisitionTimeoutMs)});assertCurrent();probes.push(await verifyNativeStill(role,entry,{signal,timeoutMs:remaining(photoProbeTimeoutMs),assertCurrent}));assertCurrent();verified=true;}
         finally{if(entry)closeActive(entry,'preflight-probe-complete',{preserveVerification:verified,verifiedNativeStill:verified,outcome:verified?'success':'failure'});}
       }
+      assertCurrent();
       const verifiedNativeStill=['rear','front'].every(role=>verifiedRoles.has(role));
       if(!verifiedNativeStill)throw Object.assign(new Error('Both cameras were not verified for native still capture.'),{code:'NATIVE_STILL_VERIFICATION_INCOMPLETE'});
       emit('camera_session_initialized',{permissionState:'granted',retainedStreamCount:0,verifiedNativeStill});
       return Object.freeze({ready:true,verifiedNativeStill,verifiedRoles:Object.freeze([...verifiedRoles]),probes:Object.freeze(probes),retainedStreamCount:0,ownershipPolicy:'exclusive-sequential'});
     }catch(error){
-      if(scopeToken===boundScope)teardown(error?.name==='NotAllowedError'?'permission-failed':'session-initialization-failed');
+      if(generation===initializationGeneration&&scopeToken===boundScope)teardown(error?.name==='NotAllowedError'?'permission-failed':'session-initialization-failed');
       emit('camera_session_initialization_failed',{permissionState:'unknown',errorName:error?.name||'Error',errorCode:error?.code||null});throw error;
     }
   }

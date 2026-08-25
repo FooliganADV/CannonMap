@@ -44,7 +44,7 @@ export function createCameraReadinessService({
 }={}){
   if(!adapter||typeof adapter.queryPermission!=='function'||typeof adapter.probeCameras!=='function')throw new TypeError('A camera readiness adapter is required.');
   const support=adapter.capabilities||{};
-  let destroyed=false,inspectionPromise=null,probePromise=null;
+  let destroyed=false,operationalGeneration=0,inspectionTask=null,probeTask=null,activeProbeGeneration=null;
   let current=frozenState({
     permission:'unknown',capability:'uninitialized',automaticCaptureEligible:false,reasonCode:'not-inspected',
     permissionQuerySupported:Boolean(support.permissionQuerySupported),getUserMediaSupported:Boolean(support.getUserMediaSupported),
@@ -54,12 +54,19 @@ export function createCameraReadinessService({
   });
 
   const emit=(eventType,details={})=>{
-    try{onDiagnostic?.(Object.freeze({eventType,occurredAt:clock.iso(),...safeDetails(details)}));}catch{/* Diagnostics are non-authoritative. */}
+    try{onDiagnostic?.(Object.freeze({eventType,occurredAt:clock.iso(),operationalGeneration,...safeDetails(details)}));}catch{/* Diagnostics are non-authoritative. */}
   };
   const publish=patch=>{
     current=frozenState({...current,...patch});
     try{onStateChange?.(current);}catch{/* UI observers are non-authoritative. */}
     return current;
+  };
+  const generationIsCurrent=generation=>!destroyed&&generation===operationalGeneration;
+  const beginOperationalGeneration=(reason,{interruptProbe=false}={})=>{
+    operationalGeneration+=1;inspectionTask=null;probeTask=null;
+    if(interruptProbe)try{adapter.interruptOperationalProbe?.(reason);}catch{/* Fencing still prevents stale publication. */}
+    emit('camera_operational_generation_advanced',{reason,interruptProbe});
+    return operationalGeneration;
   };
   const rememberSetupSucceeded=value=>{
     const normalized=Boolean(value);
@@ -84,6 +91,14 @@ export function createCameraReadinessService({
   const unsubscribe=adapter.subscribePermissionChange?.(permissionState=>{
     if(destroyed)return;
     const normalized=normalize(permissionState,PERMISSION_STATES,'unknown');
+    // Chrome reports prompt -> granted synchronously from the getUserMedia call
+    // that is already performing the deliberate operational probe. Let that
+    // same bounded probe finish instead of tearing down its newly opened track
+    // and starting a redundant rear-camera acquisition.
+    if(normalized==='granted'&&activeProbeGeneration===operationalGeneration){
+      publish({permission:'granted'});emit('camera_permission_change_observed_during_probe',{permission:'granted'});return;
+    }
+    beginOperationalGeneration('camera-permission-changed',{interruptProbe:true});
     const capability=normalized==='denied'?'manual-only':normalized==='prompt'?'setup-required':'uninitialized';
     const reasonCode=normalized==='denied'?'permission-denied':'permission-changed-reverify';
     publish({permission:normalized,capability,automaticCaptureEligible:false,reasonCode,lastVerifiedAt:null,
@@ -100,17 +115,22 @@ export function createCameraReadinessService({
     return null;
   };
 
-  async function verifyWithProbe(reason){
-    if(probePromise)return probePromise;
-    probePromise=(async()=>{
+  async function verifyWithProbe(reason,{generation=operationalGeneration}={}){
+    if(!generationIsCurrent(generation))return current;
+    if(probeTask?.generation===generation)return probeTask.promise;
+    const promise=(async()=>{
+      if(!generationIsCurrent(generation))return current;
       publish({capability:'checking',automaticCaptureEligible:false,reasonCode:'camera-readiness-checking',verifiedNativeStill:false,currentSessionVerified:false});
       emit('camera_readiness_probe_started',{reason});
+      activeProbeGeneration=generation;
       try{
         const result=await adapter.probeCameras();
+        if(!generationIsCurrent(generation)){emit('camera_readiness_probe_result_discarded',{reason,generation});return current;}
         const roles=[...new Set((result?.verifiedRoles||result?.probes?.filter(item=>item?.nativeStillVerified===true).map(item=>item.cameraRole)||[]).map(String))];
         const verifiedNativeStill=result?.verifiedNativeStill===true&&['rear','front'].every(role=>roles.includes(role));
         if(!verifiedNativeStill)throw Object.assign(new Error('Camera streams opened, but native still capture was not verified for both cameras.'),{code:'NATIVE_STILL_VERIFICATION_INCOMPLETE'});
         const permission=await adapter.queryPermission();
+        if(!generationIsCurrent(generation)){emit('camera_readiness_permission_result_discarded',{reason,generation});return current;}
         if(permission?.querySupported===false)publish({permissionQuerySupported:false});
         const permissionState=permission.state==='denied'?'denied':'granted';
         if(permissionState==='denied')return failFromClassification({code:'CAMERA_PERMISSION_DENIED',permissionState:'denied',capabilityState:'manual-only'},{eventType:'camera_readiness_probe_failed'});
@@ -120,6 +140,7 @@ export function createCameraReadinessService({
         emit('camera_readiness_verified',{reason,permission:state.permission,probeCount:Number(result?.probes?.length)||0,verifiedNativeStill:true,verifiedCameraRoles:roles});
         return state;
       }catch(error){
+        if(!generationIsCurrent(generation)){emit('camera_readiness_probe_failure_discarded',{reason,generation,errorName:error?.name||'Error',errorCode:error?.code||null});return current;}
         let classification=adapter.classifyError?.(error)||{code:error?.code||'CAMERA_READINESS_FAILED',capabilityState:'interrupted'};
         // NotAllowedError is overloaded by browsers: it can mean a persisted
         // denial, a missing gesture, or another policy restriction. Resolve it
@@ -127,27 +148,36 @@ export function createCameraReadinessService({
         // false denial or pretending the permission is still granted.
         if(classification.code==='CAMERA_PERMISSION_UNVERIFIED'){
           const permission=await adapter.queryPermission();
+          if(!generationIsCurrent(generation))return current;
           if(permission?.querySupported===false)publish({permissionQuerySupported:false});
           if(permission?.state==='denied')classification={...classification,code:'CAMERA_PERMISSION_DENIED',permissionState:'denied',capabilityState:'manual-only',retryable:false};
           else classification={...classification,permissionState:permission?.state==='prompt'?'prompt':'unknown',capabilityState:'setup-required'};
         }
         return failFromClassification(classification,{eventType:'camera_readiness_probe_failed'});
+      }finally{
+        if(activeProbeGeneration===generation)activeProbeGeneration=null;
       }
-    })().finally(()=>{probePromise=null;});
-    return probePromise;
+    })();
+    probeTask={generation,promise};
+    const clearProbeTask=()=>{if(probeTask?.promise===promise)probeTask=null;};
+    void promise.then(clearProbeTask,clearProbeTask);
+    return promise;
   }
 
-  async function inspect({force=false}={}){
+  async function inspect({force=false,reason='inspection'}={}){
     if(destroyed)return current;
+    const generation=operationalGeneration;
     const sessionReady=adapter.cameraSessionReady?.()!==false;
     if(current.automaticCaptureEligible&&current.verifiedNativeStill&&current.currentSessionVerified&&current.capability==='ready'&&!force&&sessionReady)return current;
-    if(inspectionPromise)return inspectionPromise;
-    inspectionPromise=(async()=>{
+    if(inspectionTask?.generation===generation)return inspectionTask.promise;
+    const promise=(async()=>{
+      if(!generationIsCurrent(generation))return current;
       const wasEligible=current.automaticCaptureEligible&&current.verifiedNativeStill&&current.currentSessionVerified&&current.capability==='ready';
       const unsupported=unsupportedState();
       if(unsupported){emit('camera_readiness_platform_manual_only',{reasonCode:unsupported.reasonCode});return unsupported;}
       publish({capability:'checking',automaticCaptureEligible:false,reasonCode:'camera-permission-checking'});
       const permission=await adapter.queryPermission();
+      if(!generationIsCurrent(generation)){emit('camera_permission_result_discarded',{reason,generation});return current;}
       const permissionState=normalize(permission?.state,PERMISSION_STATES,'unknown');
       publish({permission:permissionState,permissionQuerySupported:permission?.querySupported!==false&&current.permissionQuerySupported});
       emit('camera_permission_state',{permission:permissionState,reasonCode:permission?.reasonCode||null,priorSetupSucceeded:current.priorSetupSucceeded});
@@ -157,19 +187,23 @@ export function createCameraReadinessService({
           const state=publish({permission:'granted',capability:'ready',automaticCaptureEligible:true,reasonCode:null});
           emit('camera_permission_reverified',{permission:'granted',cameraProbeSkipped:true});return state;
         }
-        return verifyWithProbe('permission-granted');
+        return verifyWithProbe(reason==='inspection'?'permission-granted':reason,{generation});
       }
       // Browser permission prompts must be initiated by a deliberate rider gesture.
       // A persisted success hint is informational only; it is never proof that
       // this page/session can still acquire a camera or produce native stills.
       return publish({capability:'setup-required',automaticCaptureEligible:false,reasonCode:permissionState==='prompt'?'permission-setup-required':'permission-unknown-setup-required',lastVerifiedAt:null,
         verifiedNativeStill:false,nativeStillCapability:'unverified',verifiedCameraRoles:Object.freeze([]),currentSessionVerified:false});
-    })().finally(()=>{inspectionPromise=null;});
-    return inspectionPromise;
+    })();
+    inspectionTask={generation,promise};
+    const clearInspectionTask=()=>{if(inspectionTask?.promise===promise)inspectionTask=null;};
+    void promise.then(clearInspectionTask,clearInspectionTask);
+    return promise;
   }
 
   async function setupFromUserGesture(){
     if(destroyed)return current;
+    const generation=beginOperationalGeneration('user-gesture-camera-setup',{interruptProbe:true});
     publish({setupAttemptedThisSession:true});
     emit('camera_setup_requested',{permission:current.permission});
     const unsupported=unsupportedState();
@@ -179,13 +213,37 @@ export function createCameraReadinessService({
     // Cached denial may be stale after the rider changes Safari/Chrome site
     // settings. Each deliberate tap is allowed exactly one bounded recheck;
     // there is no automatic retry loop.
-    return verifyWithProbe('user-gesture-setup');
+    return verifyWithProbe('user-gesture-setup',{generation});
   }
 
   return Object.freeze({
     inspect,
     setupFromUserGesture,
     state:()=>current,
+    operationalGeneration:()=>operationalGeneration,
+    invalidateOperationalReadiness({reason='camera-operational-readiness-stale'}={}){
+      if(destroyed)return current;
+      beginOperationalGeneration(reason,{interruptProbe:true});
+      const denied=current.permission==='denied',state=publish({capability:denied?'manual-only':'interrupted',automaticCaptureEligible:false,
+        reasonCode:denied?'permission-denied':reason,lastVerifiedAt:null,verifiedNativeStill:false,nativeStillCapability:current.imageCaptureSupported?'unverified':'unsupported',
+        verifiedCameraRoles:Object.freeze([]),currentSessionVerified:false});
+      emit('camera_operational_readiness_invalidated',{reason,permission:state.permission,capability:state.capability});return state;
+    },
+    prepareCheckpointCapture(){
+      if(destroyed)return Object.freeze({authorized:false,recoveryRequired:false,state:current});
+      const sessionReady=adapter.cameraSessionReady?.()!==false;
+      if(current.permission==='granted'&&current.automaticCaptureEligible&&current.verifiedNativeStill&&current.currentSessionVerified&&current.capability==='ready'&&sessionReady){
+        return Object.freeze({authorized:true,recoveryRequired:false,state:current});
+      }
+      const locallyRecoverable=current.permission==='granted'&&current.getUserMediaSupported&&current.imageCaptureSupported&&!['manual-only','unavailable'].includes(current.capability);
+      if(!locallyRecoverable)return Object.freeze({authorized:false,recoveryRequired:false,state:current});
+      const priorCapability=current.capability;
+      beginOperationalGeneration('checkpoint-capture-priority',{interruptProbe:true});
+      const state=publish({capability:'interrupted',automaticCaptureEligible:false,reasonCode:'checkpoint-capture-recovery',lastVerifiedAt:null,
+        verifiedNativeStill:false,nativeStillCapability:'unverified',verifiedCameraRoles:Object.freeze([]),currentSessionVerified:false});
+      emit('camera_checkpoint_recovery_authorized',{permission:state.permission,priorCapability});
+      return Object.freeze({authorized:true,recoveryRequired:true,state});
+    },
     assertAutomaticCaptureEligible(){if(!current.automaticCaptureEligible||!current.verifiedNativeStill||!current.currentSessionVerified)throw new AutomaticCameraNotReadyError(current);return current;},
     async prepareAutomaticCapture(){
       if(current.automaticCaptureEligible&&current.verifiedNativeStill&&current.currentSessionVerified&&current.capability==='ready'&&adapter.cameraSessionReady?.()!==false)return current;
@@ -200,6 +258,7 @@ export function createCameraReadinessService({
     },
     noteCaptureSuccess(){
       if(destroyed)return current;
+      beginOperationalGeneration('automatic-capture-success');
       rememberSetupSucceeded(true);
       const state=publish({permission:'granted',capability:'ready',automaticCaptureEligible:true,reasonCode:null,lastVerifiedAt:clock.iso(),
         verifiedNativeStill:true,nativeStillCapability:'verified',verifiedCameraRoles:Object.freeze(['rear','front']),currentSessionVerified:true});
@@ -207,10 +266,12 @@ export function createCameraReadinessService({
     },
     async noteCaptureFailure(error,{requestedCamera=null}={}){
       if(destroyed)return current;
+      const generation=beginOperationalGeneration('automatic-capture-failure',{interruptProbe:true});
       const classification=adapter.classifyError?.(error)||{code:error?.code||'CAMERA_CAPTURE_FAILED',capabilityState:'interrupted'};
       emit('camera_capture_failure_classified',{requestedCamera,classification});
       failFromClassification(classification,{eventType:'camera_capture_failure_revoked_readiness'});
       const permission=await adapter.queryPermission();
+      if(!generationIsCurrent(generation))return current;
       if(permission?.querySupported===false)publish({permissionQuerySupported:false});
       if(permission?.state==='denied')return failFromClassification({code:'CAMERA_PERMISSION_DENIED',permissionState:'denied',capabilityState:'manual-only'},{eventType:'camera_capture_permission_revoked'});
       if(permission?.state==='prompt')return publish({permission:'prompt',capability:'setup-required',automaticCaptureEligible:false,reasonCode:'permission-setup-required',lastVerifiedAt:null});
@@ -220,7 +281,7 @@ export function createCameraReadinessService({
     },
     async destroy(){
       if(destroyed)return;
-      destroyed=true;unsubscribe();adapter.destroy?.();
+      operationalGeneration+=1;destroyed=true;inspectionTask=null;probeTask=null;activeProbeGeneration=null;unsubscribe();adapter.destroy?.();
     }
   });
 }

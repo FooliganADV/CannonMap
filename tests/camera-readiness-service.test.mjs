@@ -3,16 +3,17 @@ import test from 'node:test';
 import {AutomaticCameraNotReadyError,createCameraReadinessService} from '../src/application/camera-readiness-service.js';
 
 function fakeAdapter({permission='prompt',capabilities={},probeError=null,sessionReady=true}={}){
-  let permissionListener=null,probeCalls=0,queryCalls=0;const callOrder=[];
+  let permissionListener=null,probeCalls=0,queryCalls=0,interruptCalls=0;const callOrder=[];
   const adapter={
     capabilities:{permissionQuerySupported:true,getUserMediaSupported:true,imageCaptureSupported:true,...capabilities},
     async queryPermission(){queryCalls++;callOrder.push('query');return {state:permission};},
     async probeCameras(){probeCalls++;callOrder.push('probe');if(probeError)throw probeError;sessionReady=true;return {ready:true,verifiedNativeStill:true,verifiedRoles:['rear','front'],probes:[{cameraRole:'rear',nativeStillVerified:true},{cameraRole:'front',nativeStillVerified:true}]};},
     cameraSessionReady(){return sessionReady;},
+    interruptOperationalProbe(){interruptCalls++;sessionReady=false;},
     classifyError(error){return error.classification||{code:error.code||'CAMERA_STREAM_INTERRUPTED',capabilityState:'interrupted',retryable:true};},
     subscribePermissionChange(listener){permissionListener=listener;return ()=>{permissionListener=null;};},
     setPermission(value){permission=value;permissionListener?.(value);},setSessionReady(value){sessionReady=value;},
-    calls(){return {probeCalls,queryCalls,callOrder:[...callOrder]};}
+    calls(){return {probeCalls,queryCalls,callOrder:[...callOrder]};},interrupts(){return interruptCalls;}
   };
   return adapter;
 }
@@ -146,6 +147,21 @@ test('a live permission change to granted triggers one controlled native-still r
   assert.equal(adapter.calls().probeCalls,1);
 });
 
+test('prompt to granted during the deliberate probe does not tear down or duplicate that probe',async()=>{
+  let listener=null,liveProbe=false,interruptsWhileLive=0,probeCalls=0;
+  const adapter={
+    capabilities:{permissionQuerySupported:true,getUserMediaSupported:true,imageCaptureSupported:true},
+    queryPermission:async()=>({state:'granted'}),cameraSessionReady:()=>false,
+    async probeCameras(){probeCalls++;liveProbe=true;listener?.('granted');liveProbe=false;return {ready:true,verifiedNativeStill:true,verifiedRoles:['rear','front']};},
+    interruptOperationalProbe(){if(liveProbe)interruptsWhileLive++;},
+    classifyError:error=>({code:error?.code||'CAMERA_STREAM_INTERRUPTED',capabilityState:'interrupted',retryable:true}),
+    subscribePermissionChange(next){listener=next;return ()=>{listener=null;};}
+  };
+  const service=createCameraReadinessService({adapter}),state=await service.setupFromUserGesture();
+  assert.equal(state.capability,'ready');assert.equal(state.automaticCaptureEligible,true);
+  assert.equal(probeCalls,1);assert.equal(interruptsWhileLive,0);
+});
+
 test('missing ImageCapture becomes intentional manual-only mode',async()=>{
   const adapter=fakeAdapter({permission:'prompt',capabilities:{imageCaptureSupported:false}});
   const service=createCameraReadinessService({adapter});
@@ -258,4 +274,51 @@ test('prepareAutomaticCapture does not probe an intentional manual-only platform
   await assert.rejects(service.prepareAutomaticCapture(),AutomaticCameraNotReadyError);
   assert.equal(service.state().capability,'manual-only');
   assert.deepEqual(adapter.calls(),before);
+});
+
+test('foreground lifecycle invalidation preserves permission but revokes operational READY until a fresh rear/front probe completes',async()=>{
+  const adapter=fakeAdapter({permission:'granted'}),events=[],service=createCameraReadinessService({adapter,onDiagnostic:event=>events.push(event)});
+  const before=await service.inspect();
+  assert.equal(before.permission,'granted');assert.equal(before.automaticCaptureEligible,true);assert.equal(adapter.calls().probeCalls,1);
+  const stale=service.invalidateOperationalReadiness({reason:'foreground-resume-camera-stale'});
+  assert.equal(stale.permission,'granted');assert.equal(stale.capability,'interrupted');assert.equal(stale.automaticCaptureEligible,false);assert.equal(stale.lastVerifiedAt,null);
+  assert.equal(adapter.interrupts(),1);
+  const current=await service.inspect({force:true,reason:'foreground-resume'});
+  assert.equal(current.permission,'granted');assert.equal(current.capability,'ready');assert.equal(current.automaticCaptureEligible,true);
+  assert.equal(adapter.calls().probeCalls,2);assert.ok(events.some(event=>event.eventType==='camera_operational_readiness_invalidated'));
+});
+
+test('checkpoint priority with a granted permission fences background revalidation and authorizes one fresh capture without another probe',async()=>{
+  const adapter=fakeAdapter({permission:'granted'}),service=createCameraReadinessService({adapter});await service.inspect();
+  service.invalidateOperationalReadiness({reason:'document-hidden'});const before=adapter.calls();
+  const preparation=service.prepareCheckpointCapture();
+  assert.equal(preparation.authorized,true);assert.equal(preparation.recoveryRequired,true);assert.equal(preparation.state.permission,'granted');
+  assert.equal(preparation.state.reasonCode,'checkpoint-capture-recovery');assert.equal(adapter.calls().probeCalls,before.probeCalls,'checkpoint capture goes directly to the bounded capture state machine');
+  service.noteCaptureSuccess();assert.equal(service.state().automaticCaptureEligible,true);assert.equal(service.state().capability,'ready');
+});
+
+test('checkpoint priority never discovers camera permission from prompt, denied, or unknown states',async()=>{
+  for(const permission of ['prompt','denied','unknown']){
+    const adapter=fakeAdapter({permission}),service=createCameraReadinessService({adapter});await service.inspect();const before=adapter.calls();
+    const preparation=service.prepareCheckpointCapture();assert.equal(preparation.authorized,false);assert.equal(preparation.recoveryRequired,false);
+    assert.deepEqual(adapter.calls(),before);
+  }
+});
+
+test('a stale pre-sleep probe cannot overwrite a newer successful checkpoint generation',async()=>{
+  const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};};
+  const oldProbe=deferred(),events=[];let probes=0,sessionReady=false;
+  const successful={ready:true,verifiedNativeStill:true,verifiedRoles:['rear','front'],probes:[{cameraRole:'rear',nativeStillVerified:true},{cameraRole:'front',nativeStillVerified:true}]};
+  const adapter={
+    capabilities:{permissionQuerySupported:true,getUserMediaSupported:true,imageCaptureSupported:true},queryPermission:async()=>({state:'granted'}),
+    probeCameras(){probes++;return probes===1?oldProbe.promise:Promise.resolve(successful);},cameraSessionReady:()=>sessionReady,
+    interruptOperationalProbe(){sessionReady=false;},classifyError:error=>({code:error?.code||'CAMERA_STREAM_INTERRUPTED',capabilityState:'interrupted',retryable:true}),subscribePermissionChange:()=>()=>{}
+  };
+  const service=createCameraReadinessService({adapter,onDiagnostic:event=>events.push(event)}),oldInspection=service.inspect();
+  await new Promise(resolve=>setImmediate(resolve));assert.equal(probes,1);
+  service.invalidateOperationalReadiness({reason:'foreground-resume-camera-stale'});
+  const priority=service.prepareCheckpointCapture();assert.equal(priority.authorized,true);service.noteCaptureSuccess();
+  oldProbe.resolve(successful);await oldInspection;
+  assert.equal(service.state().capability,'ready');assert.equal(service.state().automaticCaptureEligible,true);assert.equal(probes,1);
+  assert.ok(events.some(event=>event.eventType==='camera_readiness_probe_result_discarded'));
 });

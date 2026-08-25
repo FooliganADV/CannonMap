@@ -110,6 +110,7 @@ test('camera setup is invoked directly from the gesture action and becomes READY
   calls.length=0;
   const result=await service.act(PREFLIGHT_CAPABILITY.CAMERA,{scope,userGesture:true});
   assert.equal(calls[0],'camera-action','camera setup must start before the follow-up inspection');
+  assert.deepEqual(calls,['camera-action'],'a completed camera action must not immediately reopen the cameras for another probe');
   assert.equal(result.capabilities.camera.status,PREFLIGHT_STATUS.READY);
 });
 

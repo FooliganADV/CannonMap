@@ -138,6 +138,25 @@ export function advanceRouteAfterDetectedArrival(rows,checkpoint){
   return activateNextPlanned(rows||[]);
 }
 
+/** Classifies an arrival against the navigation target that is live when the
+ * durable arrival transition begins. A dwell candidate may have entered an
+ * overlapping radius under an older target, so its frozen target is evidence
+ * about entry timing, not authority for route ownership. */
+export function arrivalRouteContext(rows,checkpoint){
+  const active=(rows||[]).find(feature=>feature.status===CHECKPOINT_STATE.ACTIVE)||null;
+  const priorTarget=active&&active.id!==checkpoint?.id?active:null;
+  return Object.freeze({outOfOrder:Boolean(priorTarget),priorTarget});
+}
+
+/** A prior target can be restored only while that exact target still owns
+ * navigation. This fences stale Journal/dwell metadata from moving or
+ * mislabeling a later sequential target during delayed evidence recovery. */
+export function verifiedOutOfOrderPriorTarget(rows,checkpoint,{outOfOrder=false,priorTargetId=null}={}){
+  if(outOfOrder!==true||priorTargetId===null||priorTargetId===undefined)return null;
+  const id=String(priorTargetId);
+  return (rows||[]).find(feature=>feature.id!==checkpoint?.id&&String(feature.id)===id&&feature.status===CHECKPOINT_STATE.ACTIVE)||null;
+}
+
 export function currentHotel(project,settings){
   const day=activeRallyDay(settings);
   return day?(project?.features||[]).find(feature=>feature.type==='hotel'&&Number(feature.day)===day)||null:null;

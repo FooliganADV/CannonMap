@@ -22,9 +22,16 @@ test('project lifecycle actions keep independent projects available on device',a
 });
 
 test('stationary Journey Photo is durable and appears in the cross-project gallery',async({page},testInfo)=>{
-  test.skip(testInfo.project.name!=='iPhone 13 portrait');await open(page,project([1]));await page.locator('#rallyMoreButton').click();
+  test.skip(testInfo.project.name!=='iPhone 13 portrait');await open(page,project([1]));
+  await page.evaluate(()=>{const day=document.getElementById('dayFilter');day.value='1';day.dispatchEvent(new Event('change',{bubbles:true}));});
+  await page.evaluate(()=>window.CannonMapTest.startNewRallySessionForTest(1));
+  await page.evaluate(async()=>{await window.CannonMapTest.refreshDayPreflightForTest();await window.CannonMapTest.proceedFromDayPreflightForTest({degraded:true});});
+  await page.locator('#rallyMoreButton').click();
   await expect(page.locator('#rallyJourneyPhotoButton')).toHaveText('Journey Photo');await expect(page.locator('#rallyJourneySelfieButton, #rallyJourneyForwardButton')).toHaveCount(0);
   await page.locator('#rallyJourneyPhotoButton').click();await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();await page.locator('#rallyCameraInput').setInputFiles({name:'sunset.jpg',mimeType:'image/jpeg',buffer:photoBuffer});await expect(page.locator('#rallyCameraWorkflow')).toBeHidden();
   await expect.poll(()=>page.evaluate(async()=>{const events=await window.CannonMapTest.missionControlJournalEvents();return events.some(event=>event.eventType==='photo_added'&&event.metadata.objectiveType==='journey'&&event.attachments.photos?.length===4);})).toBe(true);
-  await page.locator('#rallyJourneyGalleryButton').click();await expect(page.locator('.rally-photo-kind')).toContainText('Journey Photos');await expect(page.locator('.rally-photo-group')).toContainText('Journey Photo');await page.reload();await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');await page.locator('#rallyMoreButton').click();await page.locator('#rallyJourneyGalleryButton').click();await expect(page.locator('.rally-photo-group')).toContainText('Journey Photo');
+  await page.locator('#rallyJourneyGalleryButton').click();await expect(page.locator('.rally-photo-kind')).toContainText('Journey Photos');await expect(page.locator('.rally-photo-group')).toContainText('Journey Photo');await page.reload();await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
+  await expect(page.locator('#rallySessionChoice')).toBeVisible();await page.locator('#rallyResumeSessionButton').click();await expect(page.locator('#rallySessionChoice')).toBeHidden();
+  await page.evaluate(async()=>{await window.CannonMapTest.refreshDayPreflightForTest();await window.CannonMapTest.proceedFromDayPreflightForTest({degraded:true});});
+  await page.locator('#rallyMoreButton').click();await page.locator('#rallyJourneyGalleryButton').click();await expect(page.locator('.rally-photo-group')).toContainText('Journey Photo');
 });

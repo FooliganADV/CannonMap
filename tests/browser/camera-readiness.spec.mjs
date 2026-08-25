@@ -487,7 +487,7 @@ test('denying the one-time setup prompt becomes intentional manual mode without 
   expect(afterRefresh.queryCalls).toBeGreaterThan(afterDenial.queryCalls);
   const debug=await page.evaluate(()=>window.CannonMapTest.rallyDebugEntries());
   expect(debug.some(entry=>entry.type==='camera_setup_requested')).toBeTruthy();
-  expect(debug.some(entry=>['camera_setup_denied','camera_readiness_probe_failed'].includes(entry.type)&&entry.permission==='denied')).toBeTruthy();
+  expect(debug.some(entry=>['camera_setup_denied','camera_readiness_probe_failed','camera_permission_change_revoked_readiness'].includes(entry.type)&&entry.permission==='denied')).toBeTruthy();
 });
 
 test('unsupported Permissions query still offers one controlled setup and becomes ready',async({page},testInfo)=>{
@@ -544,6 +544,119 @@ test('a granted stream reopen failure performs one fresh-stream recovery and pre
   expect(result.media).toHaveLength(8);
   expect(result.events.some(event=>event.eventType==='checkpoint_completed'&&event.references.checkpointId==='cp-2')).toBeTruthy();
   expect((await platform(page)).getUserMediaCalls).toHaveLength(callsBeforeRecovery+4);
+});
+
+test('Android long-sleep resume invalidates historical READY and revalidates both cameras while offline',async({page,context},testInfo)=>{
+  test.skip(testInfo.project.name!=='Android landscape');
+  await installCameraPlatform(page,{permission:'granted'});
+  await openProject(page,{query:'camera-readiness-long-sleep-offline'});
+  await expect.poll(()=>readiness(page)).toMatchObject({permission:'granted',capability:'ready',automaticCaptureEligible:true});
+  await continueDayPreflight(page);
+  const before=await platform(page);
+
+  await context.setOffline(true);
+  await page.evaluate(()=>window.CannonMapTest.backgroundCameraLifecycleForTest('test-one-hour-sleep'));
+  await expect.poll(()=>readiness(page)).toMatchObject({permission:'granted',capability:'interrupted',automaticCaptureEligible:false,currentSessionVerified:false,lastVerifiedAt:null});
+  await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.cameraSessionState())).toMatchObject({retainedStreamCount:0,ready:false});
+
+  await page.evaluate(()=>window.CannonMapTest.resumeForegroundCameraLifecycleForTest('test-long-sleep-visible'));
+  await expect.poll(()=>readiness(page)).toMatchObject({permission:'granted',capability:'ready',automaticCaptureEligible:true,currentSessionVerified:true,verifiedCameraRoles:['rear','front']});
+  const after=await platform(page);
+  expect(after.getUserMediaCalls.slice(before.getUserMediaCalls.length).map(item=>item.facingMode)).toEqual(['environment','user']);
+  expect(after.takePhotoCalls.slice(before.takePhotoCalls.length).map(item=>item.facingMode)).toEqual(['environment','user']);
+  await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.cameraSessionState())).toMatchObject({retainedStreamCount:0,ready:true});
+  await expect(page.locator('#rallyDayPreflight')).toBeHidden();
+  expect(await page.evaluate(()=>navigator.onLine)).toBe(false);
+  await context.setOffline(false);
+});
+
+test('checkpoint immediately after wake preempts a hung readiness probe and completes exactly once',async({page},testInfo)=>{
+  test.skip(testInfo.project.name!=='Android landscape');
+  await installCameraPlatform(page,{permission:'granted'});
+  await openProject(page,{query:'camera-readiness-wake-checkpoint-priority'});
+  await expect.poll(()=>readiness(page)).toMatchObject({permission:'granted',capability:'ready',automaticCaptureEligible:true});
+  await continueDayPreflight(page);
+  const before=await platform(page);
+
+  await page.evaluate(()=>{
+    window.CannonMapTest.backgroundCameraLifecycleForTest('test-sleep');
+    globalThis.__cameraPlatform.hangNextAcquisition();
+    globalThis.__foregroundCameraResume=window.CannonMapTest.resumeForegroundCameraLifecycleForTest('test-wake');
+  });
+  await expect.poll(async()=>(await platform(page)).getUserMediaCalls.length).toBe(before.getUserMediaCalls.length+1);
+  await triggerCheckpoint(page,{checkpointId:'cp-1',latitude:30,speedMph:63,priorTargetId:'cp-1'});
+  await page.evaluate(()=>globalThis.__foregroundCameraResume?.catch?.(()=>{}));
+
+  const result=await page.evaluate(async()=>({
+    media:await window.CannonMapTest.missionMediaRecords(),events:await window.CannonMapTest.missionControlJournalEvents(),
+    debug:window.CannonMapTest.rallyDebugEntries(),evidence:window.CannonMapTest.checkpointEvidenceStateForTest('cp-1')
+  }));
+  expect(result.evidence).toMatchObject({arrival:{state:'confirmed',trustworthy:true},photo:{state:'complete'},completion:{state:'completed'}});
+  expect(result.media).toHaveLength(4);
+  expect(result.events.filter(event=>event.eventType==='checkpoint_completed'&&event.references.checkpointId==='cp-1')).toHaveLength(1);
+  expect(result.events.filter(event=>event.eventType==='prior_target_restored')).toHaveLength(0);
+  expect(result.debug.some(entry=>entry.type==='checkpoint_detected'&&entry.checkpointId==='cp-1'&&entry.arrivalPersistedBeforeMedia===true)).toBe(true);
+  expect(result.debug.some(entry=>entry.type==='camera_checkpoint_recovery_authorized')).toBe(true);
+  expect(result.debug.filter(entry=>entry.type==='camera_readiness_probe_started')).toHaveLength(2);
+  await expect(page.locator('#rallyNextName')).toContainText('Second Target');
+  await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.cameraSessionState())).toMatchObject({retainedStreamCount:0,takePhotoInFlight:false,ready:true});
+  await expect.poll(()=>readiness(page)).toMatchObject({permission:'granted',capability:'ready',automaticCaptureEligible:true});
+  const after=await platform(page);
+  expect(after.getUserMediaCalls.slice(before.getUserMediaCalls.length).map(item=>item.facingMode)).toEqual(['environment','environment','environment','user','user']);
+});
+
+test('interrupted CP1 evidence does not make successful CP2 out-of-order or move navigation backward',async({page},testInfo)=>{
+  test.skip(testInfo.project.name!=='Android landscape');
+  await installCameraPlatform(page,{permission:'granted'});
+  await openProject(page,{query:'camera-readiness-pending-sequence'});
+  await expect.poll(()=>readiness(page)).toMatchObject({permission:'granted',capability:'ready',automaticCaptureEligible:true});
+  await continueDayPreflight(page);
+  await page.evaluate(async()=>{
+    window.CannonMapTest.backgroundCameraLifecycleForTest('test-sleep-before-cp1');
+    await window.CannonMapTest.resumeForegroundCameraLifecycleForTest('test-wake-before-cp1');
+    globalThis.__cameraPlatform.failFacing('environment');
+  });
+
+  await triggerCheckpoint(page,{checkpointId:'cp-1',latitude:30,speedMph:63,priorTargetId:'cp-1'});
+  const afterFirst=await page.evaluate(()=>({evidence:window.CannonMapTest.checkpointEvidenceStateForTest('cp-1'),session:window.CannonMapTest.rallySessionStateForTest()}));
+  expect(afterFirst.evidence.arrival).toMatchObject({state:'confirmed',trustworthy:true});
+  expect(afterFirst.evidence.photo.state).not.toBe('complete');
+  expect(afterFirst.evidence.completion.state).not.toBe('completed');
+  expect(afterFirst.session.pendingEvidence.entries.some(item=>item.checkpointId==='cp-1')).toBe(true);
+  await expect(page.locator('#rallyNextName')).toContainText('Second Target');
+
+  await page.evaluate(()=>globalThis.__cameraPlatform.clearFailures());
+  await triggerCheckpoint(page,{checkpointId:'cp-2',latitude:30.0001,observedAt:9000,speedMph:67,priorTargetId:'cp-2'});
+  const result=await page.evaluate(async()=>({
+    first:window.CannonMapTest.checkpointEvidenceStateForTest('cp-1'),second:window.CannonMapTest.checkpointEvidenceStateForTest('cp-2'),
+    events:await window.CannonMapTest.missionControlJournalEvents(),debug:window.CannonMapTest.rallyDebugEntries()
+  }));
+  expect(result.first.arrival).toMatchObject({state:'confirmed',trustworthy:true});
+  expect(result.first.photo.state).not.toBe('complete');
+  expect(result.second).toMatchObject({arrival:{state:'confirmed',trustworthy:true},photo:{state:'complete'},completion:{state:'completed'}});
+  expect(result.events.filter(event=>event.eventType==='checkpoint_completed'&&event.references.checkpointId==='cp-2')).toHaveLength(1);
+  expect(result.events.filter(event=>event.eventType==='prior_target_restored')).toHaveLength(0);
+  expect(result.debug.some(entry=>entry.type==='checkpoint_detected'&&entry.checkpointId==='cp-2'&&entry.outOfOrder===false)).toBe(true);
+  await expect(page.locator('#rallyScore')).toHaveText('10');
+  await expect(page.locator('#rallyNextName')).toContainText('Hotel');
+
+  await page.evaluate(()=>window.CannonMapTest.pendingEvidenceActionForTest('cp-1','resume'));
+  await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();
+  await page.locator('#rallyCameraInput').setInputFiles({name:'CP1_RECOVERY.png',mimeType:'image/png',buffer:Buffer.from(pngBase64,'base64')});
+  await page.evaluate(()=>window.CannonMapTest.awaitFieldMediaIdle());
+  await expect(page.locator('#rallyCameraWorkflow')).toBeHidden();
+  const recovered=await page.evaluate(async()=>( {
+    first:window.CannonMapTest.checkpointEvidenceStateForTest('cp-1'),second:window.CannonMapTest.checkpointEvidenceStateForTest('cp-2'),
+    media:await window.CannonMapTest.missionMediaRecords(),events:await window.CannonMapTest.missionControlJournalEvents()
+  }));
+  expect(recovered.first).toMatchObject({arrival:{state:'confirmed',trustworthy:true},photo:{state:'complete'},completion:{state:'completed'}});
+  expect(recovered.second).toMatchObject({arrival:{state:'confirmed',trustworthy:true},photo:{state:'complete'},completion:{state:'completed'}});
+  expect(recovered.media).toHaveLength(8);
+  expect(recovered.events.filter(event=>event.eventType==='checkpoint_completed'&&event.references.checkpointId==='cp-1')).toHaveLength(1);
+  expect(recovered.events.filter(event=>event.eventType==='checkpoint_completed'&&event.references.checkpointId==='cp-2')).toHaveLength(1);
+  expect(recovered.events.filter(event=>event.eventType==='prior_target_restored')).toHaveLength(0);
+  await expect(page.locator('#rallyScore')).toHaveText('20');
+  await expect(page.locator('#rallyNextName')).toContainText('Hotel');
 });
 
 test('unsupported ImageCapture is declared manual-only instead of falsely attempting automatic capture',async({page},testInfo)=>{

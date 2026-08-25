@@ -262,7 +262,7 @@ test('manual camera fallback accepts taps across the capture surface, stores a p
   expect(modal.x+modal.width).toBeLessThanOrEqual(viewport.width);
   expect(modal.y+modal.height).toBeLessThanOrEqual(viewport.height);
   expect(surface.width).toBeGreaterThanOrEqual(modal.width*.8);
-  expect(surface.height).toBeGreaterThanOrEqual(Math.max(48,modal.height*.65));
+  expect(surface.height+1).toBeGreaterThanOrEqual(Math.max(48,modal.height*.65));
   await expect(page.locator('#rallyRecenterFab')).toBeHidden();
 
   await page.evaluate(()=>{

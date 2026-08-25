@@ -133,14 +133,14 @@ export function createRallyDayPreflightService({adapter,cameraReadiness,clock={i
     try{return mapper(await reader());}catch(error){return inspectFailure(id,error);}
   }
 
-  async function inspect(scope={}){
+  async function inspect(scope={},options={}){
     const normalizedScope=scopeIdentity(scope);
     if(inspectionPromise){
       const pending=await inspectionPromise;
       return pending.scope.key===normalizedScope.key?pending:inspect(normalizedScope);
     }
     inspectionPromise=(async()=>{
-      const cameraInspection=typeof cameraReadiness?.inspect==='function'?cameraReadiness.inspect():Promise.resolve(cameraState());
+      const cameraInspection=options.skipCameraInspection===true||typeof cameraReadiness?.inspect!=='function'?Promise.resolve(cameraState()):cameraReadiness.inspect();
       const [gps,camera,storage,offline]=await Promise.all([
         safelyInspect('gps',()=>adapter.inspectGps(),gpsCapability),
         safelyInspect('camera',async()=>{await cameraInspection;return cameraState();},cameraCapability),
@@ -180,7 +180,10 @@ export function createRallyDayPreflightService({adapter,cameraReadiness,clock={i
     else pending=adapter.prepareOfflineFromUserGesture?.();
     if(!pending)throw new Error(`No ${id} preflight action is available.`);
     try{await pending;}catch{/* The following inspection publishes the actionable state. */}
-    return inspect(scope);
+    // The deliberate camera action already performed the bounded operational
+    // probe. Re-read its authoritative result without immediately reopening
+    // the cameras after an interrupted/failed role.
+    return inspect(scope,{skipCameraInspection:id===PREFLIGHT_CAPABILITY.CAMERA});
   }
 
   function continueDegraded({userGesture=false,scope=current?.scope||{}}={}){

@@ -21,6 +21,7 @@ async function proceedPastReadiness(page){
 async function open(page){
   await page.goto('/?e2e=camera-pair');await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
   await page.locator('#projectInput').setInputFiles({name:'camera-objectives.cmap',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(payload))});
+  await expect(page.locator('#status')).toContainText('Opened camera-objectives.cmap');
   await page.evaluate(()=>{const day=document.getElementById('dayFilter');day.value='1';day.dispatchEvent(new Event('change',{bubbles:true}));});
   await expect(page.locator('#rallyDay')).toHaveText('Day 1');
   await proceedPastReadiness(page);
@@ -37,8 +38,8 @@ test('PHOTO_REQUIRED exposes one full-view fallback shutter and no legacy camera
 
 test('checkpoint and hotel paired capture records durable four-asset Journal relationships',async({page},testInfo)=>{
   test.skip(testInfo.project.name!=='iPhone 13 portrait','Durable workflow is covered once on the primary field viewport.');await open(page);
-  await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));await page.locator('#rallyCameraInput').setInputFiles({name:'checkpoint.png',mimeType:'image/png',buffer:photo});
-  await expect(page.locator('#rallyNextName')).toContainText('Hotel');await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));await page.locator('#rallyCameraInput').setInputFiles({name:'hotel.png',mimeType:'image/png',buffer:photo});
+  await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));await page.locator('#rallyCameraInput').setInputFiles({name:'checkpoint.png',mimeType:'image/png',buffer:photo});await page.evaluate(()=>window.CannonMapTest.awaitFieldMediaIdle());await expect(page.locator('#rallyCameraWorkflow')).toBeHidden();
+  await expect(page.locator('#rallyNextName')).toContainText('Hotel');await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();await page.locator('#rallyCameraInput').setInputFiles({name:'hotel.png',mimeType:'image/png',buffer:photo});await page.evaluate(()=>window.CannonMapTest.awaitFieldMediaIdle());
   await expect(page.locator('#rallyDayComplete')).toBeVisible();await page.waitForFunction(async()=>{const events=await window.CannonMapTest.missionControlJournalEvents();return events.filter(event=>event.eventType==='photo_added').length===2;});
   const result=await page.evaluate(async()=>({events:await window.CannonMapTest.missionControlJournalEvents(),media:await window.CannonMapTest.missionMediaRecords()})),photos=result.events.filter(event=>event.eventType==='photo_added');
   expect(photos.map(event=>event.metadata.objectiveType)).toEqual(['checkpoint','hotel']);expect(result.media).toHaveLength(8);

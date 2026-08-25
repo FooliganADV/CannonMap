@@ -4,6 +4,10 @@ import path from 'node:path';
 const fixture=path.resolve('tests/fixtures/mandeville-field-test.gpx');
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64');
 
+test.beforeEach(({},testInfo)=>{
+  test.skip(testInfo.project.name==='desktop','Mounted-phone camera persistence workflow.');
+});
+
 async function selectDay(page,day=1){
   await page.evaluate(value=>{const select=document.getElementById('dayFilter');select.value=String(value);select.dispatchEvent(new Event('change',{bubbles:true}));},day);
   await expect(page.locator('#rallyDay')).toHaveText(`Day ${day}`);
@@ -11,7 +15,10 @@ async function selectDay(page,day=1){
 
 async function proceedPastReadiness(page){
   await expect(page.locator('#rallyMode')).toBeVisible();
-  const preflight=page.locator('#rallyDayPreflight');
+  const choice=page.locator('#rallySessionChoice'),preflight=page.locator('#rallyDayPreflight');
+  if(await choice.isVisible()){
+    await page.locator('#rallyResumeSessionButton').click();await expect(choice).toBeHidden();await expect(preflight).toBeVisible();
+  }
   if(await preflight.isVisible()){
     await expect(page.locator('#rallyDayPreflightDegraded')).toBeEnabled();
     await page.locator('#rallyDayPreflightDegraded').click();
@@ -35,8 +42,8 @@ test('WebKit PWA camera capture persists, completes, and survives page terminati
 test('WebKit restores PHOTO_REQUIRED after termination and permits durable retry',async({page,context})=>{
   await page.goto('/?e2e=webkit-camera-interrupted');await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');await page.locator('#gpxInput').setInputFiles(fixture);await page.locator('#importForm button[value="replace"]').click();
   await selectDay(page,1);await proceedPastReadiness(page);
-  await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));await expect(page.locator('#rallyObjectiveStatus')).toContainText('photo_required');await page.close();
-  const restored=await context.newPage();await restored.goto('/?e2e=webkit-camera-retry');await restored.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');await proceedPastReadiness(restored);await restored.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));await expect(restored.locator('#rallyCameraWorkflow')).toBeVisible();await expect(restored.locator('#rallyObjectiveStatus')).toContainText('photo_required');
+  await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));await expect(page.locator('#rallyCameraWorkflow')).toBeVisible();await page.close();
+  const restored=await context.newPage();await restored.goto('/?e2e=webkit-camera-retry');await restored.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');await proceedPastReadiness(restored);const pendingId=await restored.evaluate(()=>{const session=window.CannonMapTest.rallySessionStateForTest().current;return session?.activeObjectiveId||Object.keys(session?.checkpointStates||{})[0]||null;});expect(pendingId).toBeTruthy();await restored.evaluate(id=>window.CannonMapTest.pendingEvidenceActionForTest(id,'resume'),pendingId);await expect(restored.locator('#rallyCameraWorkflow')).toBeVisible();
   await restored.locator('#rallyCameraInput').setInputFiles({name:'IMG_RETRY.PNG',mimeType:'image/png',buffer:png});await expect(restored.locator('#rallyCameraWorkflow')).toBeHidden();const events=await restored.evaluate(()=>window.CannonMapTest.missionControlJournalEvents());expect(events.filter(event=>event.eventType==='photo_added')).toHaveLength(1);expect(events.filter(event=>event.eventType==='checkpoint_completed')).toHaveLength(1);
 });
 
@@ -44,8 +51,8 @@ test('WebKit restores a front-only partial pair and the full-view fallback targe
   await page.goto('/?e2e=webkit-camera-partial&debugPhotos=1');await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');await page.locator('#gpxInput').setInputFiles(fixture);await page.locator('#importForm button[value="replace"]').click();
   await selectDay(page,1);await proceedPastReadiness(page);
   await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));await page.locator('#rallyCameraFrontInput').setInputFiles({name:'IMG_FRONT.PNG',mimeType:'image/png',buffer:png});
-  await expect(page.locator('#rallyCameraPhotoCount')).toContainText('Front captured');await expect(page.locator('#rallyCameraPhotoCount')).toContainText('Rear required');await expect(page.locator('#rallyCameraTapSurface')).toBeVisible();await expect(page.locator('#rallyCameraCapturePair, #rallyCameraRetry')).toHaveCount(0);await expect(page.locator('#rallyObjectiveStatus')).toContainText('photo_required');
-  await page.close();const restored=await context.newPage();await restored.goto('/?e2e=webkit-camera-partial-restored&debugPhotos=1');await restored.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');await proceedPastReadiness(restored);await restored.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));
+  await expect(page.locator('#rallyCameraPhotoCount')).toContainText('Front captured');await expect(page.locator('#rallyCameraPhotoCount')).toContainText('Rear required');await expect(page.locator('#rallyCameraTapSurface')).toBeVisible();await expect(page.locator('#rallyCameraCapturePair, #rallyCameraRetry')).toHaveCount(0);
+  await page.close();const restored=await context.newPage();await restored.goto('/?e2e=webkit-camera-partial-restored&debugPhotos=1');await restored.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');await proceedPastReadiness(restored);const pendingId=await restored.evaluate(()=>{const session=window.CannonMapTest.rallySessionStateForTest().current;return session?.activeObjectiveId||Object.keys(session?.checkpointStates||{})[0]||null;});expect(pendingId).toBeTruthy();await restored.evaluate(id=>window.CannonMapTest.pendingEvidenceActionForTest(id,'resume'),pendingId);
   await expect(restored.locator('#rallyCameraPhotoCount')).toContainText('Front captured');await expect(restored.locator('#rallyCameraPhotoCount')).toContainText('Rear required');await expect(restored.locator('#rallyCameraTapSurface')).toBeVisible();await expect(restored.locator('#rallyCameraCapturePair, #rallyCameraRetry')).toHaveCount(0);
   await restored.locator('#rallyCameraRearInput').setInputFiles({name:'IMG_REAR.PNG',mimeType:'image/png',buffer:png});await expect(restored.locator('#rallyCameraWorkflow')).toBeHidden();
   const result=await restored.evaluate(async()=>({events:await window.CannonMapTest.missionControlJournalEvents(),media:await window.CannonMapTest.missionMediaRecords()}));expect(result.media).toHaveLength(4);expect(result.events.filter(event=>event.eventType==='photo_added')).toHaveLength(1);expect(result.events.filter(event=>event.eventType==='checkpoint_completed')).toHaveLength(1);

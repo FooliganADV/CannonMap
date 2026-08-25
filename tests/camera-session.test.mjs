@@ -118,3 +118,27 @@ test('hung native preflight probe prevents READY and fully tears down',async()=>
   const started=Date.now();await assert.rejects(target.session.initialize(),error=>error.code==='CAMERA_NATIVE_STILL_PROBE_TIMEOUT');
   assert.ok(Date.now()-started<250);assert.ok(target.tracks.every(track=>track.stops===1));assert.equal(target.live(),0);assert.equal(target.session.state().verifiedNativeStill,false);assert.equal(target.session.state().ready,false);
 });
+
+test('preempted native preflight cannot cross its generation or tear down a checkpoint lease',async()=>{
+  let settleProbe,probeStarted;
+  const started=new Promise(resolve=>{probeStarted=resolve;});
+  const target=platform({imageCaptureFactory:track=>({
+    getPhotoCapabilities:async()=>({imageWidth:{max:4032},imageHeight:{max:3024}}),
+    takePhoto:()=>new Promise(resolve=>{settleProbe=resolve;probeStarted();})
+  })});
+  const staleInitialization=target.session.initialize({scopeToken:'project-a:1'});
+  await started;
+  assert.deepEqual(target.calls,['environment']);
+  target.session.teardown('checkpoint-capture-priority');
+  const checkpointLease=await target.session.acquire('rear',{reason:'checkpoint',scopeToken:'project-a:1'});
+  assert.equal(target.session.state().activeLeaseId,checkpointLease.leaseId);
+  settleProbe(photo());
+  await assert.rejects(staleInitialization,error=>error.code==='CAMERA_SCOPE_CHANGED');
+  await tick();
+  assert.deepEqual(target.calls,['environment','environment'],'the stale preflight must not acquire front');
+  assert.equal(target.session.state().activeLeaseId,checkpointLease.leaseId,'the stale failure must not tear down the checkpoint lease');
+  assert.deepEqual(target.session.state().verifiedRoles,[],'the stale still must not publish verification');
+  assert.equal(target.live(),1);assert.equal(target.maxLive(),1);
+  target.session.release(checkpointLease,'checkpoint-complete',{outcome:'success',cooldownMs:0});
+  assert.equal(target.live(),0);assert.ok(target.tracks.every(track=>track.stops===1));
+});

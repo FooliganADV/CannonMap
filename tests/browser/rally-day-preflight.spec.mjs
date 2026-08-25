@@ -99,6 +99,7 @@ async function openDay(page,suffix){
   await page.goto(`/?e2e=rally-day-preflight-${suffix}`);
   await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
   await page.locator('#projectInput').setInputFiles({name:'preflight.cmap',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(projectPayload))});
+  await expect(page.locator('#status')).toContainText('Opened preflight.cmap');
   await page.evaluate(()=>{
     const select=document.getElementById('dayFilter');
     select.value='1';
@@ -151,7 +152,7 @@ test('storage protection and offline-shell preparation expose distinct actions',
   test.skip(testInfo.project.name!=='Android portrait');
   await installPreflightPlatform(page,{persisted:false,shellReady:false});
   await openDay(page,'storage-offline-actions');
-  await expect(page.locator('#rallyPreflightStorageState')).toHaveText('ACTION REQUIRED');
+  await expect(page.locator('#rallyPreflightStorageState')).toHaveText('READY');
   await expect(page.locator('#rallyPreflightStorageAction')).toHaveText('PROTECT STORAGE');
   await expect(page.locator('#rallyPreflightOfflineState')).toHaveText('ACTION REQUIRED');
   await expect(page.locator('#rallyPreflightOfflineAction')).toHaveText('PREPARE OFFLINE');

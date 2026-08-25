@@ -1,8 +1,8 @@
-# CannonMap Planner — Beta 0.7.15 Samsung Camera and Backup P0
+# CannonMap Planner — Beta 0.7.16 Samsung Field Release Candidate
 
-Build: `2026.08.22.samsung-camera-backup-p0-1`
+Build: `2026.08.24.samsung-field-rc-1`
 
-This build targets long, powered, screen-on Samsung Chrome/PWA rides in landscape. It preserves the accepted 0.7.14 rally/session/evidence behavior while replacing retained dual-camera ownership with exclusive sequential camera leases and replacing large automatic day ZIPs with bounded, manifest-last external generations.
+This build targets long, powered, screen-on Samsung Chrome/PWA rides in landscape. It preserves the accepted 0.7.15 exclusive-camera and incremental-backup architecture, then adds generation-fenced camera revalidation after foreground resume and corrects pending-evidence route progression.
 
 Rally Mode creates an immutable session for every deliberate run, asks riders to **Resume Existing** or **Start New**, and keeps unresolved photo evidence separate from GPS navigation. Camera preflight verifies rear and front native-still capability, closes both streams, and reports READY with zero retained streams. Every checkpoint and Ride Memory side then opens, captures, persists, and fully closes before the next camera opens.
 
@@ -12,6 +12,11 @@ CannonMap is a rally decision system. The primary live-rally function is display
 
 ## New in this release
 
+- Foreground resume invalidates stale operational camera readiness while preserving the browser permission state, closes every old track, and performs one fresh bounded rear/front probe with zero retained streams
+- A GPS arrival during that probe is persisted immediately; checkpoint capture fences the lower-priority probe and directly invokes the existing exclusive fresh-stream capture/recovery path
+- Pending evidence no longer turns the next sequential arrival into an out-of-order objective when its radius dwell began under an earlier target
+- A prior target is restored only when the exact recorded target still owns live navigation, so late evidence recovery cannot move the route backward
+- Ride Memory archive coverage now explicitly proves two Originals and zero Evidence derivatives per successful rear/front slot
 - Exclusive one-stream camera ownership with a 10-second native-still deadline, full teardown, one fresh-stream retry, truthful frame fallback, and bounded recovery backoff
 - Checkpoint fallback frames are retained only as diagnostic Originals and are fenced from Evidence generation and scoring, including after reload reconciliation
 - Scalable external backup writes and SHA-256 verifies one immutable media file at a time, then commits a unique verified generation manifest last
@@ -72,7 +77,7 @@ node --test tests/*.test.mjs
 
 ## First test
 
-1. Confirm the status shows `v0.7.15 · 2026.08.22.samsung-camera-backup-p0-1`.
+1. Confirm the status shows `v0.7.16 · 2026.08.24.samsung-field-rc-1`.
 2. Import `competitor-test.json`; verify the red trail appears and Rider 27 is listed.
 3. Open **Trail Intel** and select **Weather here**. No key is required.
 4. On a phone, select **Intel** and verify the compact bottom sheet opens without covering the entire map.

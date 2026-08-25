@@ -26,6 +26,7 @@ async function open(page){
   await page.goto('/?e2e=camera-readiness-webkit');
   await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true'&&typeof window.CannonMapTest?.cameraReadinessState==='function');
   await page.locator('#projectInput').setInputFiles({name:'camera-readiness-webkit.cmap',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(payload))});
+  await expect(page.locator('#status')).toContainText('Opened camera-readiness-webkit.cmap');
   await page.evaluate(()=>{const day=document.getElementById('dayFilter');day.value='1';day.dispatchEvent(new Event('change',{bubbles:true}));});
   await expect(page.locator('#rallyDayPreflight')).toBeVisible();
   await expect(page.locator('#rallyDayPreflightOverall')).not.toHaveText('CHECKING');
@@ -33,7 +34,8 @@ async function open(page){
   await expect(page.locator('#rallyDayPreflight')).toBeHidden();
 }
 
-test('WebKit declares intentional manual-only capture in portrait and landscape',async({page})=>{
+test('WebKit declares intentional manual-only capture in portrait and landscape',async({page},testInfo)=>{
+  test.skip(testInfo.project.name==='desktop','Camera readiness preflight is a mounted-phone workflow.');
   await installWebKitCameraLimit(page);
   await open(page);
   await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.cameraReadinessState())).toMatchObject({permission:'unknown',capability:'manual-only',automaticCaptureEligible:false,getUserMediaSupported:true,imageCaptureSupported:false,reasonCode:'image-capture-unsupported'});

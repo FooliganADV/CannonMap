@@ -25,14 +25,16 @@ async function continueSelectedRallyDay(page){
   await expect(preflight).toBeHidden();
 }
 
-async function loadProject(page){
+async function loadProject(page,{activateDay=true}={}){
   await page.goto('/?e2e=1');
   await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
   await page.locator('#projectInput').setInputFiles(fixture);
   await expect(page.locator('#status')).toContainText('Opened rally-project.cmap');
-  await page.evaluate(()=>{const select=document.getElementById('dayFilter');select.value='1';select.dispatchEvent(new Event('change',{bubbles:true}));});
-  await expect(page.locator('#rallyDay')).toHaveText('Day 1');
-  await continueSelectedRallyDay(page);
+  if(activateDay){
+    await page.evaluate(()=>{const select=document.getElementById('dayFilter');select.value='1';select.dispatchEvent(new Event('change',{bubbles:true}));});
+    await expect(page.locator('#rallyDay')).toHaveText('Day 1');
+    await continueSelectedRallyDay(page);
+  }
 }
 async function completeWithEvidence(page,name='objective.jpg'){
   const before=await page.locator('#rallyNextName').textContent();await page.locator('#rallyCompleteButton').click();
@@ -41,7 +43,7 @@ async function completeWithEvidence(page,name='objective.jpg'){
 }
 
 test('project import filters Old Coast Road and preserves nearby features',async({page})=>{
-  await loadProject(page);
+  await loadProject(page,{activateDay:false});
   await expect(page.locator('#layerList')).not.toContainText('Old Coast Road');
   await expect(page.locator('#layerList')).toContainText('Nearby Legal Road');
   const names=await page.evaluate(()=>window.CannonMapTest.sanitizeProjectData({features:[{name:'Old Coast Road'},{name:'Nearby Legal Road'}]}).features.map(f=>f.name));
@@ -184,7 +186,7 @@ test('mobile Rally Mode controls do not overlap and meet 48px targets',async({pa
 
 test('GPX import and export remain available',async({page})=>{
   await page.goto('/?e2e=gpx');
-  await page.waitForFunction(()=>Boolean(window.CannonMapTest));
+  await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true');
   await page.locator('#gpxInput').setInputFiles(path.resolve('cannonmap-test.gpx'));
   await expect(page.locator('#importDialog')).toBeVisible();
   await page.locator('#importForm button[value="replace"]').click();

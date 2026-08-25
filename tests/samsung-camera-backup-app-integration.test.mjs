@@ -23,12 +23,25 @@ function functionSource(name){
   throw new Error(`${name} has no closing brace`);
 }
 
-test('Samsung P0 build identity and exclusive camera visibility lifecycle are wired into the PWA',()=>{
-  assert.match(app,/const APP_VERSION = '0\.7\.15'/);
-  assert.match(app,/const BUILD_ID = '2026\.08\.22\.samsung-camera-backup-p0-1'/);
-  assert.match(app,/cameraSession\?\.setVisibility\?\.\('hidden','document-hidden'\)/);
-  assert.match(app,/cameraSession\?\.setVisibility\?\.\('visible','document-visible'\)/);
-  assert.match(app,/cameraSession\?\.setVisibility\?\.\('visible','page-restored'\)/);
+test('Samsung release-candidate identity and foreground camera recovery barrier are wired into the PWA',()=>{
+  assert.match(app,/const APP_VERSION = '0\.7\.16'/);
+  assert.match(app,/const BUILD_ID = '2026\.08\.24\.samsung-field-rc-1'/);
+  const hidden=functionSource('backgroundCameraLifecycle'),visible=functionSource('resumeForegroundCameraLifecycle'),capture=functionSource('captureAutomaticPair');
+  assert.match(hidden,/automaticCaptureAbortController\?\.abort/);
+  assert.match(hidden,/cameraSession\?\.setVisibility\?\.\('hidden',reason\)/);
+  assert.match(hidden,/cameraReadiness\?\.invalidateOperationalReadiness\?\.\(\{reason\}\)/);
+  assert.ok(hidden.indexOf("setVisibility?.('hidden',reason)")<hidden.indexOf('invalidateOperationalReadiness'),'old camera ownership is torn down before operational readiness is invalidated');
+  assert.match(visible,/cameraSession\?\.setVisibility\?\.\('visible',reason\)/);
+  assert.match(visible,/cameraReadiness\?\.invalidateOperationalReadiness\?\.\(\{reason:'foreground-resume-camera-stale'\}\)/);
+  assert.match(visible,/cameraReadiness\?\.inspect\?\.\(\{force:true,reason:'foreground-resume'\}\)/);
+  assert.match(visible,/cycle!==foregroundCameraRecoveryCycle/);
+  assert.match(visible,/readinessGeneration!==cameraReadiness\?\.operationalGeneration\?\.\(\)/);
+  assert.match(visible,/camera_foreground_revalidation_superseded/);
+  assert.match(capture,/cameraReadiness\?\.prepareCheckpointCapture\?\.\(\)/);
+  assert.ok(capture.indexOf('prepareCheckpointCapture')<capture.indexOf('pairedMediaCapture.capturePair'),'checkpoint priority fences a readiness probe before opening the first production camera');
+  assert.match(app,/visibilitychange[^\n]+gpsWatchdog\?\.checkNow\?\.\(\)[^\n]+resumeForegroundCameraLifecycle/);
+  assert.match(app,/pageshow[^\n]+event\.persisted\|\|cameraLifecycleState==='hidden'[^\n]+resumeForegroundCameraLifecycle/);
+  assert.match(app,/else cameraSession\?\.setVisibility\?\.\('visible','initial-page-show'\)/);
 });
 
 test('checkpoint fallback frame is retained as diagnostic Original and cannot become Evidence',()=>{

@@ -202,6 +202,10 @@ export function createBrowserCameraReadinessAdapter({
     capabilities:Object.freeze({permissionQuerySupported,getUserMediaSupported,imageCaptureSupported,secureContext:Boolean(secureContext)}),
     cameraSessionReady:()=>cameraSession?cameraSession.state?.().ready===true:true,
     cameraSessionState:()=>cameraSession?.state?.()||null,
+    interruptOperationalProbe(reason='camera-operational-probe-interrupted'){
+      cameraSession?.teardown?.(reason);
+      diagnostic('camera_operational_probe_interrupted',{reason});
+    },
     queryPermission,
     probeCameras,
     classifyError:classifyCameraReadinessError,

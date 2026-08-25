@@ -201,10 +201,12 @@ test('restore imported order restores the resolved order rather than raw GPX ord
 test('out-of-order arrival and completion preserve the prior active target',()=>{
   const rows=[checkpoint('CP 37',1,'next',{photoRequired:true}),checkpoint('CP 42',2,'planned',{photoRequired:true})];
   const prior=rows[0],detected=rows[1];
+  const route=workflow.arrivalRouteContext(rows,detected);assert.equal(route.outOfOrder,true);assert.equal(route.priorTarget,prior);
   assert.equal(workflow.recordDetectedArrival(detected,'2026-08-13T12:00:00.000Z'),detected);
   assert.equal(prior.status,workflow.CHECKPOINT_STATE.ACTIVE);
   assert.equal(detected.status,workflow.CHECKPOINT_STATE.PHOTO_REQUIRED);
-  assert.equal(workflow.completeCheckpoint(rows,detected,'2026-08-13T12:00:02.000Z',{photoRecorded:true,preserveActiveTarget:true}),prior);
+  const verified=workflow.verifiedOutOfOrderPriorTarget(rows,detected,{outOfOrder:route.outOfOrder,priorTargetId:route.priorTarget.id});assert.equal(verified,prior);
+  assert.equal(workflow.completeCheckpoint(rows,detected,'2026-08-13T12:00:02.000Z',{photoRecorded:true,preserveActiveTarget:Boolean(verified)}),prior);
   assert.equal(detected.status,workflow.CHECKPOINT_STATE.COLLECTED);
   assert.equal(prior.status,workflow.CHECKPOINT_STATE.ACTIVE);
 });
@@ -250,6 +252,18 @@ test('photo-missing arrival releases navigation to the next objective without aw
   assert.equal(rows[1].status,workflow.CHECKPOINT_STATE.ACTIVE);
   assert.equal(workflow.currentCheckpoint({features:rows},{dayFilter:'1'}),rows[1]);
   assert.equal(workflow.rallyScore({features:rows}),0);
+});
+
+test('arrival classification uses the live navigation target rather than stale radius-dwell ownership',()=>{
+  const rows=[checkpoint('CP 1.1',1,'next',{photoRequired:true}),checkpoint('CP 1.2',2,'planned',{photoRequired:true}),checkpoint('CP 1.3',3,'planned',{photoRequired:true})];
+  const first=rows[0],second=rows[1];
+  assert.deepEqual(workflow.arrivalRouteContext(rows,first),{outOfOrder:false,priorTarget:null});
+  workflow.recordCheckpointArrivalEvidence(first,{timestamp:'2026-08-23T12:00:00.000Z',latitude:30,longitude:-90,gpsAccuracyFeet:10,source:'gps-radius-dwell'});
+  workflow.recordDetectedArrival(first,'2026-08-23T12:00:00.000Z');
+  assert.equal(workflow.advanceRouteAfterDetectedArrival(rows,first),second);
+  assert.deepEqual(workflow.arrivalRouteContext(rows,second),{outOfOrder:false,priorTarget:null},'CP 1.2 is now sequential even if its dwell began while CP 1.1 was current');
+  assert.equal(workflow.verifiedOutOfOrderPriorTarget(rows,second,{outOfOrder:true,priorTargetId:first.id}),null,'stale CP 1.1 ownership cannot restore or relabel the live route');
+  assert.equal(workflow.verifiedOutOfOrderPriorTarget(rows,first,{outOfOrder:true,priorTargetId:second.id}),second,'a genuinely active explicit prior target remains verifiable');
 });
 
 test('camera failure policy interrupts only at 10 mph or below',()=>{

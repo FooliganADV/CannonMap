@@ -1,12 +1,12 @@
-const CACHE = 'cannonmap-v0.7.15-20260822-samsung-camera-backup-p0-1';
+const CACHE = 'cannonmap-v0.7.16-20260824-samsung-field-rc-1';
 const RADAR_CACHE='cannonmap-radar-v1',RADAR_CACHE_LIMIT=96;
 const APP_SHELL = [
   './',
   './index.html',
-  './app.css?v=20260822-samsung-camera-backup-p0-1',
+  './app.css?v=20260824-samsung-field-rc-1',
   './gps-checkpoints-feed.js?v=20260725-02',
-  './stationary-events.js?v=20260822-samsung-camera-backup-p0-1',
-  './app.js?v=20260822-samsung-camera-backup-p0-1',
+  './stationary-events.js?v=20260824-samsung-field-rc-1',
+  './app.js?v=20260824-samsung-field-rc-1',
   './src/core/clock.js',
   './src/core/compatibility.js',
   './src/core/errors.js',

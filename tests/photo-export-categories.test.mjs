@@ -45,6 +45,20 @@ test('completed front and rear pair contributes four verified checkpoint entries
   const result=await serviceFor(pair).day('project',9),entries=await inspectStoredZip(result.blob);assert.equal(result.manifest.entryCount,4);assert.equal(entries.length,5);assert.ok(entries.every(entry=>entry.size>0));
 });
 
+test('Ride Memory archive contains rear and front Originals only with no Evidence derivatives',async()=>{
+  const memory=[['rear','Rear'],['front','Front']].map(([cameraRole,label],index)=>({
+    mediaId:`memory-${index}`,projectId:'project',checkpointId:'ride-memory:session-1:20260824T130000000Z',sessionId:'session-1',
+    role:'original',evidenceStatus:'not_required',pairedMediaId:null,pairId:null,cameraRole,
+    name:`Day01_RideMemory_20260824_130001-000_${label}_Original.jpg`,mimeType:'image/jpeg',blob:new Blob([`memory-${cameraRole}`],{type:'image/jpeg'}),
+    metadata:{dayNumber:1,sessionId:'session-1',captureType:'ride_memory',objectiveType:'ride_memory',evidenceRequired:false,cameraRole}
+  })),result=await serviceFor(memory).day('project',1),files=await readStoredZip(result.blob),paths=Object.keys(files).filter(name=>name.startsWith('Ride_Memories/')),
+    manifest=JSON.parse(files['manifest/photo-media-index.json']);
+  assert.deepEqual(paths.sort(),memory.map(item=>`Ride_Memories/${item.name}`).sort());
+  assert.equal(manifest.mediaCount,2);assert.equal(manifest.originalCount,2);assert.equal(manifest.evidenceCount,0);assert.equal(manifest.pairCount,0);
+  assert.ok(manifest.entries.every(item=>item.mediaRole==='original'&&item.pairedMediaId===null&&item.objectiveType==='ride_memory'));
+  assert.ok(paths.every(name=>!/_Evidence(?:_|\.)/i.test(name)));
+});
+
 test('multiple checkpoint, hotel, and Journey pairs export the exact mixed count',async()=>{
   const mixed=[];for(const [prefix,type,checkpoint] of [['CP9.1','checkpoint','cp'],['Hotel','hotel','hotel'],['Journey','journey','journey:1']])for(const role of ['Front_Original','Front_Evidence','Rear_Original','Rear_Evidence'])mixed.push(row(`${checkpoint}-${role}`,`Day09_${prefix}_${role}.jpg`,`${checkpoint}-${role}`,{dayNumber:9,objectiveType:type,pairId:`pair-${checkpoint}`},checkpoint));
   const result=await serviceFor(mixed).day('project',9),entries=await zipEntries(result.blob);assert.equal(result.manifest.entryCount,12);assert.equal(entries.length,13);assert.equal(entries.filter(entry=>entry.name.startsWith('Hotels/')).length,4);assert.equal(entries.filter(entry=>entry.name.startsWith('Journey/')).length,4);
