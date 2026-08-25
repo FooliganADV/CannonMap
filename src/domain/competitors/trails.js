@@ -1,5 +1,10 @@
 const EARTH=6371008.8;
+const METERS_PER_SECOND_TO_MPH=2.236936;
 const rad=value=>value*Math.PI/180;
+const finite=value=>value!==null&&value!==undefined&&String(value).trim()!==''&&Number.isFinite(Number(value));
+const clampHeading=value=>((Number(value)%360)+360)%360;
+const TACTICAL_PROJECTION_CACHE=new WeakMap();
+export const TACTICAL_PACE_DEFAULTS=Object.freeze({rollingPaceWindowMs:3*60*1000,rollingPaceMinimumMs:15*1000,sustainedPaceWindowMs:15*60*1000,sustainedPaceMinimumMs:10*60*1000,jitterMeters:3});
 export function distanceMeters(a,b){const dLat=rad(b.lat-a.lat),dLon=rad(b.lon-a.lon),v=Math.sin(dLat/2)**2+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dLon/2)**2;return 2*EARTH*Math.asin(Math.min(1,Math.sqrt(v)));}
 export const pointTime=point=>{const raw=point?.time??point?.timestamp??point?.recordedAt;const value=typeof raw==='number'?raw:Date.parse(raw||'');return Number.isFinite(value)?value:0;};
 export function stableCompetitorId(entry,index=0){const props=entry?.properties||{},rider=entry?.competitor||entry?.rider||{};const value=entry?.competitorId??entry?.id_competitor??entry?.riderId??entry?.id??props.competitorId??props.riderId??props.id??rider.id??rider.competitorId??entry?.number??rider.number;return value===undefined||value===null||String(value).trim()===''?`unidentified-${index+1}`:String(value);}
@@ -16,7 +21,7 @@ export function normalizeTrailPoints(points,{now=Date.now(),historyMs=8*24*60*60
 }
 
 const transitionBetween=(prior,point,{gapMs,maxSpeedMph,maxJumpMeters,equalTimestampMeters})=>{
-  const elapsedMs=pointTime(point)-pointTime(prior),distance=distanceMeters(prior,point),priorSession=prior?.sessionId,nextSession=point?.sessionId,sessionChanged=priorSession&&nextSession&&String(priorSession)!==String(nextSession),boundaryReason=sessionChanged?'session_changed':elapsedMs>gapMs?'telemetry_gap':null;
+  const elapsedMs=pointTime(point)-pointTime(prior),distance=distanceMeters(prior,point),normalizeSession=value=>value===null||value===undefined||String(value).trim()===''?null:String(value),priorSession=normalizeSession(prior?.sessionId),nextSession=normalizeSession(point?.sessionId),sessionChanged=priorSession!==nextSession&&(priorSession!==null||nextSession!==null),boundaryReason=sessionChanged?'session_changed':elapsedMs>gapMs?'telemetry_gap':null;
   if(boundaryReason){
     const validationSpeedMph=elapsedMs>0?distance/(elapsedMs/1000)*2.236936:null,implausibleTime=elapsedMs<=0?distance>equalTimestampMeters:validationSpeedMph>maxSpeedMph;
     return distance>maxJumpMeters||implausibleTime
@@ -176,9 +181,67 @@ export function segmentTrail(points,{gapMs=2*60*1000,maxSpeedMph=130,maxJumpMete
 
 const isTacticalTrail=value=>Boolean(value&&Array.isArray(value.points)&&Array.isArray(value.segments)&&value.segments.every(Array.isArray)&&Object.hasOwn(value,'latest'));
 
-export function trailStatus(points,{now=Date.now(),freshMs=15*60*1000,offlineMs=60*60*1000,gapMs=2*60*1000,maxSpeedMph=130,maxJumpMeters=25000,speedWindowIntervals=5,speedMaxIntervalMs=2*60*1000,stationaryMaxMph=2,movingMinMph=5,tacticalTrail=null}={}){
+const bearingDegrees=(a,b)=>{
+  const dLon=rad(b.lon-a.lon),lat1=rad(a.lat),lat2=rad(b.lat),y=Math.sin(dLon)*Math.cos(lat2),x=Math.cos(lat1)*Math.sin(lat2)-Math.sin(lat1)*Math.cos(lat2)*Math.cos(dLon);
+  return clampHeading(Math.atan2(y,x)*180/Math.PI);
+};
+
+export function cardinalDirection(degrees){
+  if(!finite(degrees))return null;
+  return ['N','NE','E','SE','S','SW','W','NW'][Math.round(clampHeading(degrees)/45)%8];
+}
+
+export function directionArrow(degrees){
+  if(!finite(degrees))return null;
+  return ['↑','↗','→','↘','↓','↙','←','↖'][Math.round(clampHeading(degrees)/45)%8];
+}
+
+const paceIntervals=(segment,{maxSpeedMph,jitterMeters})=>{
+  const intervals=[];
+  for(let index=1;index<segment.length;index++){
+    const prior=segment[index-1],point=segment[index],startedAt=pointTime(prior),endedAt=pointTime(point),durationMs=endedAt-startedAt;
+    if(durationMs<=0)continue;
+    const measuredDistanceMeters=distanceMeters(prior,point),speedMph=measuredDistanceMeters/(durationMs/1000)*METERS_PER_SECOND_TO_MPH;
+    if(!Number.isFinite(speedMph)||speedMph>maxSpeedMph)continue;
+    intervals.push({startedAt,endedAt,durationMs,distanceMeters:measuredDistanceMeters<=jitterMeters?0:measuredDistanceMeters});
+  }
+  return intervals;
+};
+
+const projectPaceWindow=(intervals,latestAt,windowMs,minimumCoverageMs)=>{
+  const windowStart=latestAt-windowMs;let coverageMs=0,distance=0,sampleCount=0;
+  for(const interval of intervals){
+    const overlapStart=Math.max(windowStart,interval.startedAt),overlapEnd=Math.min(latestAt,interval.endedAt),overlapMs=overlapEnd-overlapStart;
+    if(overlapMs<=0)continue;
+    coverageMs+=overlapMs;distance+=interval.distanceMeters*(overlapMs/interval.durationMs);sampleCount++;
+  }
+  const paceMph=sampleCount&&coverageMs>=minimumCoverageMs?distance/(coverageMs/1000)*METERS_PER_SECOND_TO_MPH:null;
+  return {paceMph,coverageMs,coverageRatio:Math.min(1,coverageMs/windowMs),sampleCount,sufficient:paceMph!==null};
+};
+
+/**
+ * Adds pace metadata to the already validated tactical stream. Only the most
+ * recent accepted segment contributes: quarantined observations, telemetry
+ * gaps, and source-session boundaries can never be bridged by a pace window.
+ * The WeakMap keeps repeated UI consumers O(1) for the same cached derivation.
+ */
+export function deriveTacticalProjection(points,{now=Date.now(),gapMs=2*60*1000,maxSpeedMph=130,maxJumpMeters=25000,tacticalTrail=null,rollingPaceWindowMs=TACTICAL_PACE_DEFAULTS.rollingPaceWindowMs,rollingPaceMinimumMs=TACTICAL_PACE_DEFAULTS.rollingPaceMinimumMs,sustainedPaceWindowMs=TACTICAL_PACE_DEFAULTS.sustainedPaceWindowMs,sustainedPaceMinimumMs=TACTICAL_PACE_DEFAULTS.sustainedPaceMinimumMs,jitterMeters=TACTICAL_PACE_DEFAULTS.jitterMeters}={}){
+  const tactical=isTacticalTrail(tacticalTrail)?tacticalTrail:deriveTacticalTrail(points,{now,gapMs,maxSpeedMph,maxJumpMeters});
+  const rollingWindow=Math.max(1000,Number(rollingPaceWindowMs)||TACTICAL_PACE_DEFAULTS.rollingPaceWindowMs),rollingMinimum=Math.max(0,Math.min(rollingWindow,Number(rollingPaceMinimumMs)||0)),sustainedWindow=Math.max(1000,Number(sustainedPaceWindowMs)||TACTICAL_PACE_DEFAULTS.sustainedPaceWindowMs),sustainedMinimum=Math.max(0,Math.min(sustainedWindow,Number(sustainedPaceMinimumMs)||0)),jitter=Math.max(0,Number(jitterMeters)||0),speedLimit=Math.max(1,Number(maxSpeedMph)||130);
+  const cacheKey=`${rollingWindow}|${rollingMinimum}|${sustainedWindow}|${sustainedMinimum}|${jitter}|${speedLimit}`;
+  let cache=TACTICAL_PROJECTION_CACHE.get(tactical);if(cache?.has(cacheKey))return cache.get(cacheKey);
+  if(!cache){cache=new Map();TACTICAL_PROJECTION_CACHE.set(tactical,cache);}
+  const segment=tactical.segments.at(-1)||[],latest=tactical.latest,empty=Object.freeze({rollingPaceMph:null,rollingCoverageMs:0,rollingCoverageRatio:0,rollingSampleCount:0,rollingPaceSufficient:false,sustainedPaceMph:null,sustainedCoverageMs:0,sustainedCoverageRatio:0,sustainedSampleCount:0,sustainedPaceSufficient:false,trailGapCount:Math.max(0,tactical.segments.length-1)});
+  if(!latest){cache.set(cacheKey,empty);return empty;}
+  const intervals=paceIntervals(segment,{maxSpeedMph:speedLimit,jitterMeters:jitter}),latestAt=pointTime(latest),rolling=projectPaceWindow(intervals,latestAt,rollingWindow,rollingMinimum),sustained=projectPaceWindow(intervals,latestAt,sustainedWindow,sustainedMinimum);
+  const projection=Object.freeze({rollingPaceMph:rolling.paceMph,rollingCoverageMs:rolling.coverageMs,rollingCoverageRatio:rolling.coverageRatio,rollingSampleCount:rolling.sampleCount,rollingPaceSufficient:rolling.sufficient,sustainedPaceMph:sustained.paceMph,sustainedCoverageMs:sustained.coverageMs,sustainedCoverageRatio:sustained.coverageRatio,sustainedSampleCount:sustained.sampleCount,sustainedPaceSufficient:sustained.sufficient,trailGapCount:Math.max(0,tactical.segments.length-1)});
+  cache.set(cacheKey,projection);return projection;
+}
+
+export function trailStatus(points,{now=Date.now(),freshMs=15*60*1000,offlineMs=60*60*1000,gapMs=2*60*1000,maxSpeedMph=130,maxJumpMeters=25000,speedWindowIntervals=5,speedMaxIntervalMs=2*60*1000,stationaryMaxMph=2,movingMinMph=5,tacticalTrail=null,rollingPaceWindowMs=TACTICAL_PACE_DEFAULTS.rollingPaceWindowMs,rollingPaceMinimumMs=TACTICAL_PACE_DEFAULTS.rollingPaceMinimumMs,sustainedPaceWindowMs=TACTICAL_PACE_DEFAULTS.sustainedPaceWindowMs,sustainedPaceMinimumMs=TACTICAL_PACE_DEFAULTS.sustainedPaceMinimumMs,jitterMeters=TACTICAL_PACE_DEFAULTS.jitterMeters}={}){
   const tactical=isTacticalTrail(tacticalTrail)?tacticalTrail:deriveTacticalTrail(points,{now,gapMs,maxSpeedMph,maxJumpMeters}),last=tactical.latest,latestSegment=tactical.segments.at(-1)||[];
-  if(!last)return {status:'offline',ageMs:null,lastUpdate:null,speedMph:null,direction:null,motion:'unknown',speedSource:null,speedSampleCount:0,speedConfidence:'none',pendingObservation:false};
+  const projection=deriveTacticalProjection(points,{now,gapMs,maxSpeedMph,maxJumpMeters,tacticalTrail:tactical,rollingPaceWindowMs,rollingPaceMinimumMs,sustainedPaceWindowMs,sustainedPaceMinimumMs,jitterMeters});
+  if(!last)return {status:'offline',ageMs:null,lastUpdate:null,speedMph:null,currentSpeedMph:null,recentSpeedMph:null,direction:null,headingDegrees:null,headingCardinal:null,headingArrow:null,motion:'unknown',speedSource:null,speedSampleCount:0,speedConfidence:'none',pendingObservation:false,...projection};
   const ageMs=Math.max(0,now-pointTime(last)),status=ageMs<=freshMs?'live':ageMs<=offlineMs?'stale':'offline',limit=Math.max(1,Math.min(9,Number(speedWindowIntervals)||5)),samples=[];
   for(let index=Math.max(1,latestSegment.length-limit);index<latestSegment.length;index++){
     const prior=latestSegment[index-1],point=latestSegment[index],elapsedMs=pointTime(point)-pointTime(prior);if(elapsedMs<=0||elapsedMs>speedMaxIntervalMs)continue;
@@ -187,9 +250,9 @@ export function trailStatus(points,{now=Date.now(),freshMs=15*60*1000,offlineMs=
   const speeds=samples.map(sample=>sample.speedMph).sort((a,b)=>a-b),middle=Math.floor(speeds.length/2);let speedMph=speeds.length?(speeds.length%2?speeds[middle]:(speeds[middle-1]+speeds[middle])/2):null,speedSource=speeds.length?'position_median':null,speedConfidence=speeds.length>=3?'high':speeds.length===2?'medium':speeds.length===1?'low':'none';
   const providerSpeed=last.speedMph===null||last.speedMph===undefined||last.speedMph===''?NaN:Number(last.speedMph);if(speedMph===null&&Number.isFinite(providerSpeed)&&providerSpeed>=0&&providerSpeed<=maxSpeedMph){speedMph=providerSpeed;speedSource='provider_reported';speedConfidence='reported';}
   const providerHeading=last.heading===null||last.heading===undefined||last.heading===''?NaN:Number(last.heading);let direction=Number.isFinite(providerHeading)&&providerHeading>=0&&providerHeading<360?providerHeading:null;
-  const directionSample=samples.at(-1);if(direction===null&&directionSample){const {prior,point}=directionSample,y=Math.sin(rad(point.lon-prior.lon))*Math.cos(rad(point.lat)),x=Math.cos(rad(prior.lat))*Math.sin(rad(point.lat))-Math.sin(rad(prior.lat))*Math.cos(rad(point.lat))*Math.cos(rad(point.lon-prior.lon));direction=(Math.atan2(y,x)*180/Math.PI+360)%360;}
+  const directionSample=[...samples].reverse().find(sample=>distanceMeters(sample.prior,sample.point)>Math.max(0,Number(jitterMeters)||0));if(direction===null&&directionSample)direction=bearingDegrees(directionSample.prior,directionSample.point);
   const motion=speedMph===null?'unknown':speedMph>=movingMinMph?'moving':speedMph<=stationaryMaxMph?'stationary':'unknown';
-  return {status,ageMs,lastUpdate:last.time,speedMph,direction,motion,speedSource,speedSampleCount:speeds.length,speedConfidence,pendingObservation:Boolean(tactical.pending)};
+  return {status,ageMs,lastUpdate:last.time,speedMph,currentSpeedMph:speedMph,recentSpeedMph:speedSource==='position_median'?speedMph:null,direction,headingDegrees:direction,headingCardinal:cardinalDirection(direction),headingArrow:directionArrow(direction),motion,speedSource,speedSampleCount:speeds.length,speedConfidence,pendingObservation:Boolean(tactical.pending),...projection};
 }
 
 export function mergeCompetitorSnapshots(existing,incoming,options={}){

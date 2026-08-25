@@ -24,8 +24,8 @@ function functionSource(name){
 }
 
 test('Samsung release-candidate identity and foreground camera recovery barrier are wired into the PWA',()=>{
-  assert.match(app,/const APP_VERSION = '0\.7\.16'/);
-  assert.match(app,/const BUILD_ID = '2026\.08\.24\.samsung-field-rc-1'/);
+  assert.match(app,/const APP_VERSION = '0\.7\.17'/);
+  assert.match(app,/const BUILD_ID = '2026\.08\.25\.samsung-trail-intel-1'/);
   const hidden=functionSource('backgroundCameraLifecycle'),visible=functionSource('resumeForegroundCameraLifecycle'),capture=functionSource('captureAutomaticPair');
   assert.match(hidden,/automaticCaptureAbortController\?\.abort/);
   assert.match(hidden,/cameraSession\?\.setVisibility\?\.\('hidden',reason\)/);

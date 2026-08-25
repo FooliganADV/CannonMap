@@ -20,8 +20,10 @@ function fakeGroup(){
 function fakeMap(){
   return {
     groups:[],
+    panes:{},
     removed:[],
     handlers:{},
+    createPane(name){return this.panes[name]??={style:{}};},
     setView(){return this;},
     on(name,handler){this.handlers[name]=handler;return this;},
     hasLayer(layer){return this.groups.includes(layer);},
@@ -87,6 +89,9 @@ test('map engine owns one map, base layers, and the complete layer registry',()=
   assert.equal(engine.map,map);
   assert.equal(map.container,'map');
   assert.equal(map.options.preferCanvas,true);
+  assert.equal(map.panes.checkpointPane.style.zIndex,'600');
+  assert.equal(map.panes.activeRiderPane.style.zIndex,'640');
+  assert.ok(Number(map.panes.activeRiderPane.style.zIndex)<700,'active rider canvas must remain below popupPane');
   assert.equal(map.groups.length,MAP_LAYER_TYPES.length);
   assert.equal(tileLayers.length,5);
   assert.equal(map.baseLayer,engine.baseLayers.Satellite);

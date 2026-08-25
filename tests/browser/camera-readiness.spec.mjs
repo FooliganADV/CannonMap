@@ -645,6 +645,10 @@ test('interrupted CP1 evidence does not make successful CP2 out-of-order or move
   await page.locator('#rallyCameraInput').setInputFiles({name:'CP1_RECOVERY.png',mimeType:'image/png',buffer:Buffer.from(pngBase64,'base64')});
   await page.evaluate(()=>window.CannonMapTest.awaitFieldMediaIdle());
   await expect(page.locator('#rallyCameraWorkflow')).toBeHidden();
+  // File-input dispatch resolves before the async completion Journal/save tail
+  // under a loaded single-worker Android gate. Assert the settled projection,
+  // not the transient instant after the already-durable pair closes the UI.
+  await expect.poll(()=>page.evaluate(()=>window.CannonMapTest.checkpointEvidenceStateForTest('cp-1'))).toMatchObject({arrival:{state:'confirmed',trustworthy:true},photo:{state:'complete'},completion:{state:'completed'}});
   const recovered=await page.evaluate(async()=>( {
     first:window.CannonMapTest.checkpointEvidenceStateForTest('cp-1'),second:window.CannonMapTest.checkpointEvidenceStateForTest('cp-2'),
     media:await window.CannonMapTest.missionMediaRecords(),events:await window.CannonMapTest.missionControlJournalEvents()

@@ -1,7 +1,7 @@
 {
   "name": "cannonmap",
   "private": true,
-  "version": "0.7.16",
+  "version": "0.7.17",
   "scripts": {
     "vendor": "node scripts/vendor-dependencies.mjs",
     "validate:vendor": "node scripts/validate-vendor.mjs",
@@ -12,7 +12,10 @@
     "test:confidence": "node --test tests/confidence-evolution.test.mjs",
     "test:intelligence": "node --test tests/checkpoint-compatibility.test.mjs",
     "validate:functions": "node scripts/validate-function-package.mjs",
-    "test:browser": "playwright test",
+    "test:browser": "playwright test --project=\"Android landscape\"",
+    "test:browser:samsung": "playwright test --project=\"Android landscape\"",
+    "test:browser:desktop": "playwright test --project=desktop",
+    "test:browser:all-informational": "playwright test",
     "test:safari-media": "playwright test --config=playwright.webkit.config.mjs",
     "test:security": "firebase emulators:exec --project demo-cannonmap --only database \"node --test tests/firebase/*.test.mjs\""
   },

@@ -1,8 +1,8 @@
-# CannonMap Planner — Beta 0.7.16 Samsung Field Release Candidate
+# CannonMap Planner — Beta 0.7.17 Samsung Trail Intel Release Candidate
 
-Build: `2026.08.24.samsung-field-rc-1`
+Build: `2026.08.25.samsung-trail-intel-1`
 
-This build targets long, powered, screen-on Samsung Chrome/PWA rides in landscape. It preserves the accepted 0.7.15 exclusive-camera and incremental-backup architecture, then adds generation-fenced camera revalidation after foreground resume and corrects pending-evidence route progression.
+This build targets long, powered, screen-on Samsung Chrome/PWA rides in landscape. It preserves the physically accepted 0.7.16 rally, camera, Ride Memory, backup, lifecycle, and hardened competitor-stream behavior, then restores selected low-risk tactical presentation and pace behavior on top of that validated stream.
 
 Rally Mode creates an immutable session for every deliberate run, asks riders to **Resume Existing** or **Start New**, and keeps unresolved photo evidence separate from GPS navigation. Camera preflight verifies rear and front native-still capability, closes both streams, and reports READY with zero retained streams. Every checkpoint and Ride Memory side then opens, captures, persists, and fully closes before the next camera opens.
 
@@ -12,6 +12,15 @@ CannonMap is a rally decision system. The primary live-rally function is display
 
 ## New in this release
 
+- Three-minute rolling pace and 15-minute sustained pace are derived once from the current validated same-segment trail; quarantined points, reconnect gaps, and session boundaries cannot contaminate either value
+- The 15-minute pace remains unknown until at least 10 minutes of trustworthy same-segment coverage exists; the three-minute value requires 15 seconds
+- Upstream rider numbers, deterministic distinct field colors, selected-rider emphasis, nonselected dimming, **ALL RIDERS**, and deterministic overlap fan-out restore tactical identity without changing ingestion
+- Compact Samsung-landscape rows and rider popups show LIVE/STALE/OFFLINE, STOPPED/MOVING/UNKNOWN, median immediate speed, both pace windows, numeric/cardinal heading, directional arrow, and trail-gap count
+- Popup dismissal is explicit: a polling refresh preserves an open popup but never reopens one the rider closed
+- Low-zoom clusters remain an overview tool; individual tactical markers return at riding zoom and cluster rider buttons preserve normal selection semantics
+- A sanitized replay derived from a real event-60 export exercises approximately 1 Hz updates, null upstream speed/heading/IDs, real stops, gaps, and reconnects
+- Samsung Android Chromium at 915×412 landscape is the sole pre-rally browser release gate; retained iOS/WebKit tests are informational and nonblocking unless they expose shared logic
+- Semantic target activity remains intentionally deferred until its older freshness and dwell assumptions can be made truthful against the hardened stream
 - Foreground resume invalidates stale operational camera readiness while preserving the browser permission state, closes every old track, and performs one fresh bounded rear/front probe with zero retained streams
 - A GPS arrival during that probe is persisted immediately; checkpoint capture fences the lower-priority probe and directly invokes the existing exclusive fresh-stream capture/recovery path
 - Pending evidence no longer turns the next sequential arrival into an out-of-order objective when its radius dwell began under an earlier target
@@ -39,7 +48,7 @@ CannonMap is a rally decision system. The primary live-rally function is display
 - Fuel planning foundation with explicitly conservative, configurable estimates
 - Central event-data protection that removes and logs `Old Coast Road` at every import/restore boundary
 - Geometry-based route/track mileage deduplication, including reversed and differently spaced representations
-- Real Playwright browser tests across requested phone and desktop layouts
+- Android Chromium Playwright release tests at the mounted Samsung landscape geometry; desktop Chromium remains available for shared-domain diagnostics
 - Deployment parity audit in `DEPLOYMENT_AUDIT.md`
 
 - Buffered radar frame loading and crossfading remove the blank strobe between animation frames
@@ -75,22 +84,28 @@ Run the dependency-free regression suite with Node.js:
 node --test tests/*.test.mjs
 ```
 
+Run the Samsung browser release gate with:
+
+```text
+npm run test:browser
+```
+
+Legacy iOS/WebKit projects remain in the repository but are not pre-rally release gates.
+
 ## First test
 
-1. Confirm the status shows `v0.7.16 · 2026.08.24.samsung-field-rc-1`.
-2. Import `competitor-test.json`; verify the red trail appears and Rider 27 is listed.
-3. Open **Trail Intel** and select **Weather here**. No key is required.
-4. On a phone, select **Intel** and verify the compact bottom sheet opens without covering the entire map.
-5. Change a line feature to **Backbone (reference)** and verify it becomes gray and dashed.
-6. Confirm project mileage does not double-count both a route and its matching track.
-7. Enter a TomTom API key, zoom to a local area, and select **Traffic in map view**.
-8. Do not start live rally polling until the live GPS Checkpoint JSON/location endpoint is captured.
+1. Confirm the status shows `v0.7.17 · 2026.08.25.samsung-trail-intel-1`.
+2. Hold the Samsung in landscape and confirm the Rally map remains primary at approximately 915×412.
+3. Load a live competitor event or the sanitized event-60 replay and confirm rider numbers and distinct colors remain stable across refreshes.
+4. Select one rider, confirm other riders dim, dismiss its popup, refresh, and confirm the popup stays dismissed.
+5. Confirm three-minute pace appears only with sufficient current-segment history and 15-minute pace remains unknown until 10 minutes of coverage.
+6. Run one clean numbered-day checkpoint sequence, including one offline arrival and automatic rear/front capture pair.
 
 ## What is still needed from the user
 
 ### Official competitor trails
 
-Capture a live public leaderboard session as a HAR file. CannonMap needs the actual JSON/location request, not the visible `leaderboard.html` page URL. Once identified, paste that endpoint into **Trail Intel → Official rally feed setup**.
+Use the configured official event ID or an explicitly supplied custom endpoint. The checked-in event-60 replay is sanitized test evidence, not a substitute for confirming the live rally event configuration before departure.
 
 ### Traffic
 
@@ -103,9 +118,8 @@ The normal consumer Waze application does not provide CannonMap a general-purpos
 
 ## Current limitations
 
-- The exact GPS Checkpoint live-feed schema remains unverified until a live HAR capture is available.
-- Consensus routing, turnaround detection, rider-ahead filtering, and scoring recommendations require verified live data.
-- Browser CORS restrictions may require a Cloudflare Worker after the official feed endpoint is identified. Browser polling also stops when iOS suspends or closes the page.
+- Semantic target activity, catch/closing analytics, rider-ahead inference, and pace rankings are intentionally deferred.
+- Browser CORS restrictions can still affect custom competitor endpoints. Offline core rally operation remains independent from Trail Intel polling.
 - Radar requires internet access, shows recent observed precipitation rather than forecast nowcast frames, and has source resolution through zoom level 7.
 - Track-ahead weather uses sampled forecast points and the selected planning speed. Timing, rainfall, dust, and hazard values are estimates—not safety guarantees.
 - TomTom incident requests require the map viewport to be no larger than 10,000 km².

@@ -12,7 +12,10 @@ export function createMapEngine({
 }={}){
   if(!L?.map||!container)throw new TypeError('Leaflet and a map container are required.');
   const map=L.map(container,{zoomControl:true,preferCanvas:true}).setView(initialCenter,initialZoom);
-  for(const [name,zIndex] of [['radarPane',250],['routePane',350],['competitorTrailsPane',450],['stationaryPane',500],['checkpointPane',600],['activeRiderPane',700]]){const pane=map.createPane?.(name);if(pane)pane.style.zIndex=String(zIndex);}
+  // Keep the active rider above checkpoint geometry but below Leaflet's
+  // built-in tooltip (650) and popup (700) panes. Matching popupPane at 700
+  // lets a full-map canvas intercept popup controls on touch devices.
+  for(const [name,zIndex] of [['radarPane',250],['routePane',350],['competitorTrailsPane',450],['stationaryPane',500],['checkpointPane',600],['activeRiderPane',640]]){const pane=map.createPane?.(name);if(pane)pane.style.zIndex=String(zIndex);}
   const baseLayers={
     Streets:L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}),
     Topographic:L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:17,attribution:'© OpenStreetMap contributors, SRTM · OpenTopoMap'}),
