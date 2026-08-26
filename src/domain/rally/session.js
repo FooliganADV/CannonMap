@@ -1,6 +1,7 @@
 import {
   createPendingEvidenceQueue,reconcilePendingEvidenceQueue
 } from '../checkpoints/pending-evidence-queue.js';
+import {CHECKPOINT_STATE,checkpointState} from '../checkpoints/workflow.js';
 
 export const RALLY_EXECUTION_SCHEMA_VERSION=2;
 
@@ -77,6 +78,15 @@ function dayFeatures(project,dayNumber){
 }
 function activeObjective(features){return features.find(feature=>String(feature.status).toLowerCase()==='active')?.id||null;}
 
+function canonicalDayFeatures(project,dayNumber){
+  return dayFeatures(project,dayNumber).map((feature,index)=>({feature,index})).sort((left,right)=>
+    (left.feature.type==='hotel')-(right.feature.type==='hotel')||
+    (Number(left.feature.sequence)||9999)-(Number(right.feature.sequence)||9999)||
+    (Number(left.feature.resolvedImportIndex)||0)-(Number(right.feature.resolvedImportIndex)||0)||
+    left.index-right.index
+  ).map(item=>item.feature);
+}
+
 function featureProjection(feature){
   const projection={};
   for(const key of CHECKPOINT_EXECUTION_FIELDS)if(own(feature,key))projection[key]=clone(feature[key]);
@@ -127,6 +137,35 @@ function applyCheckpointStates(project,session){
     const feature=byId.get(String(featureId));if(!feature||!object(projection))continue;
     for(const [key,value] of Object.entries(projection))if(executionFieldSet.has(key))feature[key]=clone(value);
   }
+}
+
+/**
+ * Reconciles the active run projection against the current Project/day by
+ * stable checkpoint ID. Removed objectives remain available through their
+ * Journal/media history, but cannot remain executable session projections.
+ */
+function reconcileAppliedSessionMembership(project,session){
+  const features=canonicalDayFeatures(project,session.dayNumber),allowedIds=new Set(features.map(feature=>String(feature.id)));
+  session.checkpointStates=Object.fromEntries(Object.entries(session.checkpointStates||{}).filter(([featureId])=>allowedIds.has(String(featureId))));
+  session.pendingEvidence=createPendingEvidenceQueue({entries:(session.pendingEvidence?.entries||[]).filter(entry=>allowedIds.has(String(entry.checkpointId)))});
+  const requestedActiveId=allowedIds.has(String(session.activeObjectiveId??''))?String(session.activeObjectiveId):null;
+
+  // Route ownership is independent from pending/failed/deferred evidence. A
+  // resumed active run owns at most one current Project objective.
+  let next=null;
+  if(session.status===RALLY_SESSION_STATUS.ACTIVE){
+    next=features.find(feature=>String(feature.id)===requestedActiveId&&checkpointState(feature.status)===CHECKPOINT_STATE.ACTIVE)||
+      features.find(feature=>checkpointState(feature.status)===CHECKPOINT_STATE.ACTIVE)||null;
+    for(const feature of features)if(feature!==next&&checkpointState(feature.status)===CHECKPOINT_STATE.ACTIVE)feature.status=CHECKPOINT_STATE.UPCOMING;
+    next||=features.find(feature=>feature.type!=='hotel'&&checkpointState(feature.status)===CHECKPOINT_STATE.UPCOMING)||null;
+    if(!next&&!features.some(feature=>feature.type!=='hotel'&&checkpointState(feature.status)===CHECKPOINT_STATE.DEFERRED)){
+      next=features.find(feature=>feature.type==='hotel'&&checkpointState(feature.status)===CHECKPOINT_STATE.UPCOMING)||null;
+    }
+    if(next)next.status=CHECKPOINT_STATE.ACTIVE;
+  }
+  session.activeObjectiveId=next?String(next.id):null;
+  session.checkpointStates=checkpointStates(project,session.dayNumber);
+  return session;
 }
 
 function normalizedSessionStatus(value){
@@ -252,7 +291,7 @@ export function listDaySessions(project,dayNumber){
 export function inspectRallySessions(project,{dayNumber}={}){
   const execution=executionOf(project),day=dayNumber===undefined?(execution.activeSessionId?execution.sessions[execution.activeSessionId]?.dayNumber:null):positiveInteger(dayNumber,'dayNumber');
   const sessions=day?listDaySessions(project,day):[];
-  const unfinished=sessions.filter(session=>resumableStatuses.has(session.status));
+  const unfinished=sessions.filter(session=>resumableStatuses.has(session.status)&&!session.membershipSupersededAt);
   return deepFreeze({
     schemaVersion:execution.schemaVersion,activeSession:activeSession(project),dayNumber:day,
     daySessions:sessions,unfinishedSessions:unfinished,
@@ -299,6 +338,34 @@ export function syncActiveSession(project,{
   return immutableCopy(next);
 }
 
+/** Reapplies and reconciles only the currently active session. */
+export function reconcileActiveSessionMembership(project){
+  const execution=executionOf(project),session=execution.activeSessionId?sessionById(execution,execution.activeSessionId):null;
+  if(!session)return null;
+  applyCheckpointStates(project,session);
+  reconcileAppliedSessionMembership(project,session);
+  execution.days[String(session.dayNumber)]=compatibilityDayState(session);
+  return immutableCopy(session);
+}
+
+/**
+ * Preserves a run as history when a destructive planning replacement has no
+ * stable checkpoint-ID continuity. It cannot later be projected onto newly
+ * imported, unrelated objectives.
+ */
+export function supersedeActiveSessionMembership(project,{
+  supersededAt=new Date().toISOString(),reason='project-membership-identity-changed'
+}={}){
+  const execution=executionOf(project),session=execution.activeSessionId?sessionById(execution,execution.activeSessionId):null;
+  if(!session)return null;
+  const next={...session,
+    status:session.status===RALLY_SESSION_STATUS.COMPLETED?session.status:RALLY_SESSION_STATUS.SUSPENDED,
+    activeObjectiveId:null,membershipSupersededAt:isoTimestamp(supersededAt,'supersededAt'),membershipSupersededReason:String(reason)
+  };
+  execution.sessions[next.sessionId]=next;execution.activeSessionId=null;execution.days[String(next.dayNumber)]=compatibilityDayState(next);
+  return immutableCopy(next);
+}
+
 function generatedSessionId(execution,createId){
   const factory=createId||(()=>globalThis.crypto?.randomUUID?.()||`session-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   for(let attempt=0;attempt<8;attempt++){
@@ -342,9 +409,9 @@ export function startNewSession(project,{
 export function resumeSession(project,sessionId,{resumedAt=new Date().toISOString(),syncCurrent}={}){
   const execution=executionOf(project),target=sessionById(execution,sessionId);
   if(target.status===RALLY_SESSION_STATUS.COMPLETED)throw new Error(`Completed rally session cannot be resumed: ${target.sessionId}`);
+  if(target.membershipSupersededAt)throw new Error(`Rally session cannot be resumed after Project checkpoint identity changed: ${target.sessionId}`);
   if(execution.activeSessionId===target.sessionId&&target.status===RALLY_SESSION_STATUS.ACTIVE){
-    applyCheckpointStates(project,target);execution.days[String(target.dayNumber)]=compatibilityDayState(target);
-    return activeSession(project);
+    return reconcileActiveSessionMembership(project);
   }
   if(execution.activeSessionId){
     syncActiveSession(project,syncCurrent||{});
@@ -356,6 +423,5 @@ export function resumeSession(project,sessionId,{resumedAt=new Date().toISOStrin
   }
   const next={...target,status:RALLY_SESSION_STATUS.ACTIVE,resumedAt:isoTimestamp(resumedAt,'resumedAt')};
   execution.sessions[next.sessionId]=next;execution.activeSessionId=next.sessionId;
-  applyCheckpointStates(project,next);execution.days[String(next.dayNumber)]=compatibilityDayState(next);
-  return immutableCopy(next);
+  return reconcileActiveSessionMembership(project);
 }

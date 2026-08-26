@@ -1,5 +1,5 @@
 import {readStoredDayPackage} from './journey-package-restore.js';
-import {createSessionProjectSnapshot} from './photo-export-service.js';
+import {assertDeliberateSessionMediaIdentity,createSessionProjectSnapshot} from './photo-export-service.js';
 
 export const AUTOMATIC_BACKUP_TRIGGER=Object.freeze({SESSION_START:'session_start',CHECKPOINT_COMPLETED:'checkpoint_completed',SCHEDULED:'scheduled',DAY_COMPLETED:'day_completed',MANUAL:'manual'});
 export const EXTERNAL_BACKUP_STATUS=Object.freeze({READY:'ready',NEEDS_PERMISSION:'needs-permission',UNSUPPORTED:'unsupported',FAILED:'failed',DISABLED:'disabled',DEFERRED:'deferred'});
@@ -10,7 +10,8 @@ const text=value=>String(value??'').trim();
 const errorText=error=>String(error?.message||error||'Unknown backup failure');
 const positiveInteger=value=>Number.isInteger(Number(value))&&Number(value)>0?Number(value):null;
 const sessionIds=value=>[value?.sessionId,value?.metadata?.sessionId,value?.references?.sessionId].map(text).filter(Boolean);
-const belongsToSession=(value,sessionId)=>sessionIds(value).includes(sessionId);
+const legacySession=session=>session?.legacy===true||session?.origin==='schema-v1-day-execution';
+const belongsToSession=(value,sessionId,{includeLegacyUnscoped=false}={})=>{const ids=sessionIds(value);return ids.includes(sessionId)||(includeLegacyUnscoped&&!ids.length);};
 const recordDay=value=>Number(value?.dayNumber??value?.metadata?.dayNumber??value?.references?.dayNumber)||null;
 const stable=value=>Array.isArray(value)?value.map(stable):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,stable(value[key])])):value;
 const fingerprintSource=manifest=>JSON.stringify(stable({sessionId:manifest.sessionId,dayNumber:manifest.dayNumber,journalFingerprint:manifest.journalFingerprint,mediaCount:manifest.mediaCount,checkpointStates:manifest.checkpointStates,dayState:manifest.dayState,projectChecksum:manifest.projectChecksum,settingsChecksum:manifest.settingsChecksum}));
@@ -57,13 +58,16 @@ const mediaDescriptor=row=>withoutBinary(row);
 
 /** Compact recovery references authoritative missionMedia bytes instead of duplicating JPEGs. */
 async function captureCompactRecovery(context,{mediaRepository,hashCache,clock,hash=digest}){
-  const descriptors=typeof mediaRepository.listProjectSessionPhotoDescriptors==='function'
-    ?await mediaRepository.listProjectSessionPhotoDescriptors(context.projectId,context.sessionId)
-    :typeof mediaRepository.listProjectSessionPhotos==='function'
-      ?await mediaRepository.listProjectSessionPhotos(context.projectId,context.sessionId)
-      :typeof mediaRepository.listProjectPhotoDescriptors==='function'
-        ?await mediaRepository.listProjectPhotoDescriptors(context.projectId)
-        :await mediaRepository.listProjectPhotos(context.projectId),mediaRows=descriptors.filter(row=>belongsToSession(row,context.sessionId)&&recordDay(row)===context.dayNumber),mediaReferences=[];
+  const includeLegacyUnscoped=legacySession(context.session);let descriptors,exactSessionQuery=false;
+  if(includeLegacyUnscoped&&typeof mediaRepository.listProjectPhotoDescriptors==='function')descriptors=await mediaRepository.listProjectPhotoDescriptors(context.projectId);
+  else if(includeLegacyUnscoped&&typeof mediaRepository.listProjectPhotos==='function')descriptors=await mediaRepository.listProjectPhotos(context.projectId);
+  else if(typeof mediaRepository.listProjectSessionPhotoDescriptors==='function'){descriptors=await mediaRepository.listProjectSessionPhotoDescriptors(context.projectId,context.sessionId);exactSessionQuery=true;}
+  else if(typeof mediaRepository.listProjectSessionPhotos==='function'){descriptors=await mediaRepository.listProjectSessionPhotos(context.projectId,context.sessionId);exactSessionQuery=true;}
+  else if(typeof mediaRepository.listProjectPhotoDescriptors==='function')descriptors=await mediaRepository.listProjectPhotoDescriptors(context.projectId);
+  else descriptors=await mediaRepository.listProjectPhotos(context.projectId);
+  if(!includeLegacyUnscoped&&!exactSessionQuery)descriptors=descriptors.filter(row=>belongsToSession(row,context.sessionId));
+  assertDeliberateSessionMediaIdentity(descriptors,{projectId:context.projectId,dayNumber:context.dayNumber,session:context.session});
+  const mediaRows=descriptors.filter(row=>belongsToSession(row,context.sessionId,{includeLegacyUnscoped})&&recordDay(row)===context.dayNumber),mediaReferences=[];
   for(const descriptor of mediaRows){
     const mediaId=text(descriptor?.mediaId),declaredSize=Number(descriptor?.size)||Number(descriptor?.blob?.size)||0;if(!mediaId||declaredSize<1)throw new Error(`Recovery media is unreadable: ${mediaId||'unknown'}.`);
     const cacheKey=`${mediaId}:${declaredSize}:${descriptor.capturedAt||descriptor.metadata?.captureTimestamp||''}`;let checksum=hashCache.get(cacheKey);
@@ -71,7 +75,7 @@ async function captureCompactRecovery(context,{mediaRepository,hashCache,clock,h
     mediaReferences.push({...mediaDescriptor(descriptor),size:declaredSize,checksum:{algorithm:'SHA-256',value:checksum}});
   }
   mediaReferences.sort((a,b)=>String(a.mediaId).localeCompare(String(b.mediaId)));
-  const journal=(context.journal||[]).filter(event=>belongsToSession(event,context.sessionId)&&[null,context.dayNumber].includes(recordDay(event))&&event?.source!=='automatic_backup'&&!String(event?.eventType||'').startsWith('automatic_backup')&&!String(event?.eventType||'').startsWith('automatic_recovery')).map(clone),createdAt=clock.iso();
+  const journal=(context.journal||[]).filter(event=>belongsToSession(event,context.sessionId,{includeLegacyUnscoped})&&[null,context.dayNumber].includes(recordDay(event))&&event?.source!=='automatic_backup'&&!String(event?.eventType||'').startsWith('automatic_backup')&&!String(event?.eventType||'').startsWith('automatic_recovery')).map(clone),createdAt=clock.iso();
   const project=context.project?createSessionProjectSnapshot(context.project,context.dayNumber,context.session):null,settings=clone(context.settings||{}),projectChecksum=project?await hash(new Blob([JSON.stringify(stable(project))])):null,settingsChecksum=await hash(new Blob([JSON.stringify(stable(settings))])),journalFingerprint=await hash(new Blob([JSON.stringify(stable(journal))]));
   const manifest={format:'cannonmap-internal-recovery-snapshot',version:1,projectId:context.projectId,projectName:project?.name||context.project?.name||null,tripId:context.tripId||project?.tripId||context.projectId,rallyId:context.rallyId||context.session.rallyId||null,dayNumber:context.dayNumber,sessionId:context.sessionId,sessionRunNumber:Number(context.session.runNumber)||null,sessionStartedAt:context.session.startedAt||null,calendarDate:context.session.calendarDate||null,createdAt,journalEventCount:journal.length,journalFingerprint,mediaCount:mediaReferences.length,checkpointStates:checkpointSummary(context.session),dayState:{status:context.session.status||null,completedAt:context.session.completedAt||null,nextDay:Number(context.session.nextDay)||0},projectChecksum,settingsChecksum,applicationVersion:context.buildIdentity?.applicationVersion||null,buildId:context.buildIdentity?.buildId||null,serviceWorkerCacheId:context.buildIdentity?.serviceWorkerCacheId||null};
   return {manifest,recovery:{project,settings,session:clone(context.session),journal,mediaReferences},createdAt};
@@ -87,8 +91,8 @@ async function verifyCompactRecovery(record,{mediaRepository,hash=digest}){
   for(const reference of recovery.mediaReferences){
     if(containsBinary(reference)){const error=new Error('Stored recovery snapshot contains legacy binary media payloads.');error.code='RECOVERY_SNAPSHOT_BINARY_PAYLOAD';throw error;}
     if(!reference.mediaId||reference.checksum?.algorithm!=='SHA-256'||!reference.checksum?.value)throw new Error('Stored recovery snapshot media references are not compact checksummed descriptors.');
-    const stored=await mediaRepository.getMedia(reference.mediaId);
-    if(!(stored?.blob instanceof Blob)||stored.blob.size!==Number(reference.size)||await hash(stored.blob)!==reference.checksum.value)throw new Error(`Stored recovery media verification failed: ${reference.mediaId}.`);
+    const stored=await mediaRepository.getMedia(reference.mediaId),includeLegacyUnscoped=legacySession(recovery.session);assertDeliberateSessionMediaIdentity([stored],{projectId:manifest.projectId,dayNumber:manifest.dayNumber,session:recovery.session});
+    if(!(stored?.blob instanceof Blob)||stored.blob.size!==Number(reference.size)||!belongsToSession(stored,manifest.sessionId,{includeLegacyUnscoped})||recordDay(stored)!==Number(manifest.dayNumber)||await hash(stored.blob)!==reference.checksum.value)throw new Error(`Stored recovery media verification failed: ${reference.mediaId}.`);
   }
   return true;
 }
@@ -125,7 +129,7 @@ export function createAutomaticBackupService({exporter,snapshotRepository,mediaR
   }
 
   async function writeIncrementalExternal(context,compact){
-    const identity=generationIdentity(context),references=compact.recovery.mediaReferences,manifest={
+    const identity=generationIdentity(context),references=compact.recovery.mediaReferences,includeLegacyUnscoped=legacySession(context.session),manifest={
       ...clone(compact.manifest),format:'cannonmap-incremental-session-backup',version:1,generationId:identity.generationId,createdAt:identity.createdAt,exportedAt:identity.createdAt,
       project:clone(compact.recovery.project),settings:clone(compact.recovery.settings),session:clone(compact.recovery.session),journal:clone(compact.recovery.journal),
       journalEventCount:compact.manifest.journalEventCount,mediaCount:references.length,checkpointStates:clone(compact.manifest.checkpointStates),
@@ -133,7 +137,7 @@ export function createAutomaticBackupService({exporter,snapshotRepository,mediaR
     };
     const openMedia=async reference=>{
       const stored=await mediaRepository.getMedia(reference.mediaId);
-      if(!(stored?.blob instanceof Blob)||stored.blob.size!==Number(reference.size)||!belongsToSession(stored,context.sessionId)||recordDay(stored)!==context.dayNumber)throw new Error(`External backup media is unavailable or outside the active session: ${reference.mediaId}.`);
+      if(!(stored?.blob instanceof Blob)||stored.blob.size!==Number(reference.size)||!belongsToSession(stored,context.sessionId,{includeLegacyUnscoped})||recordDay(stored)!==context.dayNumber)throw new Error(`External backup media is unavailable or outside the active session: ${reference.mediaId}.`);
       return stored.blob;
     };
     return externalBackup.writeVerifiedGeneration({sessionDirectoryName:identity.sessionDirectoryName,generationFilename:identity.generationFilename,manifest,media:references,openMedia});

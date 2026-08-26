@@ -79,9 +79,9 @@ test('service-worker shell contains the complete local startup module graph',asy
 test('Mission Control cache identifier advances without deleting IndexedDB data',async()=>{
   const {cache,source}=await cacheManifest(),index=await readFile('index.html','utf8');
   assert.notEqual(cache,'cannonmap-v0.7.1-20260726-06');
-  assert.equal(cache,'cannonmap-v0.7.17-20260825-samsung-trail-intel-1');
-  assert.match(source,/stationary-events\.js\?v=20260825-samsung-trail-intel-1/);
-  assert.match(index,/stationary-events\.js\?v=20260825-samsung-trail-intel-1/);
+  assert.equal(cache,'cannonmap-v0.7.18-20260826-samsung-field-data-1');
+  assert.match(source,/stationary-events\.js\?v=20260826-samsung-field-data-1/);
+  assert.match(index,/stationary-events\.js\?v=20260826-samsung-field-data-1/);
   assert.doesNotMatch(source,/indexedDB\.deleteDatabase|deleteDatabase\s*\(/);
   assert.doesNotMatch(source,/localStorage\.clear|caches\.delete\([^)]*CannonMapDB/);
 });

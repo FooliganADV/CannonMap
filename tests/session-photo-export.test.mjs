@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {createPhotoExportService} from '../src/application/photo-export-service.js';
+import {assertDeliberateSessionMediaIdentity,createPhotoExportService} from '../src/application/photo-export-service.js';
 import {readStoredZip} from '../src/application/portable-zip.js';
 
 const arrival=(sessionId,timestamp)=>({
@@ -109,6 +109,78 @@ test('another session\'s stored photos do not block a valid zero-media session b
   assert.equal(archive.manifest.mediaCount,0);
   assert.equal(archive.manifest.journalEventCount,1);
   assert.equal(archive.manifest.sessionId,'session-c');
+});
+
+test('session-aware exports validate descriptors before hydrating only the exact session set',async()=>{
+  let fullProjectReads=0,sessionReads=0,mediaReads=0;
+  const current=[media('current-original','session-b','original'),media('current-evidence','session-b','evidence')],byId=new Map(current.map(item=>[item.mediaId,item])),descriptors=current.map(({blob,...item})=>({...item,size:blob.size})),service=createPhotoExportService({repository:{
+    async listProjectPhotos(){fullProjectReads+=1;throw new Error('full Project media must not be hydrated for a session export');},
+    async listProjectSessionPhotoDescriptors(projectId,sessionId){sessionReads+=1;assert.equal(projectId,'project');assert.equal(sessionId,'session-b');return structuredClone(descriptors);},
+    async getMedia(mediaId){mediaReads+=1;return byId.get(mediaId)||null;}
+  }}),options={project,journal,session:sessionB,buildIdentity,exportedAt:exportMoment(126)},backup=await service.dayBackup('project',1,options),photos=await service.day('project',1,{...options,exportedAt:exportMoment(127)}),backupFiles=await readStoredZip(backup.blob),photoFiles=await readStoredZip(photos.blob),backupIndex=JSON.parse(backupFiles['manifest/media-index.json']),photoIndex=JSON.parse(photoFiles['manifest/photo-media-index.json']);
+
+  assert.equal(fullProjectReads,0);
+  assert.equal(sessionReads,2);
+  assert.equal(mediaReads,4);
+  assert.deepEqual(backupIndex.map(item=>item.mediaId).sort(),['current-evidence','current-original']);
+  assert.deepEqual(photoIndex.entries.map(item=>item.mediaId).sort(),['current-evidence','current-original']);
+  assert.equal(backup.manifest.mediaCount,2);
+  assert.equal(photos.manifest.mediaCount,2);
+});
+
+test('mixed exact-session descriptors fail Day Backup and Photos before any JPEG hydration',async()=>{
+  let mediaReads=0;
+  const valid=Array.from({length:95},(_,index)=>{const row=media(`valid-${index}`,'session-b',index%2?'evidence':'original'),{blob,...descriptor}=row;return {...descriptor,size:blob.size};}),mismatch={...valid[0],mediaId:'wrong-day',name:'wrong-day.jpg',metadata:{...valid[0].metadata,dayNumber:2}},service=createPhotoExportService({repository:{
+    async listProjectSessionPhotoDescriptors(){return structuredClone([...valid,mismatch]);},
+    async getMedia(){mediaReads+=1;throw new Error('identity validation must happen before Blob hydration');}
+  }}),options={project,journal,session:sessionB,buildIdentity,exportedAt:exportMoment(126)};
+  for(const operation of [()=>service.dayBackup('project',1,options),()=>service.day('project',1,{...options,exportedAt:exportMoment(127)})]){
+    await assert.rejects(operation,error=>error.code==='DAY_BACKUP_MEDIA_MISMATCH'&&error.mismatchCount===1&&error.mediaIds[0]==='wrong-day'&&/No partial backup/i.test(error.message));
+  }
+  assert.equal(mediaReads,0);
+});
+
+test('a validated exact-session descriptor disappearing during reopen cannot produce a partial package',async()=>{
+  const stored=[media('present','session-b','original'),media('missing','session-b','evidence')],descriptors=stored.map(({blob,...item})=>({...item,size:blob.size})),service=createPhotoExportService({repository:{
+    async listProjectSessionPhotoDescriptors(){return structuredClone(descriptors);},
+    async getMedia(mediaId){return mediaId==='missing'?null:stored.find(item=>item.mediaId===mediaId);}
+  }}),options={project,journal,session:sessionB,buildIdentity,exportedAt:exportMoment(127)};
+  for(const operation of [()=>service.dayBackup('project',1,options),()=>service.day('project',1,options)])await assert.rejects(operation,error=>error.code==='DAY_BACKUP_MEDIA_MISMATCH'&&error.descriptorCount===2&&error.reopenedCount===1&&error.missingMediaIds.includes('missing')&&/No partial backup/i.test(error.message));
+});
+
+test('a reopened record whose scope changed after descriptor selection is rejected',async()=>{
+  const stored=media('changed-after-index','session-b','original'),{blob,...descriptor}=stored,service=createPhotoExportService({repository:{async listProjectSessionPhotoDescriptors(){return [{...descriptor,size:blob.size}];},async getMedia(){return {...stored,metadata:{...stored.metadata,dayNumber:2}};}}}),options={project,journal,session:sessionB,buildIdentity,exportedAt:exportMoment(127)};
+  for(const operation of [()=>service.dayBackup('project',1,options),()=>service.day('project',1,options)])await assert.rejects(operation,error=>error.code==='DAY_BACKUP_MEDIA_MISMATCH'&&error.mediaIds.includes('changed-after-index'));
+});
+
+test('legacy bounded Project/day selection excludes other days but still fails if an eligible descriptor disappears',async()=>{
+  const legacy={...sessionA,sessionId:'legacy-session',runNumber:3,legacy:true,origin:'schema-v1-day-execution'},eligible=media('legacy-present',null,'original'),missing=media('legacy-missing',null,'evidence'),otherDay={...media('legacy-day-2',null,'original'),metadata:{dayNumber:2,objectiveType:'checkpoint'}},rows=[eligible,missing,otherDay].map(({blob,...item})=>({...item,sessionId:null,metadata:{...item.metadata,sessionId:undefined},size:blob.size})),opened=[];
+  const service=createPhotoExportService({repository:{async listProjectPhotoDescriptors(){return structuredClone(rows);},async getMedia(mediaId){opened.push(mediaId);return mediaId==='legacy-missing'?null:[eligible,otherDay].find(item=>item.mediaId===mediaId)||null;}}});
+  await assert.rejects(()=>service.day('project',1,{project,journal:[],session:legacy,buildIdentity,exportedAt:exportMoment(127)}),error=>error.code==='DAY_BACKUP_MEDIA_MISMATCH'&&error.descriptorCount===2&&error.reopenedCount===1&&error.missingMediaIds.includes('legacy-missing'));
+  assert.deepEqual(opened.sort(),['legacy-missing','legacy-present'],'legacy rows from other days are excluded before reopen and do not false-fail');
+});
+
+test('deliberate-session media scope rejects missing and conflicting Project, session, and day identities',()=>{
+  const valid={...media('valid-scope','session-b','original'),dayNumber:1},cases=[
+    {...valid,projectId:null,metadata:{...valid.metadata,projectId:null}},
+    {...valid,metadata:{...valid.metadata,projectId:'other-project'}},
+    {...valid,sessionId:null,metadata:{...valid.metadata,sessionId:null}},
+    {...valid,metadata:{...valid.metadata,sessionId:'other-session'}},
+    {...valid,dayNumber:null,metadata:{...valid.metadata,dayNumber:null}},
+    {...valid,metadata:{...valid.metadata,dayNumber:2}}
+  ];
+  for(const descriptor of cases)assert.throws(()=>assertDeliberateSessionMediaIdentity([descriptor],{projectId:'project',dayNumber:1,session:sessionB}),error=>error.code==='DAY_BACKUP_MEDIA_MISMATCH'&&error.mismatchCount===1);
+});
+
+test('current-session media tagged to the wrong day fails instead of verifying a zero-media backup',async()=>{
+  const wrongDay={...media('wrong-day','session-b','original'),metadata:{dayNumber:2,sessionId:'session-b',objectiveType:'checkpoint'}};
+  Object.defineProperty(wrongDay,'blob',{enumerable:true,get(){throw new Error('wrong-day bytes must not be hydrated');}});
+  const service=createPhotoExportService({repository:{
+    async listProjectSessionPhotos(){return [wrongDay];},
+    async listProjectPhotos(){throw new Error('session export must remain bounded');}
+  }}),options={project,journal,session:sessionB,buildIdentity,exportedAt:exportMoment(128)};
+  await assert.rejects(()=>service.dayBackup('project',1,options),error=>error.code==='DAY_BACKUP_MEDIA_MISMATCH'&&error.mismatchCount===1);
+  await assert.rejects(()=>service.day('project',1,{...options,exportedAt:exportMoment(129)}),error=>error.code==='DAY_BACKUP_MEDIA_MISMATCH'&&error.mismatchCount===1);
 });
 
 test('legacy no-session callers retain established day filenames',async()=>{

@@ -50,7 +50,9 @@ test('Samsung tactical rider presentation stays stable through refresh, dismissa
   expect(state.clusterCount).toBe(0);expect(state.riders.map(rider=>rider.displayOffset)).toEqual([{x:-24,y:0},{x:24,y:0}]);
   const repeated=await page.evaluate(()=>window.CannonMapTest.setCompetitorZoomForTest(12));expect(repeated.riders.map(rider=>rider.displayOffset)).toEqual(state.riders.map(rider=>rider.displayOffset));
 
-  state=await page.evaluate(()=>window.CannonMapTest.setCompetitorZoomForTest(9,{x:770,y:205}));
+  // Keep the synthetic marker in the unobscured map gutter, clear of both the
+  // Rally card and Leaflet controls, so the gate exercises a rider-reachable cluster.
+  state=await page.evaluate(()=>window.CannonMapTest.setCompetitorZoomForTest(9,{x:200,y:205}));
   expect(state.clusterCount).toBe(1);expect(state.clusterRiderIds[0]).toEqual(['overlap-7','overlap-8']);expect(state.riders.every(rider=>rider.markerClass==='')).toBeTruthy();
   await page.locator('.competitor-rider-cluster').click();
   await expect(page.locator('.leaflet-popup:visible .competitor-cluster-popup')).toBeVisible();
@@ -69,7 +71,7 @@ test('Samsung tactical rider presentation stays stable through refresh, dismissa
 test('stationary-event popup survives a live refresh but respects explicit dismissal',async({page})=>{
   await page.goto('/?e2e=stationary-popup-dismissal');await page.waitForFunction(()=>document.documentElement.dataset.cannonmapReady==='true'&&typeof window.CannonMapTest?.setStationaryEventsForTest==='function');
   const event={id:'stop-event-88',rallyEventId:'event-60',competitorId:'stream-88',competitorNumber:88,riderName:'Beau',signature:'#88',status:'active',startTime:'2026-08-25T12:00:00.000Z',lastUpdateTime:'2026-08-25T12:10:00.000Z',durationMs:600000,center:{lat:38.5,lon:-98.5},radiusMeters:18};
-  await page.evaluate(()=>{window.CannonMapTest.setCompetitorsForTest([{id:'map-position-anchor',points:[{lat:38.5,lon:-98.5,time:new Date().toISOString()}]}]);window.CannonMapTest.setCompetitorZoomForTest(9,{x:770,y:205});window.CannonMapTest.setCompetitorsForTest([]);});
+  await page.evaluate(()=>{window.CannonMapTest.setCompetitorsForTest([{id:'map-position-anchor',points:[{lat:38.5,lon:-98.5,time:new Date().toISOString()}]}]);window.CannonMapTest.setCompetitorZoomForTest(9,{x:200,y:205});window.CannonMapTest.setCompetitorsForTest([]);});
   expect(await page.evaluate(value=>window.CannonMapTest.setStationaryEventsForTest([value],'event-60'),event)).toBe(1);
   await page.locator('.stationary-event-signature').click();await expect(page.locator('.leaflet-popup:visible .stationary-event-popup')).toBeVisible();
   await page.evaluate(value=>window.CannonMapTest.setStationaryEventsForTest([{...value,durationMs:660000,lastUpdateTime:'2026-08-25T12:11:00.000Z'}],'event-60'),event);await expect(page.locator('.leaflet-popup:visible .stationary-event-popup')).toBeVisible();

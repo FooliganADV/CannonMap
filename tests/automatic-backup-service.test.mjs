@@ -9,8 +9,8 @@ const archive=(counts={journal:1,media:0})=>({verified:true,filename:'CannonMap_
 const media=(id,index=0)=>{const bytes=new TextEncoder().encode(`photo-${index}`);return {mediaId:id,projectId:'project-1',sessionId:'session-1',role:'original',size:bytes.byteLength,binaryData:bytes.buffer,blob:new Blob([bytes]),name:`${id}.jpg`,metadata:{sessionId:'session-1',dayNumber:1}};};
 const hasBinary=(value,seen=new WeakSet())=>{if(value instanceof Blob||value instanceof ArrayBuffer||ArrayBuffer.isView(value))return true;if(value==null||typeof value!=='object'||seen.has(value))return false;seen.add(value);return Object.values(value).some(item=>hasBinary(item,seen));};
 
-function harness({saveFailure=null,external=null}={}){
-  const rows=[],events=[],exportCalls=[],timers=[],mediaQueries={project:0,session:0};let current=archive(),mediaRows=[],now=Date.parse('2026-08-20T12:00:00.000Z');
+function harness({saveFailure=null,external=null,projectOnlyMedia=false,getMediaOverride=null}={}){
+  const rows=[],events=[],exportCalls=[],timers=[],mediaQueries={project:0,session:0,media:0};let current=archive(),mediaRows=[],now=Date.parse('2026-08-20T12:00:00.000Z');
   const repository={
     async findByFingerprint(sessionId,fingerprint){return rows.find(item=>item.sessionId===sessionId&&item.fingerprint===fingerprint)||null;},
     async latest(sessionId){return rows.filter(item=>item.sessionId===sessionId).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0]||null;},
@@ -20,7 +20,7 @@ function harness({saveFailure=null,external=null}={}){
     async updateExternal(snapshotId,value,lastExternal){const row=rows.find(item=>item.snapshotId===snapshotId);if(row){row.external=value;row.lastExternal=lastExternal||row.lastExternal;}},
     async prune(sessionId,retain,{keepSnapshotId}={}){const own=rows.filter(item=>item.sessionId===sessionId).sort((a,b)=>String(a.snapshotId)===String(keepSnapshotId)?-1:String(b.snapshotId)===String(keepSnapshotId)?1:b.createdAt.localeCompare(a.createdAt));for(const stale of own.slice(retain)){const index=rows.indexOf(stale);rows.splice(index,1);}},async pruneGlobal(){return 0;}
   };
-  const mediaRepository={async listProjectPhotos(){mediaQueries.project++;return mediaRows;},async listProjectSessionPhotos(projectId,sessionId){mediaQueries.session++;return mediaRows.filter(item=>item.projectId===projectId&&item.sessionId===sessionId);},async listProjectSessionPhotoDescriptors(projectId,sessionId){mediaQueries.session++;return mediaRows.filter(item=>item.projectId===projectId&&item.sessionId===sessionId).map(({blob,binaryData,...item})=>structuredClone(item));},async getMedia(id){return mediaRows.find(item=>item.mediaId===id)||null;}};
+  const readMedia=id=>getMediaOverride?getMediaOverride(id,mediaRows):mediaRows.find(item=>item.mediaId===id)||null,mediaRepository=projectOnlyMedia?{async listProjectPhotos(){mediaQueries.project++;return mediaRows;},async getMedia(id){mediaQueries.media++;return readMedia(id);}}:{async listProjectPhotos(){mediaQueries.project++;return mediaRows;},async listProjectSessionPhotos(projectId,sessionId){mediaQueries.session++;return mediaRows.filter(item=>item.projectId===projectId&&item.sessionId===sessionId);},async listProjectSessionPhotoDescriptors(projectId,sessionId){mediaQueries.session++;return mediaRows.filter(item=>item.projectId===projectId&&item.sessionId===sessionId).map(({blob,binaryData,...item})=>structuredClone(item));},async getMedia(id){mediaQueries.media++;return readMedia(id);}};
   const service=createAutomaticBackupService({exporter:{async dayBackup(){exportCalls.push('export');return current;}},snapshotRepository:repository,mediaRepository,externalBackup:external,
     verify:async blob=>{assert.ok(blob.size);return {manifest:current.manifest};},journal:{async appendEventIdempotent(value){events.push(value);}},clock:{now:()=>now,iso:()=>new Date(now).toISOString()},createId:()=>`snapshot-${events.length+1}`,setIntervalFn(callback,delay){timers.push({callback,delay});return timers.length;},clearIntervalFn:()=>{}});
   return {service,rows,events,exportCalls,timers,mediaQueries,setArchive(value){current=value;},setMedia(value){mediaRows=value;},advance(ms){now+=ms;}};
@@ -40,6 +40,26 @@ test('session start and checkpoint completion roll one compact snapshot without 
 test('automatic external backup uses incremental generation API without building an aggregate ZIP',async()=>{
   const calls=[],external={inspect:async()=>({status:'ready'}),async writeVerifiedGeneration(input){calls.push(input);let active=0,maxActive=0;for(const reference of input.media){active++;maxActive=Math.max(maxActive,active);const blob=await input.openMedia(reference);assert.equal(blob.size,reference.size);active--;}return {status:'ready',filename:`${input.sessionDirectoryName}/${input.generationFilename}`,size:100,verified:true,finalizedBy:'incremental-files',manifest:{...input.manifest,mediaCount:input.media.length},maxActive};}},h=harness({external});h.setMedia(Array.from({length:96},(_,index)=>media(`media-${index}`,index)));
   const result=await h.service.run({...context,session:{...context.session,startedAt:'2026-08-20T12:00:00.000Z'},project:{...context.project,name:'America 250'},rallyName:'ADV Cannonball'},{trigger:AUTOMATIC_BACKUP_TRIGGER.SESSION_START});assert.equal(result.external.status,'ready');assert.equal(h.exportCalls.length,0);assert.equal(calls.length,1);assert.equal(calls[0].media.length,96);assert.equal(hasBinary(calls[0].media),false);assert.equal(calls[0].manifest.format,'cannonmap-incremental-session-backup');assert.match(calls[0].sessionDirectoryName,/^CannonMap_ADV-Cannonball_D01_Run01_20260820_120000Z_session-1$/);
+});
+
+test('automatic compact and incremental backup reject a mixed exact-session descriptor set without partial verification',async()=>{
+  let externalWrites=0;const external={inspect:async()=>({status:'ready'}),async writeVerifiedGeneration(){externalWrites+=1;throw new Error('partial generation must not start');}},h=harness({external}),valid=Array.from({length:95},(_,index)=>media(`valid-${index}`,index)),mismatch={...media('wrong-day',96),metadata:{sessionId:'session-1',dayNumber:2}};h.setMedia([...valid,mismatch]);
+  const result=await h.service.run(context,{trigger:AUTOMATIC_BACKUP_TRIGGER.MANUAL});
+  assert.equal(result.status,'failed');assert.match(result.error,/exact-session media descriptor/i);assert.match(result.error,/No partial backup/i);
+  assert.equal(h.rows.length,0,'no compact snapshot may be marked verified');assert.equal(externalWrites,0,'no incremental generation may start');assert.equal(h.mediaQueries.media,0,'identity validation precedes Blob hydration');
+  assert.equal(h.events.at(-1).eventType,'automatic_backup_failed');
+});
+
+test('project-wide automatic-backup fallback excludes legitimate other sessions before deliberate scope validation',async()=>{
+  const h=harness({projectOnlyMedia:true}),current=media('current'),historical={...media('historical'),sessionId:'session-older',metadata:{sessionId:'session-older',dayNumber:2}};h.setMedia([current,historical]);
+  const result=await h.service.run(context,{trigger:AUTOMATIC_BACKUP_TRIGGER.MANUAL});
+  assert.equal(result.status,'recovery-verified');assert.equal(result.manifest.mediaCount,1);assert.deepEqual(h.rows[0].recovery.mediaReferences.map(item=>item.mediaId),['current']);assert.equal(h.mediaQueries.project,1);
+});
+
+test('automatic compact verification rejects a stored record whose identity changes after descriptor selection',async()=>{
+  const h=harness({getMediaOverride(id,rows){const row=rows.find(item=>item.mediaId===id);return row?{...row,metadata:{...row.metadata,dayNumber:2}}:null;}});h.setMedia([media('identity-race')]);
+  const result=await h.service.run(context,{trigger:AUTOMATIC_BACKUP_TRIGGER.MANUAL});
+  assert.equal(result.status,'failed');assert.match(result.error,/media descriptor|media verification/i);assert.equal(h.rows.length,0);
 });
 
 test('unchanged rolling recovery is idempotent and does not duplicate Journal or media',async()=>{

@@ -1,5 +1,6 @@
 import {distancePointToSegmentMiles,haversineMeters,lineDistanceMiles,validPoint} from '../domain/geo/geometry.js';
 import {resolveImportedCheckpointOrder} from '../domain/checkpoints/workflow.js';
+import {CHECKPOINT_EXECUTION_FIELDS} from '../domain/rally/session.js';
 
 const textOf=(element,tag)=>{
   const node=element.getElementsByTagName(tag)[0]||element.getElementsByTagNameNS?.('*',tag)?.[0];
@@ -89,12 +90,17 @@ export function createProjectWorkflows({createId,now,parseXml,normalizeCheckpoin
       });
     });
     [...document.getElementsByTagName('wpt')].forEach((waypoint,index)=>{
-      const name=textOf(waypoint,'name')||`${filename} waypoint ${index+1}`,notes=textOf(waypoint,'desc')||textOf(waypoint,'cmt'),symbol=textOf(waypoint,'sym');
+      const name=textOf(waypoint,'name')||`${filename} waypoint ${index+1}`,notes=textOf(waypoint,'desc')||textOf(waypoint,'cmt'),symbol=textOf(waypoint,'sym'),declaredType=String(textOf(waypoint,'type')||'').trim().toLowerCase();
       const point={lat:Number(waypoint.getAttribute('lat')),lon:Number(waypoint.getAttribute('lon'))};
       if(!validPoint(point))return;
-      const type=classifyPoint(name,notes,symbol),feature=base(name,type,notes,{kind:'point',coordinates:[point]});
+      // CannonMap exports stable objective identity beside the standard GPX
+      // type. Preserve an explicit objective type even when its display name
+      // is intentionally nonnumeric (for example "R01 SCORE" or "Overnight").
+      const type=['checkpoint','hotel'].includes(declaredType)?declaredType:classifyPoint(name,notes,symbol),feature=base(name,type,notes,{kind:'point',coordinates:[point]});
+      const read=tag=>textOf(waypoint,tag),stableCheckpointId=String(read('checkpointId')||'').trim(),declaredDay=Number(read('day')||read('dayNumber'));
+      if(['checkpoint','hotel'].includes(type)&&stableCheckpointId){feature.id=stableCheckpointId;feature.importedStableCheckpointId=true;}
+      if(['checkpoint','hotel'].includes(type)&&Number.isInteger(declaredDay)&&declaredDay>=1){feature.day=declaredDay;feature.assignmentMethod='cannonmap-day';}
       if(type==='checkpoint'){
-        const read=tag=>textOf(waypoint,tag);
         Object.assign(feature,{status:read('status')||'planned',points:read('points')?Number(read('points')):undefined,extreme:/^(true|1|yes)$/i.test(read('extreme')),sequence:read('sequence')?Number(read('sequence')):undefined,photoRequired:/^(true|1|yes|required)$/i.test(read('photoRequired')||read('requiresPhoto')||read('photoRequirement')),completedAt:read('completedAt')||null,deferredAt:read('deferredAt')||null,deferReason:read('deferReason')||null,restoredAt:read('restoredAt')||null});
       }
       features.push(feature);
@@ -117,11 +123,45 @@ export function createProjectWorkflows({createId,now,parseXml,normalizeCheckpoin
   }
 
   function applyImport(project,features,mode){
-    let added=0,updated=0,skipped=0;
-    if(mode==='replace'){project.features=filterFeatures(features,'GPX replace').map(normalizeCheckpoint);added=features.length;}
-    else if(mode==='add'){project.features.push(...filterFeatures(features,'GPX add').map(normalizeCheckpoint));added=features.length;}
-    else for(const incoming of features){
-      const existing=project.features.find(item=>featureDuplicate(incoming,item));
+    let added=0,updated=0,skipped=0,replacementIdentity=null;const objective=item=>['checkpoint','hotel'].includes(item?.type),uniqueId=(candidate,used)=>{let id=String(candidate||'').trim(),attempt=0;while(!id||used.has(id)){const generated=String(createId()||'feature');id=attempt?`${generated}-${attempt}`:generated;attempt++;}used.add(id);return id;};
+    if(mode==='replace'){
+      const existing=[...(project.features||[])],unmatched=new Set(existing),usedIds=new Set(),priorObjectives=existing.filter(objective),priorObjectiveIds=new Set(priorObjectives.map(item=>String(item.id))),retainedObjectiveIds=[];
+      project.features=filterFeatures(features,'GPX replace').map((feature,index)=>{
+        const incoming=normalizeCheckpoint(feature,index),incomingId=String(incoming.id||''),match=existing.find(item=>unmatched.has(item)&&String(item.id||'')===incomingId)||(
+          objective(incoming)?null:existing.find(item=>unmatched.has(item)&&featureDuplicate(incoming,item))
+        );
+        if(!match){incoming.id=uniqueId(incomingId,usedIds);added++;return incoming;}
+        unmatched.delete(match);updated++;
+        // Executable identity is exact-only. Fuzzy proximity/name matching is
+        // permitted for non-executable planning lines, never for checkpoints.
+        incoming.id=match.id;
+        incoming.createdAt=match.createdAt||incoming.createdAt;
+        usedIds.add(String(incoming.id));if(objective(incoming))retainedObjectiveIds.push(String(incoming.id));
+        return incoming;
+      });
+      const incomingObjectives=project.features.filter(objective),incomingObjectiveIds=incomingObjectives.map(item=>String(item.id)),retained=new Set(retainedObjectiveIds),days=new Set([...priorObjectives,...incomingObjectives].map(item=>Number(item.day)).filter(day=>Number.isInteger(day)&&day>=1)),requiresNewSessionDayNumbers=[...days].filter(day=>{
+        const priorIds=new Set(priorObjectives.filter(item=>Number(item.day)===day).map(item=>String(item.id))),incomingIds=new Set(incomingObjectives.filter(item=>Number(item.day)===day).map(item=>String(item.id)));
+        return priorIds.size>0&&![...priorIds].some(id=>incomingIds.has(id));
+      }).sort((left,right)=>left-right);
+      replacementIdentity={
+        priorObjectiveCount:priorObjectiveIds.size,incomingObjectiveCount:incomingObjectiveIds.length,
+        retainedObjectiveIds:[...retained],removedObjectiveIds:[...priorObjectiveIds].filter(id=>!retained.has(id)),
+        newObjectiveIds:incomingObjectiveIds.filter(id=>!priorObjectiveIds.has(id)),
+        requiresNewSession:priorObjectiveIds.size>0&&incomingObjectiveIds.length>0&&retained.size===0,
+        requiresNewSessionDayNumbers
+      };
+    }
+    else if(mode==='add'){
+      const usedIds=new Set((project.features||[]).map(item=>String(item.id))),accepted=filterFeatures(features,'GPX add').map((feature,index)=>{
+        const incoming=normalizeCheckpoint(feature,(project.features||[]).length+index);incoming.id=uniqueId(incoming.id,usedIds);return incoming;
+      });
+      project.features.push(...accepted);added=accepted.length;skipped=Math.max(0,features.length-accepted.length);
+    }
+    else for(const candidate of features){
+      const accepted=filterFeatures([candidate],'GPX merge');if(!accepted.length){skipped++;continue;}
+      const incoming=normalizeCheckpoint(accepted[0],project.features.length),incomingObjective=objective(incoming),incomingId=String(incoming.id||''),existing=incomingObjective?
+        project.features.find(item=>objective(item)&&String(item.id||'')===incomingId):
+        project.features.find(item=>!objective(item)&&featureDuplicate(incoming,item));
       if(existing){
         Object.assign(existing,{name:incoming.name||existing.name,type:incoming.type||existing.type,notes:incoming.notes||existing.notes,source:incoming.source||existing.source,geometry:incoming.geometry,updatedAt:now()});
         for(const key of ['sequence','originalSequence','importOrderSource','importOrderResolved','resolvedImportIndex']){
@@ -130,17 +170,19 @@ export function createProjectWorkflows({createId,now,parseXml,normalizeCheckpoin
         if(incoming.photoRequired===true)existing.photoRequired=true;
         if(incoming.day)existing.day=incoming.day;
         updated++;
-      }else if(filterFeatures([incoming],'GPX merge').length){project.features.push(normalizeCheckpoint(incoming,project.features.length));added++;}
+      }else{
+        const usedIds=new Set(project.features.map(item=>String(item.id)));incoming.id=uniqueId(incoming.id,usedIds);project.features.push(incoming);added++;
+      }
     }
     assignWaypointDays(project.features,true);
-    return {added,updated,skipped,unassigned:project.features.filter(feature=>!feature.day).length};
+    return {added,updated,skipped,unassigned:project.features.filter(feature=>!feature.day).length,...(replacementIdentity?{replacementIdentity}: {})};
   }
 
   const xmlEscape=value=>String(value??'').replace(/[<>&'"]/g,character=>({'<':'&lt;','>':'&gt;','&':'&amp;',"'":'&apos;','"':'&quot;'}[character]));
   function buildGpx({project,features,appVersion,exportedAt}){
     const waypoints=features.filter(feature=>feature.geometry.kind==='point').map(feature=>{
       const point=feature.geometry.coordinates[0];
-      const extensions=feature.type==='checkpoint'?`<extensions><cannonmap:status>${xmlEscape(feature.status||'planned')}</cannonmap:status><cannonmap:points>${Number(feature.points)||10}</cannonmap:points><cannonmap:extreme>${feature.extreme?'true':'false'}</cannonmap:extreme><cannonmap:sequence>${Number(feature.sequence)||0}</cannonmap:sequence>${feature.completedAt?`<cannonmap:completedAt>${xmlEscape(feature.completedAt)}</cannonmap:completedAt>`:''}${feature.deferredAt?`<cannonmap:deferredAt>${xmlEscape(feature.deferredAt)}</cannonmap:deferredAt>`:''}${feature.deferReason?`<cannonmap:deferReason>${xmlEscape(feature.deferReason)}</cannonmap:deferReason>`:''}${feature.restoredAt?`<cannonmap:restoredAt>${xmlEscape(feature.restoredAt)}</cannonmap:restoredAt>`:''}</extensions>`:'';
+      const objective=['checkpoint','hotel'].includes(feature.type),checkpointFields=feature.type==='checkpoint'?`<cannonmap:status>${xmlEscape(feature.status||'planned')}</cannonmap:status><cannonmap:points>${Number(feature.points)||10}</cannonmap:points><cannonmap:extreme>${feature.extreme?'true':'false'}</cannonmap:extreme><cannonmap:sequence>${Number(feature.sequence)||0}</cannonmap:sequence>${feature.completedAt?`<cannonmap:completedAt>${xmlEscape(feature.completedAt)}</cannonmap:completedAt>`:''}${feature.deferredAt?`<cannonmap:deferredAt>${xmlEscape(feature.deferredAt)}</cannonmap:deferredAt>`:''}${feature.deferReason?`<cannonmap:deferReason>${xmlEscape(feature.deferReason)}</cannonmap:deferReason>`:''}${feature.restoredAt?`<cannonmap:restoredAt>${xmlEscape(feature.restoredAt)}</cannonmap:restoredAt>`:''}`:'',dayField=objective&&Number.isInteger(Number(feature.day))&&Number(feature.day)>=1?`<cannonmap:day>${Number(feature.day)}</cannonmap:day>`:'',extensions=objective?`<extensions><cannonmap:checkpointId>${xmlEscape(feature.id)}</cannonmap:checkpointId>${dayField}${checkpointFields}</extensions>`:'';
       return `  <wpt lat="${point.lat.toFixed(8)}" lon="${point.lon.toFixed(8)}"><name>${xmlEscape(feature.name)}</name><desc>${xmlEscape(feature.notes||'')}</desc><type>${xmlEscape(feature.type)}</type>${extensions}</wpt>`;
     }).join('\n');
     const routes=features.filter(feature=>feature.type==='route'&&feature.geometry.kind==='line').map(feature=>`  <rte><name>${xmlEscape(feature.name)}</name><desc>${xmlEscape(feature.notes||'')}</desc>\n${feature.geometry.coordinates.map(point=>`    <rtept lat="${point.lat.toFixed(8)}" lon="${point.lon.toFixed(8)}" />`).join('\n')}\n  </rte>`).join('\n');
@@ -152,6 +194,10 @@ export function createProjectWorkflows({createId,now,parseXml,normalizeCheckpoin
     const copy=JSON.parse(JSON.stringify(feature,(key,value)=>key==='_layer'?undefined:value));
     copy.id=createId();copy.name=`${copy.name} copy`;copy.createdAt=now();copy.updatedAt=copy.createdAt;
     copy.geometry.coordinates=copy.geometry.coordinates.map(point=>({lat:point.lat+.002,lon:point.lon+.002}));
+    if(['checkpoint','hotel'].includes(copy.type)){
+      for(const key of CHECKPOINT_EXECUTION_FIELDS)delete copy[key];
+      normalizeCheckpoint(copy);
+    }
     return copy;
   }
 

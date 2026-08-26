@@ -28,8 +28,9 @@ import {createRideMemoryStateStore} from './src/infrastructure/browser/ride-memo
 import {createCheckpointArrivalCoordinator} from './src/application/checkpoint-arrival-coordinator.js';
 import {
   activeSession as activeRallySessionRecord,inspectRallySessions,listDaySessions,migrateRallyExecution,
+  reconcileActiveSessionMembership,
   resumeSession as resumeRallySessionRecord,startNewSession as startNewRallySessionRecord,
-  syncActiveSession,RALLY_SESSION_STATUS,CHECKPOINT_EXECUTION_FIELDS
+  supersedeActiveSessionMembership,syncActiveSession,RALLY_SESSION_STATUS,CHECKPOINT_EXECUTION_FIELDS
 } from './src/domain/rally/session.js';
 import {createSessionArtifactFilename} from './src/domain/rally/artifacts.js';
 import {
@@ -76,13 +77,13 @@ import {
 import {createFirebaseAuthentication} from './src/infrastructure/firebase/authentication.js';
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
-const APP_VERSION = '0.7.17';
-const BUILD_ID = '2026.08.25.samsung-trail-intel-1';
+const APP_VERSION = '0.7.18';
+const BUILD_ID = '2026.08.26.samsung-field-data-1';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const CAMERA_SETUP_HINT_KEY = 'cannonmap.camera-setup-succeeded.v1';
-const APP_SHELL_CACHE = 'cannonmap-v0.7.17-20260825-samsung-trail-intel-1';
-const PREFLIGHT_SHELL_ASSETS = Object.freeze(['./index.html','./app.js?v=20260825-samsung-trail-intel-1','./app.css?v=20260825-samsung-trail-intel-1']);
+const APP_SHELL_CACHE = 'cannonmap-v0.7.18-20260826-samsung-field-data-1';
+const PREFLIGHT_SHELL_ASSETS = Object.freeze(['./index.html','./app.js?v=20260826-samsung-field-data-1','./app.css?v=20260826-samsung-field-data-1']);
 const AUTOMATIC_BACKUP_INTERVAL_MS=2*60*60*1000;
 const RELIABILITY_HEALTH_INTERVAL_MS=5*60*1000;
 const GPS_FOREGROUND_STALL_MS=45*1000;
@@ -203,6 +204,7 @@ let lastCameraEligibility=null;
 let checkpointCompletionInFlight=false;
 let rallyScopeGeneration=0;
 let rallyScopeSuspended=false;
+let rallyRuntimeRestorePending=false;
 let projectSaveQueue=Promise.resolve();
 let projectSaveFence=null;
 let projectMutationLock=null;
@@ -221,7 +223,7 @@ function acquireProjectMutation(reason,token=null){
   if(!token&&rallyScopeSuspended){setStatus('Wait for the current Rally state transition to finish before changing Projects.',true);return null;}
   if(projectMutationLock){setStatus(`Wait for ${projectMutationLock.reason} to finish before changing Projects.`,true);return null;}
   const ownedToken=Symbol(reason),lock={token:ownedToken,reason:String(reason||'Project change')};projectMutationLock=lock;
-  return {token:ownedToken,release:()=>{if(projectMutationLock===lock)projectMutationLock=null;}};
+  return {token:ownedToken,release:()=>{if(projectMutationLock===lock){projectMutationLock=null;if(rallyRuntimeRestorePending)restoreRallyPollingIntent();}}};
 }
 
 function rejectRallyMutationWhileQuiesced(action='change Rally state'){
@@ -234,7 +236,7 @@ function trackRallyMutationTask(value){
 }
 function trackedRallyAction(handler){return (...args)=>{try{return trackRallyMutationTask(handler(...args));}catch(error){return Promise.reject(error);}};}
 async function drainTrackedRallyMutations(){
-  const errors=[];while(activeRallyMutationTasks.size){const results=await Promise.allSettled([...activeRallyMutationTasks]);for(const result of results)if(result.status==='rejected')errors.push(result.reason);}
+  const pending=[...activeRallyMutationTasks],errors=[];const results=await Promise.allSettled(pending);for(const result of results)if(result.status==='rejected')errors.push(result.reason);
   if(errors.length)throw errors[0];
 }
 async function drainActiveJournalWrites(){while(activeJournalWrites.size)await Promise.all([...activeJournalWrites]);}
@@ -347,12 +349,11 @@ async function undo() {
     else resetRallySessionSelection();
     state.hotelBailoutActive=false;
     clearSelection();
-    resumeRallyScopeRuntime('undo-project-state-complete');
-    await saveProject(false);
+    await persistProjectBeforeRallyScopeResume('undo-project-state-complete');
     renderAll();
     void reconcilePendingCheckpointEvidence({interactive:false});
     setStatus('Last change undone.');
-  }finally{if(rallyScopeSuspended)resumeRallyScopeRuntime('undo-project-state-recovered');}
+  }catch(error){setStatus(`Undo could not be saved. Rally runtime remains safely paused; reload CannonMap to restore the last durable Project. ${error?.message||error}`,true);}
 }
 
 function initMap() {
@@ -885,12 +886,22 @@ function resetCheckpointArrivalCoordinator(reason='scope-change'){
   rallyDebug.record('checkpoint_arrival_scope_reset',{reason,scopeGeneration:rallyScopeGeneration,projectId:state.project.projectId||null,day:activeRallyDay()||null});
 }
 function restoreRallyPollingIntent(){
-  if(rallyPollRestoreTimer!==null)clearTimeout(rallyPollRestoreTimer);rallyPollRestoreTimer=setTimeout(()=>{rallyPollRestoreTimer=null;if(!rallyScopeSuspended&&!projectMutationLock&&state.settings.rallyLivePollingEnabled===true&&!state.rallyLiveFeed&&!livePollController)void startRallyPolling({silent:true,persist:false});},0);
+  if(rallyPollRestoreTimer!==null)clearTimeout(rallyPollRestoreTimer);rallyPollRestoreTimer=setTimeout(()=>{
+    rallyPollRestoreTimer=null;if(rallyScopeSuspended||projectMutationLock)return;
+    const restoreReliability=rallyRuntimeRestorePending;rallyRuntimeRestorePending=false;
+    if(restoreReliability){const session=currentRallySession({matchActiveDay:false});if(session&&acceptedRallySessionId===session.sessionId&&!showRallySessionChoice()&&!showDayPreflight()&&rallyDayState(session.dayNumber).status!=='complete')void startRallyReliabilityServices();}
+    if(state.settings.rallyLivePollingEnabled===true&&!state.rallyLiveFeed&&!livePollController)void startRallyPolling({silent:true,persist:false});
+  },0);
 }
 function resumeRallyScopeRuntime(reason='scope-change-complete'){
   resetCheckpointArrivalCoordinator(reason);rallyScopeSuspended=false;
   rallyDebug.record('checkpoint_arrival_scope_resumed',{reason,scopeGeneration:rallyScopeGeneration,projectId:state.project.projectId||null,day:activeRallyDay()||null});
+  rallyRuntimeRestorePending=true;
   restoreRallyPollingIntent();
+}
+async function persistProjectBeforeRallyScopeResume(reason=null,{writes=[]}={}){
+  await Promise.all([saveProject(false),...writes]);
+  if(reason)resumeRallyScopeRuntime(reason);
 }
 function refreshCameraStorageDiagnostic(){
   const estimate=navigator.storage?.estimate;if(typeof estimate!=='function'||cameraStorageDiagnosticTask||Date.now()-cameraStorageDiagnostic.updatedAt<5*60*1000)return cameraStorageDiagnosticTask;
@@ -907,6 +918,20 @@ function cameraRuntimeDiagnosticContext(){
     speedMph:Number.isFinite(Number(state.lastGpsPosition?.speedMps))?Number(state.lastGpsPosition.speedMps)*2.23694:null,
     viewportWidth:Number(globalThis.innerWidth)||null,viewportHeight:Number(globalThis.innerHeight)||null,
     screenOrientation:globalThis.screen?.orientation?.type||null,storageUsageBytes:cameraStorageDiagnostic.usageBytes,storageQuotaBytes:cameraStorageDiagnostic.quotaBytes
+  };
+}
+function backupRuntimeDiagnosticContext(){
+  const scheduler=automaticBackup?.state?.()||{},activation=navigator.userActivation||{};
+  return {
+    ...cameraRuntimeDiagnosticContext(),online:navigator.onLine!==false,
+    userActivationActive:activation.isActive??null,userActivationHasBeenActive:activation.hasBeenActive??null,
+    checkpointCaptureActive:Boolean(pendingPhotoCheckpointId||automaticCaptureAbortController||cameraCaptureArbiter?.state?.().currentKind==='checkpoint'),
+    pendingPhotoCheckpointId:pendingPhotoCheckpointId||null,backupSchedulerRunning:scheduler.running??null,
+    backupPendingSessionCount:Array.isArray(scheduler.pendingSessions)?scheduler.pendingSessions.length:null,
+    backupTrailingSessionCount:Array.isArray(scheduler.trailingSessions)?scheduler.trailingSessions.length:null,
+    backupExactQueuedSessionCount:Array.isArray(scheduler.exactQueuedSessions)?scheduler.exactQueuedSessions.length:null,
+    backupProviderPending:Number.isFinite(Number(scheduler.providerPending))?Number(scheduler.providerPending):null,
+    projectMutationReason:projectMutationLock?.reason||null
   };
 }
 function recordCameraDiagnostic(event={}){
@@ -1020,16 +1045,16 @@ function localCalendarDate(value=new Date()){
 async function startNewRallySession(day=activeRallyDay(),{refreshPreflight=true}={}){
   if(rejectRallyMutationWhileQuiesced('start a new rally session'))return null;
   const dayNumber=Number(day);if(!dayNumber)return null;
-  const replacingSession=Boolean(activeRallySessionRecord(state.project)||pendingPhotoCheckpointId);if(replacingSession)await suspendPendingEvidenceRuntime('start-new-rally-session');
+  const replacingSession=Boolean(activeRallySessionRecord(state.project)||pendingPhotoCheckpointId);
+  if(replacingSession)await suspendPendingEvidenceRuntime('start-new-rally-session');else rallyScopeSuspended=true;
   try{
     const startedAt=core.clock.iso(),session=startNewRallySessionRecord(state.project,{dayNumber,calendarDate:localCalendarDate(startedAt),startedAt,sessionId:pendingRallySessionId||undefined,createId:uid,rallyId:String(state.settings.rallyEventId||state.project.projectId)});pendingRallySessionId=null;
     state.settings.dayFilter=String(dayNumber);if($('dayFilter'))$('dayFilter').value=String(dayNumber);
     bindPendingEvidenceQueue(session);acceptedRallySessionId=session.sessionId;acceptedPreflightScopeKey=null;cameraSetupDismissed=false;state.history=[];state.hotelBailoutActive=false;hotelBailoutUndo=null;rallyDayPreflight?.clearAcknowledgement?.();
     const next=checkpoints.startRallyDay(state.project,state.settings,dayNumber);if(next)state.selectedId=next.id;
-    resumeRallyScopeRuntime('start-new-rally-session-complete');
-    const journalWrite=appendRallyJournalEvent('rally_session_started',next||{id:`day-${dayNumber}`,type:'day',day:dayNumber,name:`Day ${dayNumber}`},{eventIdentity:'session-started',source:'rally_session',sessionStartedAt:session.startedAt,calendarDate:session.calendarDate,runNumber:session.runNumber,title:`Day ${dayNumber} · Run ${session.runNumber} Started`,summary:'Rider deliberately started a new isolated rally-day session.'},session.startedAt),projectWrite=saveProject(false);
-    await Promise.all([journalWrite,projectWrite]);renderAll();if(refreshPreflight)void refreshDayPreflight();return currentRallySession();
-  }finally{if(rallyScopeSuspended)resumeRallyScopeRuntime('start-new-rally-session-recovered');}
+    const journalWrite=appendRallyJournalEvent('rally_session_started',next||{id:`day-${dayNumber}`,type:'day',day:dayNumber,name:`Day ${dayNumber}`},{eventIdentity:'session-started',source:'rally_session',sessionStartedAt:session.startedAt,calendarDate:session.calendarDate,runNumber:session.runNumber,title:`Day ${dayNumber} · Run ${session.runNumber} Started`,summary:'Rider deliberately started a new isolated rally-day session.'},session.startedAt);
+    await persistProjectBeforeRallyScopeResume('start-new-rally-session-complete',{writes:[journalWrite]});renderAll();if(refreshPreflight)void refreshDayPreflight();return currentRallySession();
+  }catch(error){setStatus(`New session could not be saved. Rally runtime remains safely paused; reload CannonMap to restore the last durable session. ${error?.message||error}`,true);return null;}
 }
 async function resumeExistingRallySession(sessionId=rallySessionChoiceState().session?.sessionId){
   if(rejectRallyMutationWhileQuiesced('resume a rally session'))return null;
@@ -1040,11 +1065,9 @@ async function resumeExistingRallySession(sessionId=rallySessionChoiceState().se
     state.settings.dayFilter=String(stored.dayNumber);if($('dayFilter'))$('dayFilter').value=String(stored.dayNumber);
     const session=resumeRallySessionRecord(state.project,sessionId,{resumedAt:core.clock.iso()});bindPendingEvidenceQueue(session);
     acceptedRallySessionId=session.sessionId;acceptedPreflightScopeKey=null;cameraSetupDismissed=false;state.history=[];state.hotelBailoutActive=false;hotelBailoutUndo=null;rallyDayPreflight?.clearAcknowledgement?.();state.selectedId=session.activeObjectiveId||currentCheckpoint()?.id||null;
-    resumeRallyScopeRuntime('resume-rally-session-complete');
-    const resumedAt=core.clock.iso(),journalWrite=appendRallyJournalEvent('rally_session_resumed',currentCheckpoint()||{id:`day-${session.dayNumber}`,type:'day',day:session.dayNumber,name:`Day ${session.dayNumber}`},{eventIdentity:`session-resumed:${resumedAt}`,source:'rally_session',sessionResumedAt:resumedAt,calendarDate:session.calendarDate,runNumber:session.runNumber,title:`Day ${session.dayNumber} · Run ${session.runNumber} Resumed`,summary:'Rider deliberately resumed this existing rally-day session.'},resumedAt),projectWrite=saveProject(false);
-    await Promise.all([journalWrite,projectWrite]);renderAll();void refreshDayPreflight();void reconcilePendingCheckpointEvidence({interactive:false});return session;
-  }catch(error){setStatus(`Session resume failed: ${error.message}`,true);return null;}
-  finally{if(rallyScopeSuspended)resumeRallyScopeRuntime('resume-rally-session-recovered');}
+    const resumedAt=core.clock.iso(),journalWrite=appendRallyJournalEvent('rally_session_resumed',currentCheckpoint()||{id:`day-${session.dayNumber}`,type:'day',day:session.dayNumber,name:`Day ${session.dayNumber}`},{eventIdentity:`session-resumed:${resumedAt}`,source:'rally_session',sessionResumedAt:resumedAt,calendarDate:session.calendarDate,runNumber:session.runNumber,title:`Day ${session.dayNumber} · Run ${session.runNumber} Resumed`,summary:'Rider deliberately resumed this existing rally-day session.'},resumedAt);
+    await persistProjectBeforeRallyScopeResume('resume-rally-session-complete',{writes:[journalWrite]});renderAll();void refreshDayPreflight();void reconcilePendingCheckpointEvidence({interactive:false});return session;
+  }catch(error){setStatus(`Session resume failed. Rally runtime remains safely paused; reload CannonMap to restore the last durable session. ${error?.message||error}`,true);return null;}
 }
 async function proceedFromDayPreflight({degraded=false}={}){
   if(rejectRallyMutationWhileQuiesced('start riding'))return null;
@@ -1241,21 +1264,36 @@ async function importGpxFiles(files) {
 }
 async function applyPendingImport(mode) {
   const pending=state.pendingImport;if(!pending)return;
-  createNamedSnapshot(`Before GPX ${mode}`,true);snapshot();
-  const {added,updated,skipped,unassigned}=projectWorkflows.applyImport(state.project,pending.features,mode);
-  state.project.projectId ||= uid();state.project.id=state.project.projectId;
-  state.pendingImport=null;
-  await saveProject(false);renderAll();fitMap();
-  setStatus(`GPX ${mode}: ${added} added, ${updated} updated, ${skipped} skipped. ${unassigned} features remain unassigned.`);
+  const mutation=acquireProjectMutation(`apply GPX ${mode}`);if(!mutation)return;
+  const activeSessionBeforeImport=activeRallySessionRecord(state.project),activeSessionDay=Number(activeSessionBeforeImport?.dayNumber)||null,objective=feature=>['checkpoint','hotel'].includes(feature?.type),priorActiveDayIds=new Set(activeSessionDay?(state.project.features||[]).filter(feature=>objective(feature)&&Number(feature.day)===activeSessionDay).map(feature=>String(feature.id)):[]),ownsScopeSuspension=Boolean(activeSessionBeforeImport||pendingPhotoCheckpointId);
+  try{
+    if(ownsScopeSuspension)await suspendPendingEvidenceRuntime(`gpx-${mode}`);
+    syncCurrentRallySessionProjection();createNamedSnapshot(`Before GPX ${mode}`,true);snapshot();
+    const {added,updated,skipped,unassigned,replacementIdentity}=projectWorkflows.applyImport(state.project,pending.features,mode);
+    state.project.projectId ||= uid();state.project.id=state.project.projectId;
+    const incomingActiveDayIds=new Set(activeSessionDay?(state.project.features||[]).filter(feature=>objective(feature)&&Number(feature.day)===activeSessionDay).map(feature=>String(feature.id)):[]),retainedActiveDayIds=[...priorActiveDayIds].filter(id=>incomingActiveDayIds.has(id)),requiresNewSession=mode==='replace'&&Boolean(activeSessionBeforeImport)&&priorActiveDayIds.size>0&&retainedActiveDayIds.length===0;
+    const superseded=requiresNewSession?supersedeActiveSessionMembership(state.project,{supersededAt:core.clock.iso(),reason:'gpx-replace-without-stable-checkpoint-identity'}):null,reconciled=superseded?null:reconcileActiveProjectRallyMembership(`gpx-${mode}`);state.pendingImport=null;
+    if(superseded){rallyDebug.record('rally_session_membership_superseded',{sessionId:superseded.sessionId,dayNumber:superseded.dayNumber,reason:superseded.membershipSupersededReason,replacementIdentity,activeDayIdentity:{dayNumber:activeSessionDay,priorCheckpointIds:[...priorActiveDayIds],incomingCheckpointIds:[...incomingActiveDayIds],retainedCheckpointIds:retainedActiveDayIds}});resetRallySessionSelection();}
+    else if(reconciled)resetRallySessionSelection();
+    await persistProjectBeforeRallyScopeResume(ownsScopeSuspension?`gpx-${mode}-complete`:null);renderAll();fitMap();
+    setStatus(`GPX ${mode}: ${added} added, ${updated} updated, ${skipped} skipped. ${unassigned} features remain unassigned.${mode==='merge'?' Merge is additive; checkpoints absent from this file remain in the Project.':''}${superseded?' This replacement had no stable checkpoint-ID continuity; the prior run remains historical and START NEW is required.':''}`);
+  }catch(error){setStatus(`GPX ${mode} could not finish. ${ownsScopeSuspension&&rallyScopeSuspended?'Rally runtime remains safely paused; reload CannonMap to restore the last durable Project. ':'Check current Project membership before resuming Rally Mode. '}${error?.message||error}`,true);}
+  finally{mutation.release();}
 }
-function reassignExistingDays() {
+async function reassignExistingDays() {
   const targets=state.project.features.filter(f=>!f.day);
   if(!targets.length)return setStatus('No unassigned features remain.');
-  snapshot();
-  const changed=assignWaypointDays(state.project.features,true);
-  state.project.features.forEach(f=>{if(f.day)f.updatedAt=new Date().toISOString();});
-  saveProject(false);renderAll();
-  setStatus(`Reassigned ${changed} features. ${state.project.features.filter(f=>!f.day).length} remain unassigned.`);
+  const mutation=acquireProjectMutation('reassign feature days');if(!mutation)return;
+  const session=activeRallySessionRecord(state.project),ownsScopeSuspension=Boolean(session&&targets.some(feature=>['checkpoint','hotel'].includes(feature.type)));
+  try{
+    if(ownsScopeSuspension)await suspendPendingEvidenceRuntime('feature-day-reassignment');
+    syncCurrentRallySessionProjection();snapshot();const changed=assignWaypointDays(state.project.features,true);
+    state.project.features.forEach(f=>{if(f.day)f.updatedAt=new Date().toISOString();});
+    const reconciled=session?reconcileActiveProjectRallyMembership('feature-day-reassignment'):null;
+    if(reconciled&&acceptedRallySessionId===reconciled.sessionId)bindPendingEvidenceQueue(reconciled);
+    await persistProjectBeforeRallyScopeResume(ownsScopeSuspension?'feature-day-reassignment-complete':null);renderAll();setStatus(`Reassigned ${changed} features. ${state.project.features.filter(f=>!f.day).length} remain unassigned.`);
+  }catch(error){setStatus(`Day reassignment failed. ${ownsScopeSuspension&&rallyScopeSuspended?'Rally runtime remains safely paused; reload CannonMap to restore the last durable Project. ':''}${error?.message||error}`,true);}
+  finally{mutation.release();}
 }
 function exportProjectFile() {
   const payload=projectWorkflows.createPortableProject({project:planningOnlyPortableProject(state.project,{projectId:state.project.projectId}),settings:planningOnlyPortableSettings(state.settings),appVersion:APP_VERSION,build:BUILD_ID,exportedAt:new Date().toISOString()});
@@ -1264,12 +1302,13 @@ function exportProjectFile() {
 }
 async function openProjectFile(file,{mutationToken=null}={}) {
   const mutation=acquireProjectMutation('open another Project',mutationToken);if(!mutation)return;
-  let releaseSaveFence=beginProjectSaveFence('portable-project-open');
+  let releaseSaveFence=null;
   try{
-    await projectSaveQueue;
     const payload=JSON.parse(await file.text());
     const portable=projectWorkflows.readPortableProject(payload),knownProjects=projectLifecycle?await projectLifecycle.listProjects():[],requestedProjectId=String(portable.project?.projectId||portable.project?.id||uid()),collision=knownProjects.some(item=>String(item.projectId)===requestedProjectId),project=planningOnlyPortableProject(portable.project,{projectId:collision?uid():requestedProjectId,nameSuffix:collision?' · Imported Copy':''});
     await suspendPendingEvidenceRuntime('portable-project-open');
+    await projectSaveQueue;
+    releaseSaveFence=beginProjectSaveFence('portable-project-open');
     await releaseRallyAnalyticsProjectScope('portable-project-open');
     snapshot();
     state.project=sanitizeProjectData(project,`.cmap ${file.name}`);
@@ -1282,14 +1321,13 @@ async function openProjectFile(file,{mutationToken=null}={}) {
       activeLifecycleProjectId=state.project.projectId;
     }
     rallyExecution();resetRallySessionSelection();await bindRallyAnalyticsToActiveProject();
-    resumeRallyScopeRuntime('portable-project-open-complete');
     clearSelection();
     releaseSaveFence?.();releaseSaveFence=null;
-    await saveProject(false);
+    await persistProjectBeforeRallyScopeResume('portable-project-open-complete');
     renderAll();fitMap();
     setStatus(`Opened ${file.name}${collision?' as an independent Project copy':''}: ${state.project.features.length} features.`);
-  }catch(error){setStatus(`Project open failed: ${error.message}`,true);}
-  finally{if(rallyScopeSuspended)resumeRallyScopeRuntime('portable-project-open-recovered');releaseSaveFence?.();mutation.release();}
+  }catch(error){setStatus(`Project open failed. ${rallyScopeSuspended?'Rally runtime remains safely paused; reload CannonMap to restore the last durable Project. ':''}${error.message}`,true);}
+  finally{releaseSaveFence?.();mutation.release();}
 }
 
 
@@ -1302,7 +1340,9 @@ function preserveRallyExecutionHistory(restored,current){
   if(!restored||!current)return restored;const sessions=current.rallyExecution?.sessions||{};if(!Object.keys(sessions).length)return restored;
   restored.rallyExecution=deepClean(current.rallyExecution);const currentFeatures=new Map((current.features||[]).map(feature=>[String(feature.id),feature]));
   for(const feature of restored.features||[]){const live=currentFeatures.get(String(feature.id));if(!live)continue;for(const key of CHECKPOINT_EXECUTION_FIELDS){if(Object.prototype.hasOwnProperty.call(live,key))feature[key]=deepClean(live[key]);else delete feature[key];}}
-  const restoredIds=new Set((restored.features||[]).map(feature=>String(feature.id)));for(const live of current.features||[]){if(restoredIds.has(String(live.id))||!['checkpoint','hotel'].includes(live.type))continue;if(CHECKPOINT_EXECUTION_FIELDS.some(key=>Object.prototype.hasOwnProperty.call(live,key)))restored.features.push(deepClean(live));}
+  // The restored planning snapshot owns executable membership. Session,
+  // Journal, and media history stay durable without resurrecting objectives
+  // that are absent from that planning snapshot.
   return restored;
 }
 const RALLY_EXECUTION_SETTING_KEYS=Object.freeze(['mediaBackups','mediaBackupProgress','mediaBackupReminderDay','lastMediaExportAt','restoredDayReview']);
@@ -1319,11 +1359,21 @@ async function restoreSnapshot(id,{mutationToken=null}={}){
     const item=getSnapshots().find(x=>x.id===id);if(!item)return;
     const snapshotProjectId=String(item.project?.projectId||item.project?.id||''),currentProjectId=String(state.project?.projectId||state.project?.id||'');
     if(!snapshotProjectId||snapshotProjectId!==currentProjectId||snapshotProjectId!==String(activeLifecycleProjectId||''))return setStatus('This snapshot belongs to a different Project and cannot replace the active rally session. Open that Project before restoring its snapshot.',true);
-    await suspendPendingEvidenceRuntime('snapshot-restore');snapshot();state.project=sanitizeProjectData(preserveRallyExecutionHistory(deepClean(item.project),state.project),'restored snapshot');if(item.settings)state.settings=Object.assign({},state.settings,preserveRallyExecutionSettings(item.settings,state.settings));rallyExecution();resetRallySessionSelection();await rebindRallyAnalyticsForActiveProject('snapshot-restore');resumeRallyScopeRuntime('snapshot-restore-complete');await saveProject(false);clearSelection();renderAll();fitMap();setStatus(`Restored planning snapshot from ${new Date(item.createdAt).toLocaleString()}. Rally session history and evidence state were preserved.`);
-  }finally{if(rallyScopeSuspended)resumeRallyScopeRuntime('snapshot-restore-recovered');mutation.release();}
+    await suspendPendingEvidenceRuntime('snapshot-restore');syncCurrentRallySessionProjection();snapshot();state.project=sanitizeProjectData(preserveRallyExecutionHistory(deepClean(item.project),state.project),'restored snapshot');if(item.settings)state.settings=Object.assign({},state.settings,preserveRallyExecutionSettings(item.settings,state.settings));rallyExecution();reconcileActiveProjectRallyMembership('snapshot-restore');resetRallySessionSelection();await rebindRallyAnalyticsForActiveProject('snapshot-restore');await persistProjectBeforeRallyScopeResume('snapshot-restore-complete');clearSelection();renderAll();fitMap();setStatus(`Restored planning snapshot from ${new Date(item.createdAt).toLocaleString()}. Rally session history and evidence state were preserved without restoring deleted checkpoint membership.`);
+  }catch(error){setStatus(`Snapshot restore could not be saved. Rally runtime remains safely paused; reload CannonMap to restore the last durable Project. ${error?.message||error}`,true);}
+  finally{mutation.release();}
 }
 function deleteSnapshot(id){writeSnapshots(getSnapshots().filter(x=>x.id!==id));renderSnapshots();}
 function renderSnapshots(){const box=$('snapshotList');if(!box)return;const items=getSnapshots();if(!items.length){box.className='snapshot-list empty';box.textContent='No snapshots yet.';return;}box.className='snapshot-list';box.innerHTML=items.map(x=>`<div class="snapshot-row"><div><strong>${escapeHtml(x.label)}</strong><small>${new Date(x.createdAt).toLocaleString()} · ${x.project.features?.length||0} features</small></div><button class="button secondary" data-restore="${x.id}">Restore</button><button class="button danger-outline" data-drop="${x.id}">×</button></div>`).join('');box.querySelectorAll('[data-restore]').forEach(b=>b.onclick=()=>restoreSnapshot(b.dataset.restore));box.querySelectorAll('[data-drop]').forEach(b=>b.onclick=()=>deleteSnapshot(b.dataset.drop));}
+async function changeRallyDayScope(dayValue,{reason='day-filter-change',afterPersist=null,refreshPreflight=false}={}){
+  if(rejectRallyMutationWhileQuiesced('change rally days'))return false;
+  await suspendPendingEvidenceRuntime(reason);
+  try{
+    state.settings.dayFilter=String(dayValue);if($('dayFilter'))$('dayFilter').value=state.settings.dayFilter;resetRallySessionSelection();
+    await persistProjectBeforeRallyScopeResume(`${reason}-complete`);
+    afterPersist?.();renderAll();if(refreshPreflight)void refreshDayPreflight();return true;
+  }catch(error){setStatus(`Day selection could not be saved. Rally runtime remains safely paused; reload CannonMap to restore the last durable day/session scope. ${error?.message||error}`,true);return false;}
+}
 function renderMissionControl(){
   const fs=state.project.features,miles=planningMileage(fs);
   if($('missionProjectName')) $('missionProjectName').textContent=state.project.name;
@@ -1343,7 +1393,7 @@ function renderMissionControl(){
       const score=Math.min(100,(rows.length?40:0)+(cp?25:0)+(hotel?20:0));
       return `<div class="day-card" data-day-card="${day}"><header><strong>Day ${day}</strong><span>${dm.toFixed(0)} mi</span></header><small>${cp} checkpoints · ${hotel} hotel · ${rows.length} features</small><div class="day-meter"><i style="width:${score}%"></i></div></div>`;
     }).join('');
-    $('dailyReadiness').querySelectorAll('[data-day-card]').forEach(c=>c.onclick=trackedRallyAction(async()=>{if(rejectRallyMutationWhileQuiesced('change rally days'))return;await suspendPendingEvidenceRuntime('daily-readiness-selection');try{state.settings.dayFilter=c.dataset.dayCard;$('dayFilter').value=state.settings.dayFilter;resetRallySessionSelection();resumeRallyScopeRuntime('daily-readiness-selection-complete');document.querySelector('[data-tab="project"]')?.click();await saveProject(false);renderAll();void refreshDayPreflight();}finally{if(rallyScopeSuspended)resumeRallyScopeRuntime('daily-readiness-selection-recovered');}}));
+    $('dailyReadiness').querySelectorAll('[data-day-card]').forEach(c=>c.onclick=trackedRallyAction(()=>changeRallyDayScope(c.dataset.dayCard,{reason:'daily-readiness-selection',afterPersist:()=>document.querySelector('[data-tab="project"]')?.click(),refreshPreflight:true})));
   }
   renderSnapshots();
 }
@@ -1380,16 +1430,24 @@ function selectFeature(id) {
   document.querySelector('[data-tab="features"]')?.classList.add('active');$('featuresPanel')?.classList.add('active');
   if(window.innerWidth<=840)setSidebarOpen(true);
 }
-function updateSelectedFeature(event) {
+async function updateSelectedFeature(event) {
   event.preventDefault();
   const feature=state.project.features.find(f=>f.id===state.selectedId);if(!feature)return;
-  snapshot();
-  feature.name=$('featureName').value.trim()||feature.name;feature.type=$('featureType').value;feature.day=Number($('featureDay').value);feature.notes=$('featureNotes').value.trim();
-  if(feature.geometry.kind==='point'){
-    const lat=Number($('featureLatitude').value),lon=Number($('featureLongitude').value);
-    if(validPoint({lat,lon}))feature.geometry.coordinates=[{lat,lon}];
-  }
-  normalizeCheckpoint(feature,state.project.features.indexOf(feature));feature.updatedAt=new Date().toISOString();saveProject(false);renderAll();selectFeature(feature.id);setStatus(`Updated ${feature.name}.`);
+  const mutation=acquireProjectMutation(`update ${feature.name}`);if(!mutation)return;
+  const session=activeRallySessionRecord(state.project),nextType=$('featureType').value,nextDay=Number($('featureDay').value),objective=value=>['checkpoint','hotel'].includes(value),changesExecutableMembership=Boolean(session&&(objective(feature.type)&&Number(feature.day)===Number(session.dayNumber)||objective(nextType)&&nextDay===Number(session.dayNumber))&&(feature.type!==nextType||Number(feature.day)!==nextDay));
+  try{
+    if(changesExecutableMembership)await suspendPendingEvidenceRuntime('feature-membership-update');
+    syncCurrentRallySessionProjection();snapshot();
+    feature.name=$('featureName').value.trim()||feature.name;feature.type=nextType;feature.day=nextDay;feature.notes=$('featureNotes').value.trim();
+    if(feature.geometry.kind==='point'){
+      const lat=Number($('featureLatitude').value),lon=Number($('featureLongitude').value);
+      if(validPoint({lat,lon}))feature.geometry.coordinates=[{lat,lon}];
+    }
+    normalizeCheckpoint(feature,state.project.features.indexOf(feature));feature.updatedAt=new Date().toISOString();const reconciled=changesExecutableMembership?reconcileActiveProjectRallyMembership('feature-membership-update'):null;
+    if(reconciled&&acceptedRallySessionId===reconciled.sessionId)bindPendingEvidenceQueue(reconciled);
+    await persistProjectBeforeRallyScopeResume(changesExecutableMembership?'feature-membership-update-complete':null);renderAll();selectFeature(feature.id);setStatus(`Updated ${feature.name}.${reconciled?' Current Rally navigation was reconciled to the revised Project.':''}`);
+  }catch(error){setStatus(`Feature update failed. ${changesExecutableMembership&&rallyScopeSuspended?'Rally runtime remains safely paused; reload CannonMap to restore the last durable Project. ':''}${error?.message||error}`,true);}
+  finally{mutation.release();}
 }
 function editSelectedGeometry() {
   stopEditing();
@@ -1419,19 +1477,59 @@ function zoomSelected() {
   if(feature.geometry.kind==='point'){const p=feature.geometry.coordinates[0];performProgrammaticMapChange('feature-focus',()=>state.map.setView([p.lat,p.lon],15,{animate:false}));}
   else performProgrammaticMapChange('feature-focus',()=>state.map.fitBounds(feature.geometry.coordinates.map(p=>[p.lat,p.lon]),{padding:[30,30],animate:false}));
 }
-function duplicateSelected() {
-  const feature=state.project.features.find(f=>f.id===state.selectedId);if(!feature)return;snapshot();
-  const copy=projectWorkflows.duplicateFeature(feature);state.project.features.push(copy);
-  saveProject(false);renderAll();selectFeature(copy.id);
+async function duplicateSelected() {
+  const feature=state.project.features.find(f=>f.id===state.selectedId);if(!feature)return;
+  const mutation=acquireProjectMutation(`duplicate ${feature.name}`);if(!mutation)return;
+  const session=activeRallySessionRecord(state.project),changesExecutableMembership=Boolean(session&&['checkpoint','hotel'].includes(feature.type)&&Number(feature.day)===Number(session.dayNumber));
+  try{
+    if(changesExecutableMembership)await suspendPendingEvidenceRuntime('checkpoint-membership-duplicate');
+    syncCurrentRallySessionProjection();snapshot();const copy=projectWorkflows.duplicateFeature(feature);state.project.features.push(copy);const reconciled=changesExecutableMembership?reconcileActiveProjectRallyMembership('checkpoint-membership-duplicate'):null;
+    if(reconciled&&acceptedRallySessionId===reconciled.sessionId)bindPendingEvidenceQueue(reconciled);
+    await persistProjectBeforeRallyScopeResume(changesExecutableMembership?'checkpoint-membership-duplicate-complete':null);renderAll();selectFeature(copy.id);setStatus(`Duplicated ${feature.name} as a clean upcoming objective.`);
+  }catch(error){setStatus(`Duplicate failed. ${changesExecutableMembership&&rallyScopeSuspended?'Rally runtime remains safely paused; reload CannonMap to restore the last durable Project. ':''}${error?.message||error}`,true);}
+  finally{mutation.release();}
 }
-function deleteSelected() {
+async function deleteSelected() {
   const feature=state.project.features.find(f=>f.id===state.selectedId);if(!feature||!confirm(`Delete “${feature.name}”?`))return;
-  snapshot();state.project.features=state.project.features.filter(f=>f.id!==state.selectedId);clearSelection();saveProject(false);renderAll();setStatus(`Deleted ${feature.name}.`);
+  const mutation=acquireProjectMutation(`delete ${feature.name}`);if(!mutation)return;
+  const session=activeRallySessionRecord(state.project),changesExecutableMembership=Boolean(session&&['checkpoint','hotel'].includes(feature.type)&&Number(feature.day)===Number(session.dayNumber));
+  try{
+    if(changesExecutableMembership)await suspendPendingEvidenceRuntime('checkpoint-membership-delete');
+    syncCurrentRallySessionProjection();snapshot();state.project.features=state.project.features.filter(f=>f.id!==feature.id);clearSelection();
+    const reconciled=changesExecutableMembership?reconcileActiveProjectRallyMembership('checkpoint-membership-delete'):null;
+    if(reconciled&&acceptedRallySessionId===reconciled.sessionId){bindPendingEvidenceQueue(reconciled);state.selectedId=reconciled.activeObjectiveId||null;}
+    await persistProjectBeforeRallyScopeResume(changesExecutableMembership?'checkpoint-membership-delete-complete':null);renderAll();setStatus(`Deleted ${feature.name}.${reconciled?' Current Rally navigation was reconciled to the revised Project.':''}`);
+  }catch(error){setStatus(`Delete failed. ${changesExecutableMembership&&rallyScopeSuspended?'Rally runtime remains safely paused; reload CannonMap to restore the last durable Project. ':''}${error?.message||error}`,true);}
+  finally{mutation.release();}
 }
-function bulkAssign() {
+async function bulkAssign() {
   const day=Number($('bulkDay').value),targets=state.project.features.filter(f=>f.geometry.kind==='point'&&!f.day);
   if(!targets.length)return setStatus('No unassigned point features remain.');
-  snapshot();targets.forEach(f=>{f.day=day;f.updatedAt=new Date().toISOString();});saveProject(false);renderAll();setStatus(`Assigned ${targets.length} unassigned point features to Day ${day}.`);
+  const mutation=acquireProjectMutation(`assign features to Day ${day}`);if(!mutation)return;
+  const session=activeRallySessionRecord(state.project),changesExecutableMembership=Boolean(session&&day===Number(session.dayNumber)&&targets.some(feature=>['checkpoint','hotel'].includes(feature.type)));
+  try{
+    if(changesExecutableMembership)await suspendPendingEvidenceRuntime('bulk-day-assignment');
+    syncCurrentRallySessionProjection();snapshot();targets.forEach(f=>{f.day=day;f.updatedAt=new Date().toISOString();});const reconciled=changesExecutableMembership?reconcileActiveProjectRallyMembership('bulk-day-assignment'):null;
+    if(reconciled&&acceptedRallySessionId===reconciled.sessionId)bindPendingEvidenceQueue(reconciled);
+    await persistProjectBeforeRallyScopeResume(changesExecutableMembership?'bulk-day-assignment-complete':null);renderAll();setStatus(`Assigned ${targets.length} unassigned point features to Day ${day}.`);
+  }catch(error){setStatus(`Bulk day assignment failed. ${changesExecutableMembership&&rallyScopeSuspended?'Rally runtime remains safely paused; reload CannonMap to restore the last durable Project. ':''}${error?.message||error}`,true);}
+  finally{mutation.release();}
+}
+async function createPendingFeature(event){
+  event.preventDefault();
+  if(event.submitter&&event.submitter.value==='cancel'){state.pendingLayer?.remove();state.pendingLayer=null;$('createDialog')?.close('cancel');return;}
+  if(!state.pendingLayer)return;
+  const selectedDay=Number($('createDay')?.value),day=Number.isInteger(selectedDay)&&selectedDay>0?selectedDay:null,type=$('createType')?.value||'track',session=activeRallySessionRecord(state.project),changesExecutableMembership=Boolean(session&&['checkpoint','hotel'].includes(type)&&day===Number(session.dayNumber)),mutation=acquireProjectMutation('create a Project feature');if(!mutation)return;
+  try{
+    if(changesExecutableMembership)await suspendPendingEvidenceRuntime('checkpoint-membership-create');
+    syncCurrentRallySessionProjection();snapshot();
+    const feature=normalizeCheckpoint({id:uid(),name:$('createName')?.value.trim()||'New feature',type,day,assignmentMethod:'manual',notes:$('createNotes')?.value.trim()||'',visible:true,source:'CannonMap drawing',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),geometry:layerToGeometry(state.pendingLayer)},state.project.features.length);
+    state.pendingLayer.remove();state.pendingLayer=null;state.project.features.push(feature);
+    const reconciled=changesExecutableMembership?reconcileActiveProjectRallyMembership('checkpoint-membership-create'):null;
+    if(reconciled&&acceptedRallySessionId===reconciled.sessionId)bindPendingEvidenceQueue(reconciled);
+    await persistProjectBeforeRallyScopeResume(changesExecutableMembership?'checkpoint-membership-create-complete':null);renderAll();selectFeature(feature.id);$('createDialog')?.close('default');setStatus(`Created ${feature.name}.${reconciled?' Current Rally navigation was reconciled to the revised Project.':''}`);
+  }catch(error){setStatus(`Feature creation failed. ${changesExecutableMembership&&rallyScopeSuspended?'Rally runtime remains safely paused; reload CannonMap to restore the last durable Project. ':''}${error?.message||error}`,true);}
+  finally{mutation.release();}
 }
 function fitMap() {
   return performProgrammaticMapChange('fit-map',()=>mapEngine.fitLayerType('features',{padding:[25,25],animate:false}));
@@ -1666,6 +1764,13 @@ function rallyExecution(){
   state.project.projectId||=state.project.id||stableUuid(`project:${state.project.name||'CannonMap'}:${state.project.createdAt||'legacy'}`);
   return migrateRallyExecution(state.project,{migratedAt:state.project.updatedAt||state.project.createdAt||core.clock.iso()});
 }
+function reconcileActiveProjectRallyMembership(reason='project-membership-change'){
+  const before=activeRallySessionRecord(state.project);if(!before)return null;
+  const allowedIds=new Set((state.project.features||[]).filter(feature=>['checkpoint','hotel'].includes(feature.type)&&Number(feature.day)===Number(before.dayNumber)).map(feature=>String(feature.id))),priorStateIds=Object.keys(before.checkpointStates||{}),priorPendingIds=(before.pendingEvidence?.entries||[]).map(entry=>String(entry.checkpointId));
+  const reconciled=reconcileActiveSessionMembership(state.project);
+  rallyDebug.record('rally_membership_reconciled',{reason,sessionId:before.sessionId,dayNumber:before.dayNumber,removedCheckpointStateIds:priorStateIds.filter(id=>!allowedIds.has(String(id))),removedPendingEvidenceIds:priorPendingIds.filter(id=>!allowedIds.has(String(id))),activeObjectiveId:reconciled?.activeObjectiveId||null,executableCheckpointCount:allowedIds.size});
+  return reconciled;
+}
 function currentRallySession({matchActiveDay=true}={}){
   if(!state.project?.projectId&&!state.project?.id)return null;
   const session=activeRallySessionRecord(state.project);if(!session)return null;
@@ -1750,7 +1855,7 @@ async function appendFailureJournalBestEffort(eventType,checkpoint,metadata={},t
   }
 }
 function checkpointEvidenceSnapshot(checkpoint){return checkpoints.reconcileCheckpointEvidenceState(checkpoint);}
-function activePendingEvidenceEntries(){const session=currentRallySession();return session?listActivePendingEvidence(ensurePendingEvidenceQueueForSession(session),{sessionId:session.sessionId}):[];}
+function activePendingEvidenceEntries(){const session=currentRallySession();if(!session)return [];const executableIds=new Set(dayCheckpoints().map(checkpoint=>String(checkpoint.id)));return listActivePendingEvidence(ensurePendingEvidenceQueueForSession(session),{sessionId:session.sessionId}).filter(entry=>executableIds.has(String(entry.checkpointId)));}
 function reconcileCurrentPendingEvidenceQueue(at=core.clock.iso()){
   const session=currentRallySession();if(!session)return pendingEvidenceQueue;ensurePendingEvidenceQueueForSession(session);
   pendingEvidenceQueue=reconcilePendingEvidenceQueue(pendingEvidenceQueue,{sessionId:session.sessionId,checkpoints:dayCheckpoints(),at}).queue;return pendingEvidenceQueue;
@@ -1805,7 +1910,7 @@ async function preserveIncompletePhotoEvidence(checkpoint,{state:photoState,reas
   const arrival=checkpointEvidenceSnapshot(checkpoint).arrival,arrivalTrustworthy=arrival.state===checkpoints.CHECKPOINT_ARRIVAL_STATE.CONFIRMED&&arrival.trustworthy;
   await appendFailureJournalBestEffort('checkpoint_photo_evidence_incomplete',checkpoint,{eventIdentity:`photo-incomplete:${checkpoint.id}:${arrival.timestamp||checkpoint.manualPhotoStartedAt||resolvedPairId||'pending'}:${photoState}`,source,arrivalState:arrivalTrustworthy?checkpoints.CHECKPOINT_ARRIVAL_STATE.CONFIRMED:checkpoints.CHECKPOINT_ARRIVAL_STATE.NOT_CONFIRMED,arrivalEvidence:arrivalTrustworthy?arrival:null,photoEvidenceState:photoState,pairId:resolvedPairId,missingSides,reasonCode,failureReason,pointsWithheld:true,pointsAwarded:0,normalCompletionEmitted:false,title:checkpoint.name,summary:arrivalTrustworthy?'GPS arrival is confirmed. Required photo evidence is incomplete, so normal completion points were withheld.':'Required photo evidence is incomplete. No authoritative GPS arrival is claimed, and normal completion points were withheld.'},core.clock.iso());
   if(arrivalTrustworthy)upsertCheckpointPendingEvidence(checkpoint);
-  const priorTarget=state.project.features.find(feature=>feature.id===priorTargetId&&feature.id!==checkpoint.id&&feature.status===checkpoints.CHECKPOINT_STATE.ACTIVE);if(priorTarget)state.selectedId=priorTarget.id;
+  const priorTarget=checkpoints.verifiedOutOfOrderPriorTarget(dayCheckpoints(),checkpoint,{outOfOrder:Boolean(priorTargetId),priorTargetId});if(priorTarget)state.selectedId=priorTarget.id;
   await saveProject(false);renderAll();return checkpointEvidenceSnapshot(checkpoint);
 }
 async function preserveQueuedPhotoEvidence(checkpoint,{reasonCode='evidence-workflow-busy',failureReason='Another checkpoint evidence workflow is already using the camera.'}={}){
@@ -2034,7 +2139,7 @@ async function restartUnsafeCapturePair(checkpoint,arrivalEvent,captureKind,fail
 async function failPendingPhotoObjective(requestedCheckpointId=null){
   if(rejectRallyMutationWhileQuiesced('fail an objective'))return false;
   const checkpointId=typeof requestedCheckpointId==='string'?requestedCheckpointId:pendingPhotoCheckpointId,checkpoint=state.project.features.find(feature=>feature.id===checkpointId);if(!checkpoint)return;const reason=prompt('Required reason for marking this objective failed');if(!String(reason||'').trim())return setStatus('A reason is required to mark the objective failed.',true);
-  const priorTargetId=pendingPhotoCheckpointId===checkpoint.id?pendingMediaObjective?.priorTargetId||null:null,priorTarget=state.project.features.find(feature=>feature.id===priorTargetId&&feature.id!==checkpoint.id&&feature.status===checkpoints.CHECKPOINT_STATE.ACTIVE)||null;
+  const priorTargetId=pendingPhotoCheckpointId===checkpoint.id?pendingMediaObjective?.priorTargetId||null:null,priorTarget=checkpoints.verifiedOutOfOrderPriorTarget(dayCheckpoints(),checkpoint,{outOfOrder:pendingMediaObjective?.outOfOrder===true,priorTargetId});
   const timestamp=new Date().toISOString();await persistPendingEvidenceActionFor(checkpoint,PENDING_EVIDENCE_ACTION.FAIL,{reasonCode:'rider-marked-failed',metadata:{failureReason:String(reason).trim()},at:timestamp});
   const next=checkpoints.skipCheckpoint(dayCheckpoints(),checkpoint,{preserveActiveTarget:true});if(priorTarget)state.selectedId=priorTarget.id;else if(next)state.selectedId=next.id;await appendRallyJournalEvent('objective_failed',checkpoint,{eventIdentity:`photo-objective-failed:${checkpoint.id}:${timestamp}`,photoRequired:true,photoStatus:'failed',failureReason:String(reason).trim(),recoveryAction:'mark_objective_failed',failedOutOfOrder:Boolean(priorTarget),restoredPriorTargetId:priorTarget?.id||null},timestamp);
   if(pendingPhotoCheckpointId===checkpoint.id){checkpointCamera?.abandon();pendingPhotoCheckpointId=null;resolveManualFallback({status:'objective-failed'});}await saveProject(false);renderAll();setStatus(`${checkpoint.name} marked failed. Reason recorded in the Journal.`);
@@ -2127,9 +2232,11 @@ async function exportEntireJourney(){
 }
 function dayBackupProgressKey(day=activeRallyDay(),session=currentRallySession()){return session?.sessionId||`legacy-day-${Number(day)||0}`;}
 function dayBackupStatus(day=activeRallyDay()){
-  const key=dayBackupProgressKey(day),backup=state.settings.mediaBackups?.[key]||state.settings.mediaBackups?.[day],externalGeneration=backup?.artifactKind==='external-folder-generation'||backup?.externalLayout==='incremental-files',progress=state.settings.mediaBackupProgress?.[key]||state.settings.mediaBackupProgress?.[day];if(!progress){if(backup)return externalGeneration?'External folder generation verified':'Backup package exported';return 'Not backed up';}
-  if(progress.externalGeneration||externalGeneration&&progress.package)return 'External folder generation verified';
-  if(progress.photos&&progress.journal&&progress.package)return 'Backup complete';if(progress.package)return 'Backup package exported';if(progress.photos&&progress.journal)return 'Backup complete';if(progress.photos)return 'Photos exported';if(progress.journal)return 'Journal exported';return 'Not backed up';
+  const key=dayBackupProgressKey(day),backup=state.settings.mediaBackups?.[key]||state.settings.mediaBackups?.[day],externalGeneration=backup?.artifactKind==='external-folder-generation'||backup?.externalLayout==='incremental-files',downloadConfirmed=backup?.downloadCommitVerified===true,downloadRequested=backup?.artifactKind==='browser-download-package'||Boolean(backup?.downloadRequestedAt),progress=state.settings.mediaBackupProgress?.[key]||state.settings.mediaBackupProgress?.[day];
+  if(externalGeneration||progress?.externalGeneration)return 'External folder generation verified';
+  if(downloadConfirmed)return 'Downloaded backup verified';
+  if(downloadRequested||progress?.packageRequested||progress?.package)return 'Package verified · confirm Samsung download';
+  if(progress?.photos&&progress?.journal)return 'Photo/Journal downloads requested';if(progress?.photos)return 'Photo download requested';if(progress?.journal)return 'Journal download requested';return 'Not backed up';
 }
 async function markDayBackupProgress(day,kind,{session=currentRallySession(),scopeToken=null}={}){
   if(scopeToken&&!rallyScopeMatches(scopeToken))return false;
@@ -2149,28 +2256,42 @@ async function exportDayJournal(){
 }
 async function exportDayBackupPackage(){
   const mutation=acquireProjectMutation('export a Day backup');if(!mutation)return;
-  const context=captureRallyExportContext(),projectId=context.projectId;let day=null;
-  const log=(event,details={})=>rallyDebug.record(event,{projectId,day,...details});log('backup_started');
+  const context=captureRallyExportContext(),projectId=context.projectId,attemptId=uid(),attemptStartedAt=performance.now();let day=null,stage='starting',outputRoute='unresolved',verifiedArtifact=null;
+  const stageStartedAt=new Map([['starting',attemptStartedAt]]),beginStage=value=>{stage=String(value);stageStartedAt.set(stage,performance.now());},log=(event,details={})=>{
+    const now=performance.now();return rallyDebug.record(event,{projectId,day,attemptId,stage,attemptDurationMs:Math.max(0,Math.round(now-attemptStartedAt)),stageDurationMs:Math.max(0,Math.round(now-(stageStartedAt.get(stage)||attemptStartedAt))),outputRoute,...backupRuntimeDiagnosticContext(),...details});
+  };
+  void refreshCameraStorageDiagnostic();log('backup_started');
   try{
-    if(!projectId)throw new Error('No active Project is available for backup.');log('backup_project_resolved',{projectName:context.project.name,executionId:context.project.executionId||context.project.rallyExecution?.executionId||null});
-    day=context.day;if(!day)throw new Error('CannonMap could not identify the rally day.');const session=context.session;if(!session)throw new Error('Choose a rally session before creating a Day backup.');log('backup_day_resolved',{sessionId:session.sessionId,runNumber:session.runNumber});
-    const events=journalEventsForSession(journalEventsForDay(await missionControlJournalEvents(),day),session);log('backup_journal_loaded',{journalEventCount:events.length});
-    const descriptors=typeof missionMedia.listProjectSessionPhotoDescriptors==='function'?await missionMedia.listProjectSessionPhotoDescriptors(projectId,session.sessionId):await missionMedia.listProjectSessionPhotos(projectId,session.sessionId),dayMedia=descriptors.filter(item=>Number(item.metadata?.dayNumber)===Number(day)&&String(item.metadata?.sessionId||item.sessionId||'')===session.sessionId),declaredBytes=dayMedia.reduce((sum,item)=>sum+(Number(item.size)||0),0);log('backup_media_indexed',{dayMediaCount:dayMedia.length,declaredBytes,binaryBytesHydrated:false});
-    const externalState=await automaticBackup?.externalState?.();
+    beginStage('resolve-project');if(!projectId)throw new Error('No active Project is available for backup.');log('backup_project_resolved',{projectName:context.project.name,executionId:context.project.executionId||context.project.rallyExecution?.executionId||null});
+    beginStage('resolve-day-session');day=context.day;if(!day)throw new Error('CannonMap could not identify the rally day.');const session=context.session;if(!session)throw new Error('Choose a rally session before creating a Day backup.');log('backup_day_resolved',{sessionId:session.sessionId,runNumber:session.runNumber});
+    beginStage('load-journal');const events=journalEventsForSession(journalEventsForDay(await missionControlJournalEvents(),day),session);log('backup_journal_loaded',{journalEventCount:events.length});
+    beginStage('index-media');const descriptors=typeof missionMedia.listProjectSessionPhotoDescriptors==='function'?await missionMedia.listProjectSessionPhotoDescriptors(projectId,session.sessionId):await missionMedia.listProjectSessionPhotos(projectId,session.sessionId),dayMedia=descriptors.filter(item=>Number(item.metadata?.dayNumber)===Number(day)&&String(item.metadata?.sessionId||item.sessionId||'')===session.sessionId),declaredBytes=dayMedia.reduce((sum,item)=>sum+(Number(item.size)||0),0);log('backup_media_indexed',{dayMediaCount:dayMedia.length,declaredBytes,binaryBytesHydrated:false,captureInFlight:Boolean(pendingPhotoCheckpointId)});
+    beginStage('inspect-output');const externalState=await automaticBackup?.externalState?.();
     if(externalState?.status===EXTERNAL_BACKUP_STATUS.READY){
+      outputRoute='external-incremental';beginStage('write-external-generation');
       const result=await requestAutomaticBackup(AUTOMATIC_BACKUP_TRIGGER.MANUAL,{waitForOwnRun:true}),external=result?.external;
       if(external?.status!==EXTERNAL_BACKUP_STATUS.READY||external.verified!==true)throw Object.assign(new Error(external?.error||'The external incremental backup did not verify.'),{code:'EXTERNAL_INCREMENTAL_BACKUP_FAILED'});
       if(!rallyExportContextMatches(context))throw new Error('The rally session changed while the external Day backup was being prepared. No backup status was changed.');
-      const timestamp=new Date().toISOString(),manifest=external.manifest||{};state.settings.mediaBackups||={};state.settings.mediaBackups[dayBackupProgressKey(day,session)]={completedAt:timestamp,dayNumber:day,sessionId:session.sessionId,filename:external.filename,mediaCount:Number(manifest.mediaCount)||dayMedia.length,externalLayout:'incremental-files',artifactKind:'external-folder-generation',directInAppRestore:false};
-      await appendRallyJournalEvent('day_backup_exported',null,{eventIdentity:`day-backup:${session.sessionId}:${timestamp}`,dayNumber:day,title:`Day ${day} External Folder Generation Verified`,summary:external.filename,mediaCount:Number(manifest.mediaCount)||dayMedia.length,journalEventCount:Number(manifest.journalEventCount)||events.length,externalLayout:'incremental-files',artifactKind:'external-folder-generation',directInAppRestore:false,writtenMediaCount:external.writtenMediaCount,reusedMediaCount:external.reusedMediaCount},timestamp);
-      await markDayBackupProgress(day,'externalGeneration',{session,scopeToken:context.scopeToken});log('backup_completed',{filename:external.filename,externalLayout:'incremental-files',artifactKind:'external-folder-generation',mediaCount:Number(manifest.mediaCount)||dayMedia.length,writtenMediaCount:external.writtenMediaCount,reusedMediaCount:external.reusedMediaCount});setStatus(`Verified external folder generation for Day ${day}: ${Number(manifest.mediaCount)||dayMedia.length} media files, ${Number(manifest.journalEventCount)||events.length} Journal events. Internal recovery remains the direct restore path.`);return;
+      const timestamp=new Date().toISOString(),manifest=external.manifest||{},mediaCount=Number(manifest.mediaCount)||dayMedia.length,journalEventCount=Number(manifest.journalEventCount)||events.length;verifiedArtifact={kind:'external-folder-generation',filename:external.filename,bytesReopenedAndVerified:true};log('backup_verified',{filename:external.filename,mediaCount,journalEventCount,bytesReopenedAndVerified:true});state.settings.mediaBackups||={};state.settings.mediaBackups[dayBackupProgressKey(day,session)]={completedAt:timestamp,dayNumber:day,sessionId:session.sessionId,filename:external.filename,mediaCount,externalLayout:'incremental-files',artifactKind:'external-folder-generation',directInAppRestore:false};
+      beginStage('record-verified-status');const bookkeeping=await Promise.allSettled([
+        appendRallyJournalEvent('day_backup_exported',null,{eventIdentity:`day-backup:${session.sessionId}:${timestamp}`,dayNumber:day,title:`Day ${day} External Folder Generation Verified`,summary:external.filename,mediaCount,journalEventCount,externalLayout:'incremental-files',artifactKind:'external-folder-generation',directInAppRestore:false,writtenMediaCount:external.writtenMediaCount,reusedMediaCount:external.reusedMediaCount},timestamp),
+        markDayBackupProgress(day,'externalGeneration',{session,scopeToken:context.scopeToken})
+      ]),bookkeepingFailures=bookkeeping.filter(result=>result.status==='rejected').map(result=>result.reason?.message||String(result.reason));
+      if(bookkeepingFailures.length){log('backup_status_persist_failed',{filename:external.filename,artifactVerified:true,bytesReopenedAndVerified:true,errors:bookkeepingFailures});setStatus(`External Day ${day} backup bytes are verified, but CannonMap could not record all local backup status. Ride data and prior verified files remain safe. ${bookkeepingFailures.join(' | ')}`,true);return;}
+      log('backup_completed',{filename:external.filename,externalLayout:'incremental-files',artifactKind:'external-folder-generation',mediaCount,writtenMediaCount:external.writtenMediaCount,reusedMediaCount:external.reusedMediaCount,bytesReopenedAndVerified:true});setStatus(`Verified external folder generation for Day ${day}: ${mediaCount} media files, ${journalEventCount} Journal events. Internal recovery remains the direct restore path.`);return;
     }
+    outputRoute='browser-download';
     if(declaredBytes>MAX_SAFE_MANUAL_DAY_PACKAGE_BYTES)throw Object.assign(new Error(`This Day contains ${formatPreferredMissionMediaBudget(declaredBytes)} of media. Choose a backup folder for bounded incremental backup; internal recovery remains available.`),{code:'EXTERNAL_BACKUP_PERMISSION_REQUIRED',declaredBytes});
-    const file=await photoExports.dayBackup(projectId,day,{journal:events,project:context.project,settings:context.settings,session,exportedAt:new Date(),rallyName:context.rallyName,buildIdentity:{applicationVersion:APP_VERSION,buildId:BUILD_ID,serviceWorkerCacheId:APP_SHELL_CACHE}});log('backup_manifest_created',{mediaCount:file.manifest.mediaCount,journalEventCount:file.manifest.journalEventCount});log('backup_zip_created',{entryCount:file.entryCount,archiveBytes:file.blob.size});
-    if(!file.verified)throw new Error('The generated day package was not verified.');log('backup_verified',{mediaCount:file.manifest.mediaCount});if(!rallyExportContextMatches(context))throw new Error('The rally session changed while the Day backup was being prepared. No backup status was changed.');downloadStoredBlob(file.blob,file.filename);log('backup_download_requested',{filename:file.filename});
-    const timestamp=new Date().toISOString();state.settings.mediaBackups||={};state.settings.mediaBackups[dayBackupProgressKey(day,session)]={completedAt:timestamp,dayNumber:day,sessionId:session.sessionId,filename:file.filename,mediaCount:file.manifest.mediaCount};
-    await appendRallyJournalEvent('day_backup_exported',null,{eventIdentity:`day-backup:${session.sessionId}:${timestamp}`,dayNumber:day,title:`Day ${day} Backup Exported`,summary:file.filename,mediaCount:file.manifest.mediaCount},timestamp);await markDayBackupProgress(day,'package',{session,scopeToken:context.scopeToken});log('backup_completed',{filename:file.filename});setStatus(`Verified Day ${day} backup with ${file.manifest.mediaCount} media files and ${file.manifest.journalEventCount} Journal events.`);
-  }catch(error){log('backup_failed',{errorCode:error?.code||'DAY_BACKUP_FAILED',error:error?.message||String(error)});setStatus(`Day backup failed verification. Your ride data is still stored on this device. ${error?.message||''}`.trim(),true);}finally{mutation.release();}
+    beginStage('build-and-verify-package');const file=await photoExports.dayBackup(projectId,day,{journal:events,project:context.project,settings:context.settings,session,exportedAt:new Date(),rallyName:context.rallyName,buildIdentity:{applicationVersion:APP_VERSION,buildId:BUILD_ID,serviceWorkerCacheId:APP_SHELL_CACHE}});log('backup_manifest_created',{mediaCount:file.manifest.mediaCount,journalEventCount:file.manifest.journalEventCount});log('backup_zip_created',{entryCount:file.entryCount,archiveBytes:file.blob.size});
+    if(!file.verified)throw new Error('The generated day package was not verified.');verifiedArtifact={kind:'browser-download-package',filename:file.filename,packageBytesVerified:true,downloadCommitVerified:false};log('backup_verified',{mediaCount:file.manifest.mediaCount,packageBytesVerified:true,downloadCommitVerified:false});if(!rallyExportContextMatches(context))throw new Error('The rally session changed while the Day backup was being prepared. No backup status was changed.');beginStage('request-browser-download');downloadStoredBlob(file.blob,file.filename);log('backup_download_requested',{filename:file.filename,packageBytesVerified:true,downloadCommitVerified:false});
+    const timestamp=new Date().toISOString();state.settings.mediaBackups||={};state.settings.mediaBackups[dayBackupProgressKey(day,session)]={packageVerifiedAt:timestamp,downloadRequestedAt:timestamp,downloadCommitVerified:false,artifactKind:'browser-download-package',dayNumber:day,sessionId:session.sessionId,filename:file.filename,mediaCount:file.manifest.mediaCount};
+    beginStage('record-download-status');const bookkeeping=await Promise.allSettled([
+      appendRallyJournalEvent('day_backup_download_requested',null,{eventIdentity:`day-backup-download-requested:${session.sessionId}:${timestamp}`,dayNumber:day,title:`Day ${day} Backup Package Verified · Download Requested`,summary:file.filename,mediaCount:file.manifest.mediaCount,packageBytesVerified:true,browserDownloadCommitVerified:false},timestamp),
+      markDayBackupProgress(day,'packageRequested',{session,scopeToken:context.scopeToken})
+    ]),bookkeepingFailures=bookkeeping.filter(result=>result.status==='rejected').map(result=>result.reason?.message||String(result.reason));
+    if(bookkeepingFailures.length){log('backup_status_persist_failed',{filename:file.filename,artifactVerified:true,downloadRequested:true,downloadCommitVerified:false,errors:bookkeepingFailures});setStatus(`Day ${day} backup package was verified and its download was requested, but CannonMap could not record all local backup status. Confirm ${file.filename} appears in Samsung Downloads. ${bookkeepingFailures.join(' | ')}`,true);return;}
+    log('backup_package_verified_download_requested',{filename:file.filename,packageBytesVerified:true,downloadRequested:true,downloadCommitVerified:false});setStatus(`Day ${day} backup package verified; download requested. Confirm ${file.filename} appears in Samsung Downloads (${file.manifest.mediaCount} media, ${file.manifest.journalEventCount} Journal events).`);
+  }catch(error){log('backup_failed',{errorCode:error?.code||'DAY_BACKUP_FAILED',error:error?.message||String(error),artifactVerified:Boolean(verifiedArtifact),verifiedArtifact});if(verifiedArtifact)setStatus(`The backup artifact was verified, but a later ${stage} step failed. Your ride data remains stored on this device. ${error?.message||''}`.trim(),true);else setStatus(`Day backup stopped during ${stage}. Your ride data remains stored on this device. ${error?.message||''}`.trim(),true);}finally{mutation.release();}
 }
 async function requestJourneyPhoto(){
   if(rejectRallyMutationWhileQuiesced('capture a Journey photo'))return;
@@ -2907,7 +3028,7 @@ async function renderStorageAndProjects(){
   const [estimate,projects]=await Promise.all([missionStorage.estimate(state.project.projectId),projectLifecycle.listProjects()]),summary=$('rallyStorageSummary'),select=$('rallyProjectSelect');
   if(summary)summary.innerHTML=`<strong>Browser storage: ${estimate.actualUsageBytes===null?'Unavailable':formatStorageBytes(estimate.actualUsageBytes)}${estimate.actualQuotaBytes===null?' / quota unavailable':` of ${formatStorageBytes(estimate.actualQuotaBytes)}`}</strong><small>Preferred mission-media budget: ${formatPreferredMissionMediaBudget(estimate.preferredMissionMediaBudgetBytes)} (planning target, not guaranteed capacity)</small><small>Current project: ${estimate.projectPhotoCount} originals / ${estimate.pairCount} complete paired captures · ${formatStorageBytes(estimate.projectMediaSize)} · Estimated remaining paired captures: ${estimate.estimatedRemainingCapturePairs??'Unavailable'} · Persistent storage: ${escapeHtml(String(estimate.persistence?.status||'unsupported').replace(/-/g,' '))} · Unresolved failures: ${estimate.unresolvedFailures}</small>${estimate.warningLevel==='critical'?'<b class="storage-critical">Storage critically low. Export now; captures may fail.</b>':estimate.warningLevel==='warning'?'<b>Storage is nearing the configured warning threshold.</b>':''}`;
   if(select){select.innerHTML=projects.map(project=>`<option value="${escapeHtml(project.projectId)}" ${project.projectId===state.project.projectId?'selected':''}>${escapeHtml(project.name)}${project.lifecycleStatus==='archived'?' (Archived)':''}</option>`).join('');}
-  const completed=Object.values(rallyExecution().sessions||{}).filter(session=>session?.status===RALLY_SESSION_STATUS.COMPLETED),backups=state.settings.mediaBackups||{},unbacked=completed.filter(session=>!backups[session.sessionId]&&!(session.legacy&&backups[session.dayNumber]));
+  const completed=Object.values(rallyExecution().sessions||{}).filter(session=>session?.status===RALLY_SESSION_STATUS.COMPLETED),backups=state.settings.mediaBackups||{},verified=backup=>Boolean(backup&&(backup.artifactKind==='external-folder-generation'||backup.externalLayout==='incremental-files'||backup.downloadCommitVerified===true)),unbacked=completed.filter(session=>!verified(backups[session.sessionId])&&!(session.legacy&&verified(backups[session.dayNumber])));
   if($('rallyUnbackedDays'))$('rallyUnbackedDays').textContent=unbacked.length?`Unbacked sessions: ${unbacked.map(session=>`Day ${session.dayNumber} Run ${session.runNumber}`).join(', ')}`:`Last successful export: ${state.settings.lastMediaExportAt?new Date(state.settings.lastMediaExportAt).toLocaleString():'None recorded'}`;
 }
 async function retryFailedEvidence(){
@@ -3083,7 +3204,7 @@ async function processDetectedCheckpointArrival(arrival,persisted){
   const scopeToken=persisted?.scopeToken||arrival?.evidence?.metadata?.rallyScopeToken;if(!rallyScopeMatches(scopeToken))return;
   const checkpoint=state.project.features.find(feature=>feature.id===arrival.checkpointId),day=activeRallyDay();
   if(!checkpoint||Number(checkpoint.day)!==day||[checkpoints.CHECKPOINT_STATE.COLLECTED,checkpoints.CHECKPOINT_STATE.FAILED,checkpoints.CHECKPOINT_STATE.UNAVAILABLE].includes(checkpoints.checkpointState(checkpoint.status)))return;
-  const priorTarget=state.project.features.find(feature=>feature.id===persisted?.priorTargetId&&feature.id!==checkpoint.id&&feature.status===checkpoints.CHECKPOINT_STATE.ACTIVE)||null,outOfOrder=Boolean(persisted?.outOfOrder&&priorTarget),arrivalEvent=persisted?.arrivalEvent;
+  const priorTarget=checkpoints.verifiedOutOfOrderPriorTarget(dayCheckpoints(),checkpoint,{outOfOrder:persisted?.outOfOrder===true,priorTargetId:persisted?.priorTargetId}),outOfOrder=Boolean(priorTarget),arrivalEvent=persisted?.arrivalEvent;
   if(!arrivalEvent)return;
   if(!checkpoint.photoRequired){
     await completeCurrentCheckpoint(true,{checkpoint,preserveActiveTarget:outOfOrder,priorTargetId:priorTarget?.id||null,silent:true,scopeToken});
@@ -3476,30 +3597,30 @@ function wireUi() {
   $('sidebarBackdrop')?.addEventListener('click',()=>setSidebarOpen(false));
   document.addEventListener('keydown',event=>{if(event.key==='Escape'){setSidebarOpen(false);setIntelSheetOpen(false);closeDayBackupSheet();}});
   wireProjectController({getElement:$,actions:{
-    importGpx:importGpxFiles,openProject:openProjectFile,saveProject,exportProject:exportProjectFile,reassignDays:reassignExistingDays,
+    importGpx:importGpxFiles,openProject:openProjectFile,saveProject,exportProject:exportProjectFile,reassignDays:trackedRallyAction(reassignExistingDays),
     exportGpx,exportExcel,exportCsv,applyImport:applyPendingImport,cancelImport:()=>state.pendingImport=null
   }});
   $('missionFitButton')?.addEventListener('click',fitMap);
-  $('missionUnassignedButton')?.addEventListener('click',trackedRallyAction(async()=>{if(rejectRallyMutationWhileQuiesced('show unassigned objectives'))return;await suspendPendingEvidenceRuntime('unassigned-selection');try{state.settings.dayFilter='0';if($('dayFilter'))$('dayFilter').value='0';resetRallySessionSelection();resumeRallyScopeRuntime('unassigned-selection-complete');document.querySelector('[data-tab="project"]')?.click();await saveProject(false);renderAll();}finally{if(rallyScopeSuspended)resumeRallyScopeRuntime('unassigned-selection-recovered');}}));
+  $('missionUnassignedButton')?.addEventListener('click',trackedRallyAction(()=>changeRallyDayScope('0',{reason:'unassigned-selection',afterPersist:()=>document.querySelector('[data-tab="project"]')?.click()})));
   $('missionSnapshotButton')?.addEventListener('click',()=>createNamedSnapshot('Manual snapshot'));
   ['globalSearch','searchType','searchDay'].forEach(id=>$(id)?.addEventListener(id==='globalSearch'?'input':'change',renderSearch));
   $('lineOpacity')?.addEventListener('input',()=>{state.settings.lineOpacity=Number($('lineOpacity').value);renderMapFeatures();});
   $('lineOpacity')?.addEventListener('change',()=>saveProject(false));
   document.addEventListener('click',event=>{if(!$('contextMenu')?.contains(event.target))closeContextMenu();});
-  $('contextMenu')?.querySelectorAll('[data-context]').forEach(btn=>btn.addEventListener('click',()=>{const a=btn.dataset.context;closeContextMenu();if(a==='zoom')zoomSelected();if(a==='edit'){selectFeature(state.selectedId);editSelectedGeometry();}if(a==='duplicate')duplicateSelected();if(a==='reverse')reverseSelected();if(a==='favorite')toggleFavorite();if(a==='delete')deleteSelected();}));
+  $('contextMenu')?.querySelectorAll('[data-context]').forEach(btn=>btn.addEventListener('click',()=>{const a=btn.dataset.context;closeContextMenu();if(a==='zoom')zoomSelected();if(a==='edit'){selectFeature(state.selectedId);editSelectedGeometry();}if(a==='duplicate')void trackedRallyAction(duplicateSelected)();if(a==='reverse')reverseSelected();if(a==='favorite')toggleFavorite();if(a==='delete')void trackedRallyAction(deleteSelected)();}));
   $('fitButton')?.addEventListener('click',fitMap);
   $('newProjectButton')?.addEventListener('click',newProject);
   $('gpsButton')?.addEventListener('click',startGps);
   $('projectName')?.addEventListener('change',async()=>{await saveProject(false);renderRallyMode();await renderStorageAndProjects();});
-  $('dayFilter')?.addEventListener('change',trackedRallyAction(async()=>{if(rejectRallyMutationWhileQuiesced('change rally days'))return;await suspendPendingEvidenceRuntime('day-filter-change');try{state.settings.dayFilter=$('dayFilter').value;resetRallySessionSelection();resumeRallyScopeRuntime('day-filter-change-complete');await saveProject(false);renderAll();void refreshDayPreflight();}finally{if(rallyScopeSuspended)resumeRallyScopeRuntime('day-filter-change-recovered');}}));
-  $('featureForm')?.addEventListener('submit',updateSelectedFeature);
+  $('dayFilter')?.addEventListener('change',trackedRallyAction(()=>changeRallyDayScope($('dayFilter').value,{reason:'day-filter-change',refreshPreflight:true})));
+  $('featureForm')?.addEventListener('submit',trackedRallyAction(updateSelectedFeature));
   $('zoomFeatureButton')?.addEventListener('click',zoomSelected);
-  $('duplicateFeatureButton')?.addEventListener('click',duplicateSelected);
-  $('deleteFeatureButton')?.addEventListener('click',deleteSelected);
+  $('duplicateFeatureButton')?.addEventListener('click',trackedRallyAction(duplicateSelected));
+  $('deleteFeatureButton')?.addEventListener('click',trackedRallyAction(deleteSelected));
   $('editGeometryButton')?.addEventListener('click',editSelectedGeometry);
   $('stopEditButton')?.addEventListener('click',()=>{stopEditing();renderAll();selectFeature(state.selectedId);setStatus('Geometry edit saved.');});
   $('undoButton')?.addEventListener('click',trackedRallyAction(undo));
-  $('bulkAssignButton')?.addEventListener('click',bulkAssign);
+  $('bulkAssignButton')?.addEventListener('click',trackedRallyAction(bulkAssign));
   $('saveTrackingSettings')?.addEventListener('click',trackedRallyAction(saveIntegrationSettings));
   $('openLeaderboardButton')?.addEventListener('click',openLeaderboard);
   $('syncRallyButton')?.addEventListener('click',syncRallyFeed);
@@ -3588,14 +3709,7 @@ function wireUi() {
     resetOrder:restoreImportedCheckpointOrder,render:()=>{renderRallyMode();void refreshDayPreflight();}
   }});
   $('createDialog')?.addEventListener('close',()=>{if($('createDialog').returnValue!=='default'&&state.pendingLayer){state.pendingLayer.remove();state.pendingLayer=null;}});
-  $('createForm')?.addEventListener('submit',event=>{
-    event.preventDefault();
-    if(event.submitter&&event.submitter.value==='cancel'){state.pendingLayer?.remove();state.pendingLayer=null;$('createDialog')?.close('cancel');return;}
-    if(!state.pendingLayer)return;snapshot();
-    const selectedDay=Number($('createDay')?.value),day=Number.isInteger(selectedDay)&&selectedDay>0?selectedDay:null;
-    const feature=normalizeCheckpoint({id:uid(),name:$('createName')?.value.trim()||'New feature',type:$('createType')?.value||'track',day,assignmentMethod:'manual',notes:$('createNotes')?.value.trim()||'',visible:true,source:'CannonMap drawing',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),geometry:layerToGeometry(state.pendingLayer)},state.project.features.length);
-    state.pendingLayer.remove();state.pendingLayer=null;state.project.features.push(feature);saveProject(false);renderAll();selectFeature(feature.id);$('createDialog')?.close('default');setStatus(`Created ${feature.name}.`);
-  });
+  $('createForm')?.addEventListener('submit',trackedRallyAction(createPendingFeature));
 }
 async function initializeApplication() {
   await loadProject();

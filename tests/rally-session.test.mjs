@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   RALLY_EXECUTION_SCHEMA_VERSION,activeSession,inspectRallySessions,listDaySessions,
-  migrateRallyExecution,resumeSession,startNewSession,syncActiveSession
+  migrateRallyExecution,reconcileActiveSessionMembership,resumeSession,startNewSession,
+  supersedeActiveSessionMembership,syncActiveSession
 } from '../src/domain/rally/session.js';
+import {arrivalRouteContext,completeCheckpoint,dayCheckpoints,verifiedOutOfOrderPriorTarget} from '../src/domain/checkpoints/workflow.js';
 
 const arrival={
   state:'confirmed',trustworthy:true,arrivalId:'arrival-1',timestamp:'2026-08-17T14:02:00.000Z',
@@ -169,4 +171,142 @@ test('generated session identities must be unique and completed history cannot r
   assert.throws(()=>startNewSession(project,{dayNumber:1,calendarDate:'2026-08-18',sessionId:'duplicate'}),/already exists/);
   syncActiveSession(project,{status:'completed',completedAt:'2026-08-18T20:00:00.000Z'});
   assert.throws(()=>resumeSession(project,'duplicate'),/cannot be resumed/);
+});
+
+test('superseded checkpoint membership preserves history but cannot be resumed',()=>{
+  const project={projectId:'membership-replaced',rallyId:'america-250',features:[
+    {id:'cp-1.1',type:'checkpoint',day:1,name:'1.1',sequence:1,status:'upcoming'},
+    {id:'deleted-1.2',type:'checkpoint',day:1,name:'1.2',sequence:2,status:'upcoming'}
+  ]};
+  startNewSession(project,{dayNumber:1,calendarDate:'2026-08-26',sessionId:'day-1-run-1',startedAt:'2026-08-26T12:00:00.000Z'});
+  project.features[0].status='collected';project.features[0].scoreAwarded=10;
+  project.features[1].status='active';
+  syncActiveSession(project,{activeObjectiveId:'deleted-1.2',syncedAt:'2026-08-26T12:01:00.000Z'});
+
+  const superseded=supersedeActiveSessionMembership(project,{supersededAt:'2026-08-26T12:02:00.000Z',reason:'gpx-replace-without-stable-checkpoint-identity'});
+  const inspection=inspectRallySessions(project,{dayNumber:1});
+  assert.deepEqual(listDaySessions(project,1).map(session=>session.sessionId),['day-1-run-1'],'superseded run remains readable history');
+  assert.equal(superseded.status,'suspended');
+  assert.equal(superseded.membershipSupersededAt,'2026-08-26T12:02:00.000Z');
+  assert.equal(superseded.membershipSupersededReason,'gpx-replace-without-stable-checkpoint-identity');
+  assert.equal(superseded.checkpointStates['cp-1.1'].scoreAwarded,10,'historical score remains intact');
+  assert.equal(activeSession(project),null);
+  assert.deepEqual(inspection.unfinishedSessions,[],'superseded run is excluded from resumable sessions');
+  assert.equal(inspection.canResume,false);
+  assert.equal(inspection.requiresStartChoice,false);
+  assert.throws(()=>resumeSession(project,'day-1-run-1'),/cannot be resumed after Project checkpoint identity changed/);
+
+  project.features=[
+    {id:'new-1.1',type:'checkpoint',day:1,name:'1.1 Revised',sequence:1,status:'upcoming'},
+    {id:'new-1.5',type:'checkpoint',day:1,name:'1.5',sequence:5,status:'upcoming'}
+  ];
+  const next=startNewSession(project,{dayNumber:1,calendarDate:'2026-08-26',sessionId:'day-1-run-2',startedAt:'2026-08-26T12:03:00.000Z'});
+  assert.equal(next.runNumber,2,'Start New increments the run after superseded history');
+  assert.equal(next.sessionId,'day-1-run-2');
+  assert.deepEqual(listDaySessions(project,1).map(session=>[session.sessionId,session.runNumber]),[
+    ['day-1-run-1',1],['day-1-run-2',2]
+  ]);
+  assert.equal(project.rallyExecution.sessions['day-1-run-1'].checkpointStates['cp-1.1'].scoreAwarded,10);
+  assert.equal(next.checkpointStates['new-1.1'].scoreAwarded,undefined,'new membership starts without inherited execution state');
+});
+
+test('current stable checkpoint membership removes deleted execution targets on resume',()=>{
+  const checkpoint=(number,status='upcoming')=>({
+    id:`cp-${number}`,type:'checkpoint',day:1,name:number,sequence:Number(number.split('.')[1]),
+    status,photoRequired:true,geometry:{kind:'point',coordinates:[{lat:30,lon:-90}]}
+  });
+  const project={
+    projectId:'revised-route',rallyId:'america-250',journal:[{eventId:'historic-1.2'}],photos:[{mediaId:'historic-1.4'}],
+    features:['1.1','1.2','1.3','1.4','1.5','1.6','1.7'].map(number=>checkpoint(number))
+  };
+  startNewSession(project,{dayNumber:1,calendarDate:'2026-08-26',sessionId:'run-1',startedAt:'2026-08-26T12:00:00.000Z'});
+  project.features.find(feature=>feature.id==='cp-1.1').status='collected';
+  project.features.find(feature=>feature.id==='cp-1.2').status='active';
+  syncActiveSession(project,{
+    activeObjectiveId:'cp-1.2',
+    pendingEvidence:{schemaVersion:1,entries:[
+      {sessionId:'run-1',checkpointId:'cp-1.2',status:'pending',enqueuedAt:'2026-08-26T12:01:00.000Z',updatedAt:'2026-08-26T12:01:00.000Z'},
+      {sessionId:'run-1',checkpointId:'cp-1.4',status:'continued',enqueuedAt:'2026-08-26T12:02:00.000Z',updatedAt:'2026-08-26T12:02:00.000Z'},
+      {sessionId:'run-1',checkpointId:'cp-1.6',status:'pending',enqueuedAt:'2026-08-26T12:03:00.000Z',updatedAt:'2026-08-26T12:03:00.000Z'}
+    ]},
+    syncedAt:'2026-08-26T12:04:00.000Z'
+  });
+
+  const historicJournal=structuredClone(project.journal),historicMedia=structuredClone(project.photos);
+  const retained=new Set(['cp-1.1','cp-1.5','cp-1.6','cp-1.7']);
+  project.features=project.features.filter(feature=>retained.has(feature.id)).map(feature=>({...feature,status:'upcoming'})).reverse();
+  const stored=project.rallyExecution.sessions['run-1'];
+  stored.activeObjectiveId='cp-1.2';
+  stored.checkpointStates['cp-1.4']={status:'active',scoreAwarded:0};
+
+  const resumed=resumeSession(project,'run-1',{resumedAt:'2026-08-26T13:00:00.000Z'});
+  assert.equal(resumed.activeObjectiveId,'cp-1.5');
+  assert.deepEqual(project.features.filter(feature=>feature.status==='active').map(feature=>feature.id),['cp-1.5']);
+  assert.equal(project.features.find(feature=>feature.id==='cp-1.1').status,'collected','matching execution state survives project revision');
+  assert.deepEqual(Object.keys(resumed.checkpointStates).sort(),[...retained].sort());
+  assert.deepEqual(resumed.pendingEvidence.entries.map(entry=>entry.checkpointId),['cp-1.6']);
+  assert.deepEqual(project.journal,historicJournal,'historical Journal is not rewritten');
+  assert.deepEqual(project.photos,historicMedia,'historical media is not rewritten');
+});
+
+test('stable-ID membership reconciliation is idempotent across reload and never matches by display name',()=>{
+  const project={
+    projectId:'stable-id-only',rallyId:'america-250',features:[
+      {id:'old-id',type:'checkpoint',day:1,name:'1.2 Same Name',sequence:2,status:'active',photoRequired:true},
+      {id:'cp-1.5',type:'checkpoint',day:1,name:'1.5',sequence:5,status:'upcoming',photoRequired:true},
+      {id:'cp-1.6',type:'checkpoint',day:1,name:'1.6',sequence:6,status:'upcoming',photoRequired:true}
+    ]
+  };
+  startNewSession(project,{dayNumber:1,calendarDate:'2026-08-26',sessionId:'run-1',startedAt:'2026-08-26T12:00:00.000Z'});
+  project.features[0].status='collected';
+  syncActiveSession(project,{activeObjectiveId:'old-id',pendingEvidence:{schemaVersion:1,entries:[{sessionId:'run-1',checkpointId:'old-id',status:'pending',enqueuedAt:'2026-08-26T12:01:00.000Z',updatedAt:'2026-08-26T12:01:00.000Z'}]}});
+  project.features=[
+    {id:'replacement-id',type:'checkpoint',day:1,name:'1.2 Same Name',sequence:2,status:'upcoming',photoRequired:true},
+    {id:'cp-1.6',type:'checkpoint',day:1,name:'1.6',sequence:6,status:'upcoming',photoRequired:true},
+    {id:'cp-1.5',type:'checkpoint',day:1,name:'1.5',sequence:5,status:'upcoming',photoRequired:true}
+  ];
+
+  const first=reconcileActiveSessionMembership(project),snapshot=structuredClone(project);
+  assert.equal(first.activeObjectiveId,'replacement-id');
+  assert.equal(first.checkpointStates['replacement-id'].status,'active');
+  assert.equal(first.checkpointStates['replacement-id'].scoreAwarded,undefined,'same display name cannot inherit deleted stable-ID execution state');
+  assert.deepEqual(first.pendingEvidence.entries,[]);
+  const reloaded=structuredClone(project),second=reconcileActiveSessionMembership(reloaded);
+  assert.deepEqual(reloaded,snapshot);
+  assert.deepEqual(second,first);
+  assert.deepEqual(reloaded.features.filter(feature=>feature.status==='active').map(feature=>feature.id),['replacement-id']);
+});
+
+test('a valid current-route manual target survives membership reconciliation',()=>{
+  const project={projectId:'manual-target',features:[
+    {id:'cp-1.1',type:'checkpoint',day:1,name:'1.1',sequence:1,status:'upcoming'},
+    {id:'cp-1.5',type:'checkpoint',day:1,name:'1.5',sequence:5,status:'active'},
+    {id:'cp-1.6',type:'checkpoint',day:1,name:'1.6',sequence:6,status:'upcoming'}
+  ]};
+  startNewSession(project,{dayNumber:1,calendarDate:'2026-08-26',sessionId:'run-1',startedAt:'2026-08-26T12:00:00.000Z'});
+  project.features.find(feature=>feature.id==='cp-1.5').status='active';
+  syncActiveSession(project,{activeObjectiveId:'cp-1.5',syncedAt:'2026-08-26T12:01:00.000Z'});
+  const reconciled=reconcileActiveSessionMembership(project);
+  assert.equal(reconciled.activeObjectiveId,'cp-1.5');
+  assert.deepEqual(project.features.filter(feature=>feature.status==='active').map(feature=>feature.id),['cp-1.5']);
+  assert.equal(project.features.find(feature=>feature.id==='cp-1.1').status,'upcoming');
+});
+
+test('revised route progresses 1.1 to 1.5, 1.6, and 1.7 without stale prior-target restoration',()=>{
+  const checkpoint=number=>({id:`cp-${number}`,type:'checkpoint',day:1,name:number,sequence:Number(number.split('.')[1]),status:'upcoming',photoExempt:true});
+  const project={projectId:'route-replay',features:['1.1','1.2','1.3','1.4','1.5','1.6','1.7'].map(checkpoint)};
+  startNewSession(project,{dayNumber:1,calendarDate:'2026-08-26',sessionId:'run-1',startedAt:'2026-08-26T12:00:00.000Z'});
+  const first=project.features.find(feature=>feature.id==='cp-1.1');first.status='collected';first.completedAt='2026-08-26T12:01:00.000Z';first.scoreAwarded=10;
+  project.features.find(feature=>feature.id==='cp-1.2').status='active';
+  syncActiveSession(project,{activeObjectiveId:'cp-1.2',syncedAt:'2026-08-26T12:02:00.000Z'});
+  const currentIds=new Set(['cp-1.1','cp-1.5','cp-1.6','cp-1.7']);project.features=project.features.filter(feature=>currentIds.has(feature.id)).map(feature=>({...feature,status:'upcoming'}));
+  resumeSession(project,'run-1',{resumedAt:'2026-08-26T12:03:00.000Z'});
+
+  const rows=dayCheckpoints(project,{dayFilter:'1'}),cp15=rows.find(feature=>feature.id==='cp-1.5');
+  assert.deepEqual(arrivalRouteContext(rows,cp15),{outOfOrder:false,priorTarget:null});
+  assert.equal(verifiedOutOfOrderPriorTarget(rows,cp15,{outOfOrder:true,priorTargetId:'cp-1.4'}),null);
+  assert.equal(completeCheckpoint(rows,cp15,'2026-08-26T12:04:00.000Z')?.id,'cp-1.6');
+  const cp16=rows.find(feature=>feature.id==='cp-1.6');assert.deepEqual(arrivalRouteContext(rows,cp16),{outOfOrder:false,priorTarget:null});
+  assert.equal(completeCheckpoint(rows,cp16,'2026-08-26T12:05:00.000Z')?.id,'cp-1.7');
+  assert.equal(rows.find(feature=>feature.status==='active')?.id,'cp-1.7');
 });

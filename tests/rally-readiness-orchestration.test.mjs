@@ -47,7 +47,7 @@ function functionSource(name){
 }
 
 function assertScopeTransition(source,mutationPattern,label){
-  const suspendAt=source.indexOf('suspendPendingEvidenceRuntime('),mutationAt=source.search(mutationPattern),resumeAt=source.indexOf('resumeRallyScopeRuntime(');
+  const suspendAt=source.indexOf('suspendPendingEvidenceRuntime('),mutationAt=source.search(mutationPattern),directResumeAt=source.indexOf('resumeRallyScopeRuntime('),durableResumeAt=source.indexOf('persistProjectBeforeRallyScopeResume('),resumeAt=directResumeAt>=0?directResumeAt:durableResumeAt;
   assert.ok(suspendAt>=0,`${label} must suspend the prior Rally scope`);
   assert.ok(mutationAt>suspendAt,`${label} must suspend before replacing project/day state`);
   assert.ok(resumeAt>mutationAt,`${label} must reset/resume only after replacing project/day state`);
@@ -167,7 +167,8 @@ test('day and project scope switches suspend only the in-memory evidence workflo
     'scope suspension must not delete durable arrival or media evidence');
   assert.match(switchProject,/suspendPendingEvidenceRuntime\(/);
   const dayHandler=app.slice(app.indexOf("$('dayFilter')?.addEventListener('change'"),app.indexOf("$('featureForm')?.addEventListener('submit'"));
-  assert.match(dayHandler,/suspendPendingEvidenceRuntime\(/);
+  assert.match(dayHandler,/changeRallyDayScope\(/);
+  assert.match(functionSource('changeRallyDayScope'),/suspendPendingEvidenceRuntime\(/);
 });
 
 test('scope suspension gates GPS arrival processing until the replacement scope is ready',()=>{
@@ -247,10 +248,14 @@ test('every direct project and day replacement suspends then resets the arrival 
   assertScopeTransition(functionSource('createIndependentProject'),/state\.project\s*=/,'independent project creation');
   assert.match(functionSource('startNextRallyDay'),/await startNewRallySession\(nextDay/,'next-day start must delegate to the session lifecycle that suspends and isolates the prior scope');
 
+  const dayScope=functionSource('changeRallyDayScope');
+  assertScopeTransition(dayScope,/state\.settings\.dayFilter\s*=/,'day filter change');
   const dayStart=app.indexOf("$('dayFilter')?.addEventListener('change'"),dayEnd=app.indexOf("$('featureForm')?.addEventListener('submit'",dayStart),dayHandler=app.slice(dayStart,dayEnd);
-  assertScopeTransition(dayHandler,/state\.settings\.dayFilter\s*=/,'day filter change');
+  assert.match(dayHandler,/changeRallyDayScope\(/,'Day selector must use the durable day-scope transition');
   const unassignedStart=app.indexOf("$('missionUnassignedButton')?.addEventListener"),unassignedEnd=app.indexOf("$('missionSnapshotButton')?.addEventListener",unassignedStart),unassignedHandler=app.slice(unassignedStart,unassignedEnd);
-  assertScopeTransition(unassignedHandler,/state\.settings\.dayFilter\s*=/,'Unassigned-day selection');
+  assert.match(unassignedHandler,/changeRallyDayScope\(/,'Unassigned view must use the durable day-scope transition');
+  const readiness=functionSource('renderMissionControl');
+  assert.match(readiness,/changeRallyDayScope\(c\.dataset\.dayCard/,'Daily Readiness cards must use the durable day-scope transition');
 });
 
 test('every project/day scope suspension disposes the scoped camera session before async preservation',()=>{

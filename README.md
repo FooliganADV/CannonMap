@@ -1,8 +1,8 @@
-# CannonMap Planner — Beta 0.7.17 Samsung Trail Intel Release Candidate
+# CannonMap Planner — Beta 0.7.18 Samsung Field-Data Hardening
 
-Build: `2026.08.25.samsung-trail-intel-1`
+Build: `2026.08.26.samsung-field-data-1`
 
-This build targets long, powered, screen-on Samsung Chrome/PWA rides in landscape. It preserves the physically accepted 0.7.16 rally, camera, Ride Memory, backup, lifecycle, and hardened competitor-stream behavior, then restores selected low-risk tactical presentation and pace behavior on top of that validated stream.
+This build targets long, powered, screen-on Samsung Chrome/PWA rides in landscape. It preserves the physically accepted 0.7.17 rally, camera, Ride Memory, backup, lifecycle, hardened competitor-stream, and tactical presentation behavior, then corrects stale route membership and improves intermittent Day Backup diagnostics without changing either storage architecture.
 
 Rally Mode creates an immutable session for every deliberate run, asks riders to **Resume Existing** or **Start New**, and keeps unresolved photo evidence separate from GPS navigation. Camera preflight verifies rear and front native-still capability, closes both streams, and reports READY with zero retained streams. Every checkpoint and Ride Memory side then opens, captures, persists, and fully closes before the next camera opens.
 
@@ -12,6 +12,13 @@ CannonMap is a rally decision system. The primary live-rally function is display
 
 ## New in this release
 
+- Current Project/day membership is authoritative by stable checkpoint ID; removed checkpoints cannot remain active, prior, pending, scoreable, or restorable execution targets
+- Session resume reconciles stale checkpoint states and pending evidence, chooses one current-route target, and retains historical Journal/media without matching by display name
+- GPX application, checkpoint deletion, and planning-snapshot restoration fence active Rally work before reconciling route membership; GPX Merge is explicitly additive, while Replace owns removal
+- Named snapshots no longer reinsert absent checkpoints merely because those checkpoints have historical execution fields
+- Manual Day Backup hydrates only the active session's media when the repository supports session indexes, avoiding unrelated multi-day JPEG pressure
+- Backup diagnostics now identify attempt, stage, duration, visibility, activation, storage, capture, scheduler, and output route while remaining bounded
+- Verified external bytes and verified browser-download packages are no longer mislabeled as verification failures when later Journal/status bookkeeping fails; browser downloads explicitly require confirmation in Samsung Downloads
 - Three-minute rolling pace and 15-minute sustained pace are derived once from the current validated same-segment trail; quarantined points, reconnect gaps, and session boundaries cannot contaminate either value
 - The 15-minute pace remains unknown until at least 10 minutes of trustworthy same-segment coverage exists; the three-minute value requires 15 seconds
 - Upstream rider numbers, deterministic distinct field colors, selected-rider emphasis, nonselected dimming, **ALL RIDERS**, and deterministic overlap fan-out restore tactical identity without changing ingestion
@@ -94,12 +101,14 @@ Legacy iOS/WebKit projects remain in the repository but are not pre-rally releas
 
 ## First test
 
-1. Confirm the status shows `v0.7.17 · 2026.08.25.samsung-trail-intel-1`.
+1. Confirm the status shows `v0.7.18 · 2026.08.26.samsung-field-data-1`.
 2. Hold the Samsung in landscape and confirm the Rally map remains primary at approximately 915×412.
 3. Load a live competitor event or the sanitized event-60 replay and confirm rider numbers and distinct colors remain stable across refreshes.
 4. Select one rider, confirm other riders dim, dismiss its popup, refresh, and confirm the popup stays dismissed.
 5. Confirm three-minute pace appears only with sufficient current-segment history and 15-minute pace remains unknown until 10 minutes of coverage.
-6. Run one clean numbered-day checkpoint sequence, including one offline arrival and automatic rear/front capture pair.
+6. Load a revised test route containing 1.1, 1.5, 1.6, and 1.7; confirm removed 1.2–1.4 never become targets and progression remains in order.
+7. Run one clean numbered-day checkpoint sequence, including one offline arrival and automatic rear/front capture pair.
+8. Create a Day Backup; for browser download output, confirm the verified package appears in Samsung Downloads.
 
 ## What is still needed from the user
 

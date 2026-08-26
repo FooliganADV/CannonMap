@@ -19,6 +19,19 @@ const durable=value=>JSON.parse(JSON.stringify(value,(key,current)=>key==='_laye
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const sessionIdsFor=value=>[value?.sessionId,value?.metadata?.sessionId,value?.references?.sessionId].map(item=>String(item??'').trim()).filter(Boolean);
 const sessionIdFor=value=>sessionIdsFor(value)[0]||null;
+const candidateBelongsToProject=(value,projectId)=>{
+  const candidate=String(value?.projectId??'').trim();return !candidate||candidate===String(projectId);
+};
+const candidateBelongsToSession=(value,session)=>{
+  if(!session)return true;
+  const identities=new Set(sessionIdsFor(value));
+  return identities.has(session.sessionId)||(!identities.size&&session.legacy===true);
+};
+const candidateBelongsToDay=(value,dayNumber)=>{
+  if(dayNumber==null)return true;
+  const candidate=Number(value?.metadata?.dayNumber??value?.dayNumber);
+  return !Number.isInteger(candidate)||candidate<1||candidate===Number(dayNumber);
+};
 const journalDay=event=>{
   const direct=Number(event?.metadata?.dayNumber||event?.references?.dayNumber);
   if(Number.isInteger(direct)&&direct>0)return direct;
@@ -154,6 +167,37 @@ function photoZipFiles(rows){
 }
 
 const exportError=(code,message,details={})=>Object.assign(new Error(message),{code,...details});
+const identityValues=(value,key)=>[value?.[key],value?.metadata?.[key],value?.references?.[key]].map(item=>String(item??'').trim()).filter(Boolean);
+const dayIdentityValues=value=>[value?.dayNumber,value?.metadata?.dayNumber,value?.references?.dayNumber].filter(item=>item!==undefined&&item!==null&&String(item).trim()!=='').map(Number);
+/**
+ * A deliberate session's compound-index result is an integrity boundary, not
+ * a best-effort search result. If even one descriptor in that exact-session
+ * set has incomplete or conflicting scope, omitting it would let a partial
+ * backup claim success. Legacy executions are intentionally excluded here:
+ * their unscoped records are selected by Project/day under the compatibility
+ * path above.
+ */
+export function assertDeliberateSessionMediaIdentity(descriptors,{projectId,dayNumber,session}={}){
+  if(!session||session.legacy===true||session.origin==='schema-v1-day-execution')return descriptors;
+  const expectedProject=String(projectId),expectedSession=String(session.sessionId),expectedDay=Number(dayNumber),mismatches=[];
+  for(const descriptor of descriptors||[]){
+    const projects=new Set(identityValues(descriptor,'projectId')),sessions=new Set(sessionIdsFor(descriptor)),days=dayIdentityValues(descriptor),validDays=days.filter(day=>Number.isInteger(day)&&day>0),reasons=[];
+    if(!projects.size)reasons.push('project identity missing');
+    else if(projects.size!==1||!projects.has(expectedProject))reasons.push('project identity conflicts with export scope');
+    if(!sessions.size)reasons.push('session identity missing');
+    else if(sessions.size!==1||!sessions.has(expectedSession))reasons.push('session identity conflicts with export scope');
+    if(!days.length)reasons.push('day identity missing');
+    else if(validDays.length!==days.length||new Set(validDays).size!==1||validDays[0]!==expectedDay)reasons.push('day identity conflicts with export scope');
+    if(reasons.length)mismatches.push({mediaId:String(descriptor?.mediaId||'unknown'),reasons});
+  }
+  if(mismatches.length)throw exportError('DAY_BACKUP_MEDIA_MISMATCH',`Session media verification stopped: ${mismatches.length} exact-session media descriptor${mismatches.length===1?'':'s'} had missing or conflicting Project, session, or day identity. No partial backup was created.`,{projectId:expectedProject,sessionId:expectedSession,dayNumber:expectedDay,mismatchCount:mismatches.length,mediaIds:mismatches.map(item=>item.mediaId),mismatches});
+  return descriptors;
+}
+function assertSelectedMediaReopened(descriptors,rows,{projectId,dayNumber,session}={}){
+  const expected=(descriptors||[]).map(item=>String(item?.mediaId||'').trim()),actual=(rows||[]).map(item=>String(item?.mediaId||'').trim()),expectedSet=new Set(expected),actualSet=new Set(actual),missing=expected.filter(mediaId=>!mediaId||!actualSet.has(mediaId)),unexpected=actual.filter(mediaId=>!mediaId||!expectedSet.has(mediaId));
+  if(expected.length!==rows.length||expectedSet.size!==expected.length||actualSet.size!==actual.length||missing.length||unexpected.length)throw exportError('DAY_BACKUP_MEDIA_MISMATCH',`Session media verification stopped: not every selected media descriptor could be reopened with the same identity. No partial backup was created.`,{projectId:String(projectId),sessionId:String(session?.sessionId||''),dayNumber:Number(dayNumber),descriptorCount:expected.length,reopenedCount:actual.length,mediaIds:[...new Set([...missing,...unexpected])].filter(Boolean),missingMediaIds:[...new Set(missing)].filter(Boolean),unexpectedMediaIds:[...new Set(unexpected)].filter(Boolean)});
+  return rows;
+}
 const sha256=async blob=>{const bytes=blob instanceof Uint8Array?blob:new Uint8Array(await blob.arrayBuffer()),hash=await crypto.subtle.digest('SHA-256',bytes);return [...new Uint8Array(hash)].map(byte=>byte.toString(16).padStart(2,'0')).join('');};
 const jsonFile=(name,value)=>({name,blob:new Blob([JSON.stringify(value,null,2)],{type:'application/json;charset=utf-8'})});
 const mediaIndexEntry=async file=>{const {blob,...record}=file.record,{metadata={}}=record;return {archivePath:file.name,mediaId:String(file.mediaId),mediaGroupId:record.mediaGroupId||null,pairId:record.pairId||null,pairStatus:record.pairStatus||null,cameraRole:record.cameraRole||null,logicalSide:record.logicalSide||null,mediaRole:record.role||null,pairedMediaId:record.pairedMediaId||null,journalEventId:record.journalEventId||null,pairJournalEventId:record.pairJournalEventId||null,sessionId:sessionIdFor(record),objectiveType:metadata.objectiveType||null,dayNumber:Number(metadata.dayNumber)||null,mimeType:record.mimeType||blob?.type||null,name:record.name,size:file.size,checksum:{algorithm:'SHA-256',value:await sha256(file.blob)}};};
@@ -186,19 +230,49 @@ export async function createStoredZip(files,{maxBytes=256*1024*1024}={}){
 
 export function createPhotoExportService({repository}={}){
   if(!repository)throw new TypeError('repository is required.');
-  const records=async projectId=>(await repository.listProjectPhotos(projectId)).filter(item=>item.role==='original'||item.role==='evidence');
+  const records=async(projectId,{session=null,dayNumber=null}={})=>{
+    let rows;
+    if(session?.legacy===true){
+      // Schema-v1 execution media did not carry sessionId, so the compound
+      // project/session index cannot see it. Fall back only to this Project,
+      // discard other days/sessions while records are still descriptors, and
+      // hydrate the bounded eligible set needed by this legacy day export.
+      if(typeof repository.listProjectPhotoDescriptors==='function'&&typeof repository.getMedia==='function'){
+        const descriptors=(await repository.listProjectPhotoDescriptors(projectId)).filter(item=>(item.role==='original'||item.role==='evidence')&&candidateBelongsToProject(item,projectId)&&candidateBelongsToSession(item,session)&&candidateBelongsToDay(item,dayNumber));
+        rows=(await Promise.all(descriptors.map(item=>repository.getMedia(item.mediaId)))).filter(Boolean);assertSelectedMediaReopened(descriptors,rows,{projectId,dayNumber,session});
+      }else rows=await repository.listProjectPhotos(projectId);
+    }else if(session&&typeof repository.listProjectSessionPhotoDescriptors==='function'&&typeof repository.getMedia==='function'){
+      const descriptors=await repository.listProjectSessionPhotoDescriptors(projectId,session.sessionId);assertDeliberateSessionMediaIdentity(descriptors,{projectId,dayNumber,session});
+      rows=(await Promise.all(descriptors.map(item=>repository.getMedia(item.mediaId)))).filter(Boolean);assertSelectedMediaReopened(descriptors,rows,{projectId,dayNumber,session});assertDeliberateSessionMediaIdentity(rows,{projectId,dayNumber,session});
+    }else if(session&&typeof repository.listProjectSessionPhotos==='function'){
+      rows=await repository.listProjectSessionPhotos(projectId,session.sessionId);assertDeliberateSessionMediaIdentity(rows,{projectId,dayNumber,session});
+    }else{
+      rows=await repository.listProjectPhotos(projectId);
+      if(session){rows=rows.filter(item=>candidateBelongsToSession(item,session));assertDeliberateSessionMediaIdentity(rows,{projectId,dayNumber,session});}
+    }
+    return rows.filter(item=>(item.role==='original'||item.role==='evidence')&&candidateBelongsToProject(item,projectId)&&candidateBelongsToSession(item,session));
+  };
+  const dayRecords=async(projectId,day,session,journal)=>{
+    const sessionCandidates=(await records(projectId,{session,dayNumber:day})).filter(item=>belongsToSession(item,session));
+    // Filter the bounded session query before touching Blob fields, but retain
+    // the pre-filter count so stale/mistagged current-session media fails
+    // truthfully instead of producing a verified zero-media package.
+    const candidates=sessionCandidates.filter(item=>candidateBelongsToDay(item,day));
+    const resolved=archiveRows(candidates,journal),rows=resolved.filter(item=>Number(item.metadata?.dayNumber)===day);
+    return {rows,storedSessionMediaCount:sessionCandidates.length};
+  };
   return Object.freeze({
     checkpointPhotoFilename,
     async single(mediaId){const record=await repository.getMedia(mediaId);if(!record)throw new Error('Photo is unavailable.');return {blob:record.blob,filename:record.name,metadata:durable(normalizeMediaExportRecord(record))};},
     async day(projectId,dayNumber,options={}){
-      const {journal=[],project=null,rallyName=null,tripId=null,rallyId=null}=options,day=Number(dayNumber),session=normalizedSessionScope(options.session||options.sessionIdentity,{projectId,dayNumber:day}),selectedJournal=scopedJournal(journal,day,session),all=archiveRows(await records(projectId),selectedJournal),sessionRows=all.filter(item=>belongsToSession(item,session)),rows=sessionRows.filter(item=>Number(item.metadata?.dayNumber)===day),exportedAt=options.exportedAt||new Date(),build=buildValues(options),identity=sessionManifestIdentity(session,{project,projectId,dayNumber:day,exportedAt,tripId,rallyId,...build}),archive=await photoArchiveFiles(rows,{scope:'day',dayNumber:day,sessionIdentity:identity}),blob=await verifiedPhotoArchive(archive.files,{storedMediaCount:sessionRows.length,dayNumber:day,mediaFileCount:archive.mediaFiles.length});
+      const {journal=[],project=null,rallyName=null,tripId=null,rallyId=null}=options,day=Number(dayNumber),session=normalizedSessionScope(options.session||options.sessionIdentity,{projectId,dayNumber:day}),selectedJournal=scopedJournal(journal,day,session),{rows,storedSessionMediaCount}=await dayRecords(projectId,day,session,selectedJournal),exportedAt=options.exportedAt||new Date(),build=buildValues(options),identity=sessionManifestIdentity(session,{project,projectId,dayNumber:day,exportedAt,tripId,rallyId,...build}),archive=await photoArchiveFiles(rows,{scope:'day',dayNumber:day,sessionIdentity:identity}),blob=await verifiedPhotoArchive(archive.files,{storedMediaCount:storedSessionMediaCount,dayNumber:day,mediaFileCount:archive.mediaFiles.length});
       const filename=session?createSessionArtifactFilename({rallyName:rallyName||project?.name||session.rallyName||session.rallyId,dayNumber:day,runNumber:session.runNumber,exportedAt,artifactType:'Photos',extension:'zip'}):`Day${String(day).padStart(2,'0')}_Photos.zip`;
       return {blob,filename,manifest:{...archive.manifest,entryCount:archive.mediaFiles.length,archiveEntryCount:archive.files.length,totalBytes:archive.mediaFiles.reduce((sum,file)=>sum+file.size,0)}};
     },
     async dayBackup(projectId,dayNumber,options={}){
-      const {journal=[],project=null,settings={},rallyName=null,tripId=null,rallyId=null}=options,day=Number(dayNumber),session=normalizedSessionScope(options.session||options.sessionIdentity,{projectId,dayNumber:day}),selectedJournal=scopedJournal(journal,day,session),all=archiveRows(await records(projectId),selectedJournal),sessionRows=all.filter(item=>belongsToSession(item,session)),rows=sessionRows.filter(item=>Number(item.metadata?.dayNumber)===day),exportedAt=options.exportedAt||new Date(),createdAt=new Date(exportedAt).toISOString(),build=buildValues(options),identity=sessionManifestIdentity(session,{project,projectId,dayNumber:day,exportedAt,tripId,rallyId,...build});
+      const {journal=[],project=null,settings={},rallyName=null,tripId=null,rallyId=null}=options,day=Number(dayNumber),session=normalizedSessionScope(options.session||options.sessionIdentity,{projectId,dayNumber:day}),selectedJournal=scopedJournal(journal,day,session),{rows,storedSessionMediaCount}=await dayRecords(projectId,day,session,selectedJournal),exportedAt=options.exportedAt||new Date(),createdAt=new Date(exportedAt).toISOString(),build=buildValues(options),identity=sessionManifestIdentity(session,{project,projectId,dayNumber:day,exportedAt,tripId,rallyId,...build});
       if(!project?.projectId||String(project.projectId)!==String(projectId))throw exportError('DAY_BACKUP_PROJECT_INVALID','Day backup failed because the active Project identity could not be verified.');
-      if(!rows.length&&sessionRows.length)throw exportError('DAY_BACKUP_MEDIA_MISMATCH',`Day backup failed verification. ${sessionRows.length} stored media files exist for this ${session?'session':'Project'}, but none matched Day ${day}.`);
+      if(!rows.length&&storedSessionMediaCount)throw exportError('DAY_BACKUP_MEDIA_MISMATCH',`Day backup failed verification. ${storedSessionMediaCount} stored media files exist for this ${session?'session':'Project'}, but none matched Day ${day}.`);
       if(rows.some(row=>!row.blob||Number(row.blob.size)<1))throw exportError('DAY_BACKUP_MEDIA_EMPTY','Day backup failed verification because stored media contain no readable bytes.');
       const used=new Map(),mediaFiles=[],mediaIndex=[];
       for(const row of rows){const category=photoArchiveCategory(row),base=`media/${category}/${row.name}`,count=used.get(base)||0;used.set(base,count+1);const archivePath=count?base.replace(/(?=\.[^.]+$)/,`_${String(count+1).padStart(2,'0')}`):base,checksum=await sha256(row.blob),{blob,...record}=row;mediaFiles.push({name:archivePath,blob});mediaIndex.push({...record,archivePath,checksum:{algorithm:'SHA-256',value:checksum}});}

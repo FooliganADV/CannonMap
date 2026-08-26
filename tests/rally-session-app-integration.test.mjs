@@ -133,7 +133,7 @@ test('two physical runs of the same Day 1 retain isolated checkpoint and pending
   const resumed=resumeSession(project,first.sessionId,{resumedAt:'2026-08-18T18:00:00.000Z'});
   assert.equal(resumed.sessionId,first.sessionId);
   assert.equal(project.features.find(item=>item.id==='cp-1.1').arrivalEvidence.sessionId,first.sessionId);
-  assert.equal(project.features.find(item=>item.id==='cp-1.2').status,'upcoming');
+  assert.equal(project.features.find(item=>item.id==='cp-1.2').status,'active','Resume materializes exactly one current navigation target');
   assert.deepEqual(activeSession(project).pendingEvidence.entries.map(item=>[item.checkpointId,item.lastAction]),[['cp-1.1','CONTINUE']]);
 
   const reloaded=clone(project),before=clone(reloaded.rallyExecution.sessions[first.sessionId]);
