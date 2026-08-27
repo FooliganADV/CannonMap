@@ -77,13 +77,13 @@ import {
 import {createFirebaseAuthentication} from './src/infrastructure/firebase/authentication.js';
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
-const APP_VERSION = '0.7.18';
-const BUILD_ID = '2026.08.26.samsung-field-data-1';
+const APP_VERSION = '0.7.19';
+const BUILD_ID = '2026.08.27.samsung-landscape-ui-1';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const CAMERA_SETUP_HINT_KEY = 'cannonmap.camera-setup-succeeded.v1';
-const APP_SHELL_CACHE = 'cannonmap-v0.7.18-20260826-samsung-field-data-1';
-const PREFLIGHT_SHELL_ASSETS = Object.freeze(['./index.html','./app.js?v=20260826-samsung-field-data-1','./app.css?v=20260826-samsung-field-data-1']);
+const APP_SHELL_CACHE = 'cannonmap-v0.7.19-20260827-samsung-landscape-ui-1';
+const PREFLIGHT_SHELL_ASSETS = Object.freeze(['./index.html','./app.js?v=20260827-samsung-landscape-ui-1','./app.css?v=20260827-samsung-landscape-ui-1']);
 const AUTOMATIC_BACKUP_INTERVAL_MS=2*60*60*1000;
 const RELIABILITY_HEALTH_INTERVAL_MS=5*60*1000;
 const GPS_FOREGROUND_STALL_MS=45*1000;
@@ -2984,7 +2984,8 @@ function renderRallyMode(){
     autoComplete:state.settings.autoCompleteCheckpoints!==false,arrivalRadius:state.settings.checkpointArrivalRadius||500,maxAccuracy:state.settings.checkpointMaxAccuracy||200,
     checkpoints:rows,hasPlanned:rows.some(feature=>feature.status===checkpoints.CHECKPOINT_STATE.UPCOMING),warnings:currentOperationalWarnings(next),
     objectiveIntel,dayComplete:dayState.status==='complete',nextDay:dayState.nextDay,daySummary:dayState.summary,backupStatus:dayBackupStatus(),reviewMode,
-    cameraReadiness:cameraReadinessState(),sessionChoice,pendingEvidence,showCameraSetup:showCameraSetup(),showDayPreflight:showDayPreflight(),dayPreflight:dayPreflightPresenterModel()
+    cameraReadiness:cameraReadinessState(),photoCaptureActive:Boolean(next&&pendingPhotoCheckpointId===next.id&&(automaticCaptureAbortController||cameraCaptureArbiter?.state?.().currentKind==='checkpoint')),
+    sessionChoice,pendingEvidence,showCameraSetup:showCameraSetup(),showDayPreflight:showDayPreflight(),dayPreflight:dayPreflightPresenterModel()
   }});
   renderRallyLayerControls();
 }
@@ -3343,7 +3344,7 @@ async function captureAutomaticPair(checkpoint,arrivalEvent,workflow){
         cameraReadiness?.assertAutomaticCaptureEligible?.();
       }
     }
-    const controller=new AbortController(),relayAbort=()=>controller.abort(prioritySignal?.reason||new DOMException('Checkpoint camera capture canceled.','AbortError'));if(prioritySignal?.aborted)relayAbort();else prioritySignal?.addEventListener?.('abort',relayAbort,{once:true});automaticCaptureAbortController=controller;
+    const controller=new AbortController(),relayAbort=()=>controller.abort(prioritySignal?.reason||new DOMException('Checkpoint camera capture canceled.','AbortError'));if(prioritySignal?.aborted)relayAbort();else prioritySignal?.addEventListener?.('abort',relayAbort,{once:true});automaticCaptureAbortController=controller;renderRallyMode();
     try{
       let result;
       try{
@@ -3359,7 +3360,7 @@ async function captureAutomaticPair(checkpoint,arrivalEvent,workflow){
       checkpointCamera.restoreSide('rear',result.sides.rear.media);checkpointCamera.restoreSide('front',result.sides.front.media);
       try{await checkpointCamera.finalizeRestoredPair();if(!automaticCaptureOverride)cameraReadiness?.noteCaptureSuccess?.();return result;}
       catch(error){throw new PairedMediaCaptureError('Captured media could not be finalized.',{cause:error,pairId:result.pairId,failedSide:'pair-finalization',failureStage:'pair-finalization',partial:{road:result.road,rider:result.rider}});}
-    }finally{prioritySignal?.removeEventListener?.('abort',relayAbort);if(automaticCaptureAbortController===controller)automaticCaptureAbortController=null;}
+    }finally{prioritySignal?.removeEventListener?.('abort',relayAbort);if(automaticCaptureAbortController===controller)automaticCaptureAbortController=null;renderRallyMode();}
   };
   return cameraCaptureArbiter?.runCheckpoint?cameraCaptureArbiter.runCheckpoint(run):run({signal:null});
 }

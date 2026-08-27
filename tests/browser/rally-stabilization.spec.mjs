@@ -157,19 +157,20 @@ test('portable project import discards stale execution state and never exposes a
   const execution=await page.evaluate(()=>window.CannonMapTest.rallySessionStateForTest());expect(execution.current).toBeNull();expect(execution.choice.show).toBe(false);expect(await page.locator('#rallyMode').textContent()).not.toContain('Day 0');
 });
 
-test('landscape Rally controls and layer control do not overlap',async({page},testInfo)=>{
+test('landscape Rally perimeter controls do not overlap and layer actions remain available in More',async({page},testInfo)=>{
   test.skip(!testInfo.project.name.toLowerCase().includes('landscape'));await load(page);
-  const ids=['rallyPrimaryCard','rallyRecenterFab','rallyCompleteButton','rallyMoreButton'];
+  const ids=['rallyRecenterFab','rallyMissionButton','rallyTrailIntelButton','rallyJournalButton','rallyMoreButton'];
   const boxes=await page.evaluate(ids=>Object.fromEntries(ids.map(id=>{const r=document.getElementById(id).getBoundingClientRect();return [id,{left:r.left,right:r.right,top:r.top,bottom:r.bottom}];})),ids);
-  const layer=await page.locator('.leaflet-control-layers').evaluate(element=>{const r=element.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom};});
+  const topBar=await page.locator('.rally-top-bar').evaluate(element=>{const r=element.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,height:r.height};});
   const overlaps=(a,b)=>a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top;
-  for(const [id,box] of Object.entries(boxes))expect(overlaps(box,layer),`${id} overlaps layers`).toBeFalsy();
-  expect(overlaps(boxes.rallyRecenterFab,boxes.rallyMoreButton),'GPS overlaps More').toBeFalsy();
+  expect(topBar.height).toBeLessThanOrEqual(105);
+  for(const [id,box] of Object.entries(boxes))expect(overlaps(box,topBar),`${id} overlaps top Rally bar`).toBeFalsy();
+  for(const [leftId,left] of Object.entries(boxes))for(const [rightId,right] of Object.entries(boxes))if(leftId<rightId)expect(overlaps(left,right),`${leftId} overlaps ${rightId}`).toBeFalsy();
+  await expect(page.locator('.leaflet-control-layers')).toBeHidden();
   const followBefore=await page.evaluate(()=>window.CannonMapTest.gpsFollowState()?.mode);
-  await page.locator('.leaflet-control-layers-toggle').click({force:true});await expect(page.locator('.leaflet-control-layers')).toHaveClass(/leaflet-control-layers-expanded/);
-  const stack=await page.evaluate(()=>({layer:Number(getComputedStyle(document.querySelector('.leaflet-top.leaflet-right')).zIndex),gps:getComputedStyle(document.getElementById('rallyRecenterFab')).visibility,hud:getComputedStyle(document.getElementById('rallyPrimaryCard')).visibility}));
-  expect(stack.layer).toBeGreaterThan(1260);expect(stack.gps).toBe('hidden');expect(stack.hud).toBe('hidden');
-  await page.locator('#map').click({position:{x:20,y:20}});await expect(page.locator('.leaflet-control-layers')).not.toHaveClass(/leaflet-control-layers-expanded/);
+  await page.locator('#rallyMoreButton').click();await expect(page.locator('#rallyMoreSheet')).toBeVisible();
+  for(const id of ['rallyLayerCompetitors','rallyLayerBreadcrumbs','rallyLayerCheckpoints','rallyLayerRoute','rallyLayerRadar'])await expect(page.locator(`#${id}`)).toBeVisible();
+  await page.locator('#rallyMissionButton').click();await expect(page.locator('#rallyMoreSheet')).toBeHidden();
   expect(await page.evaluate(()=>window.CannonMapTest.gpsFollowState()?.mode)).toBe(followBefore);
   await page.screenshot({path:testInfo.outputPath('rally-stabilization-landscape.png')});
 });

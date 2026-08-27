@@ -1,16 +1,16 @@
-name: Deploy Samsung field-data hardening preview
+name: Deploy Samsung landscape Rally UI preview
 
 on:
   push:
     branches:
-      - agent/samsung-field-data-hardening
+      - agent/samsung-landscape-rally-ui
 
 permissions:
   contents: read
   deployments: write
 
 concurrency:
-  group: cannonmap-samsung-field-data-hardening-preview
+  group: cannonmap-samsung-landscape-rally-ui-preview
   cancel-in-progress: true
 
 jobs:
@@ -18,7 +18,7 @@ jobs:
     name: Deploy exact commit to Cloudflare Pages preview
     runs-on: ubuntu-latest
     environment:
-      name: cannonmap-samsung-field-data-hardening-preview
+      name: cannonmap-samsung-landscape-rally-ui-preview
       url: ${{ steps.deploy.outputs.deployment-url || steps.deploy.outputs.pages-deployment-alias-url }}
 
     steps:
@@ -36,7 +36,7 @@ jobs:
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing required repository secret CLOUDFLARE_API_TOKEN"; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing required repository secret CLOUDFLARE_ACCOUNT_ID"; exit 1; }
-          test "$GITHUB_REF_NAME" = "agent/samsung-field-data-hardening" || { echo "::error::Unexpected preview branch"; exit 1; }
+          test "$GITHUB_REF_NAME" = "agent/samsung-landscape-rally-ui" || { echo "::error::Unexpected preview branch"; exit 1; }
 
       - name: Run Samsung release gates
         shell: bash
@@ -56,7 +56,7 @@ jobs:
           command: >-
             pages deploy .
             --project-name=cannonmap
-            --branch=agent/samsung-field-data-hardening
+            --branch=agent/samsung-landscape-rally-ui
             --commit-hash=${{ github.sha }}
             --commit-dirty=false
 
@@ -67,9 +67,9 @@ jobs:
         run: |
           test -n "$DEPLOYMENT_URL" || { echo "::error::Cloudflare did not return an immutable deployment URL"; exit 1; }
           curl --retry 12 --retry-delay 5 --retry-all-errors --fail --silent --show-error --location "$DEPLOYMENT_URL/" --output /tmp/cannonmap-index.html
-          curl --retry 12 --retry-delay 5 --retry-all-errors --fail --silent --show-error --location "$DEPLOYMENT_URL/app.js?20260826-samsung-field-data-1" --output /tmp/cannonmap-app.js
-          grep -F "2026.08.26.samsung-field-data-1" /tmp/cannonmap-index.html
-          grep -F "2026.08.26.samsung-field-data-1" /tmp/cannonmap-app.js
+          curl --retry 12 --retry-delay 5 --retry-all-errors --fail --silent --show-error --location "$DEPLOYMENT_URL/app.js?20260827-samsung-landscape-ui-1" --output /tmp/cannonmap-app.js
+          grep -F "2026.08.27.samsung-landscape-ui-1" /tmp/cannonmap-index.html
+          grep -F "2026.08.27.samsung-landscape-ui-1" /tmp/cannonmap-app.js
 
       - name: Publish deployment summary
         if: ${{ always() }}
@@ -80,13 +80,13 @@ jobs:
           DEPLOYMENT_STATUS: ${{ job.status }}
         run: |
           {
-            echo "## CannonMap Samsung field-data hardening preview"
+            echo "## CannonMap Samsung landscape Rally UI preview"
             echo
             echo "| Field | Value |"
             echo "| --- | --- |"
             echo "| Commit | \`${GITHUB_SHA}\` |"
             echo "| Project | \`cannonmap\` |"
-            echo "| Branch | \`agent/samsung-field-data-hardening\` |"
+            echo "| Branch | \`agent/samsung-landscape-rally-ui\` |"
             echo "| Status | \`${DEPLOYMENT_STATUS}\` |"
             echo "| Deployment URL | ${DEPLOYMENT_URL:-Not returned} |"
             echo "| Branch alias URL | ${PREVIEW_ALIAS_URL:-Not returned} |"

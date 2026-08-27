@@ -578,3 +578,298 @@ dialog::backdrop { background: rgba(0,0,0,.65); }
   .rally-actions{left:calc(max(8px,env(safe-area-inset-left)) + min(486px,58vw));right:max(72px,calc(8px + env(safe-area-inset-right)));grid-template-columns:repeat(4,minmax(48px,1fr))}
   .rally-actions button{min-width:0;white-space:normal;overflow-wrap:normal}
 }
+
+/* Samsung mounted Rally Mode: one shallow information bar and perimeter controls.
+   The existing IDs, click handlers, and state presenter remain authoritative. */
+@media (max-width:960px) and (orientation:landscape) and (max-height:500px){
+  .rally-top-bar{
+    position:absolute;
+    z-index:1250;
+    top:max(6px,env(safe-area-inset-top));
+    left:max(8px,env(safe-area-inset-left));
+    right:max(8px,env(safe-area-inset-right));
+    height:98px;
+    display:grid;
+    grid-template-columns:minmax(150px,19vw) minmax(0,1fr) 58px;
+    overflow:hidden;
+    border:1px solid #475569;
+    border-radius:11px;
+    background:rgba(8,15,28,.96);
+    box-shadow:0 7px 20px #000a;
+    box-sizing:border-box;
+    pointer-events:none;
+  }
+
+  .rally-head{position:static;display:contents}
+  .rally-head-day{
+    grid-column:1;
+    grid-row:1;
+    align-self:stretch;
+    min-width:0;
+    width:auto;
+    max-width:none;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    overflow:hidden;
+    padding:7px 9px;
+    border:0;
+    border-right:1px solid #334155;
+    border-radius:0;
+    background:transparent;
+    box-shadow:none;
+    box-sizing:border-box;
+  }
+  .rally-head-day>strong{font-size:.82rem;line-height:1.1}
+  .rally-head-day small{display:flex;flex-wrap:wrap;gap:3px 7px;margin-top:6px;font-size:.61rem;line-height:1.1}
+  .rally-head-day small span{white-space:nowrap}
+
+  .rally-score-slot{
+    grid-column:3;
+    grid-row:1;
+    align-self:stretch;
+    min-width:0;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    padding:5px 4px;
+    border:0;
+    border-left:1px solid #92400e;
+    border-radius:0;
+    background:rgba(69,26,3,.68);
+    box-shadow:none;
+    box-sizing:border-box;
+  }
+  .rally-score-slot span{font-size:.52rem}
+  .rally-score-slot strong{max-width:100%;font-size:1.25rem;line-height:1.05;overflow:hidden;text-overflow:ellipsis}
+
+  .rally-primary-card{
+    --rally-objective-accent:#22c55e;
+    position:relative;
+    top:auto;
+    right:auto;
+    bottom:auto;
+    left:auto;
+    transform:none;
+    z-index:auto;
+    grid-column:2;
+    grid-row:1;
+    min-width:0;
+    width:auto;
+    max-height:none;
+    display:grid;
+    grid-template-columns:minmax(0,1fr) 62px 92px 48px;
+    grid-template-rows:27px 24px 17px 18px;
+    grid-template-areas:
+      "name name photo defer"
+      "guidance distance photo defer"
+      "status status photo defer"
+      "notes notes notes notes";
+    gap:0 6px;
+    overflow:hidden;
+    padding:5px 6px 3px 8px;
+    border:0;
+    border-left:3px solid var(--rally-objective-accent);
+    border-radius:0;
+    background:transparent;
+    box-shadow:none;
+    box-sizing:border-box;
+    pointer-events:none!important;
+  }
+  .rally-primary-card.is-extreme{--rally-objective-accent:#f59e0b;background:transparent}
+  .rally-primary-card.is-hotel{--rally-objective-accent:#fb7185;background:transparent}
+  .rally-primary-card.is-checkpoint{--rally-objective-accent:#22c55e}
+  .rally-primary-card.is-none{--rally-objective-accent:#64748b}
+  .rally-objective-heading{display:contents}
+  .rally-objective-heading>div{grid-area:name;min-width:0;align-self:center}
+  .rally-primary-card strong{
+    margin:0;
+    font-size:1.12rem;
+    line-height:1.05;
+  }
+  .rally-objective-heading #rallyDeferIcon{
+    grid-area:defer;
+    align-self:start;
+    width:48px;
+    height:48px;
+    border-radius:9px;
+    font-size:1.45rem;
+    pointer-events:auto!important;
+  }
+  .rally-objective-distance{
+    grid-area:guidance;
+    align-self:center;
+    min-width:0;
+    margin:0;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    font-size:1rem;
+    line-height:1.05;
+  }
+  .rally-objective-secondary{
+    grid-area:distance;
+    align-self:center;
+    justify-self:end;
+    min-width:0;
+    margin:0;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    color:#e2e8f0!important;
+    font-size:.68rem!important;
+    text-align:right;
+  }
+  .rally-objective-status{
+    grid-area:status;
+    align-self:center;
+    min-width:0;
+    margin:0;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    color:#cbd5e1!important;
+    font-size:.55rem!important;
+    line-height:1;
+  }
+  .rally-objective-actions{
+    grid-area:photo;
+    align-self:start;
+    width:92px;
+    height:48px;
+    display:grid;
+    grid-template-columns:1fr;
+    gap:0;
+    margin:0;
+    pointer-events:auto!important;
+  }
+  .rally-objective-actions button{
+    min-width:0;
+    min-height:48px;
+    height:48px;
+    padding:3px 5px;
+    border-radius:9px;
+    font-size:.68rem;
+    line-height:1.05;
+    overflow-wrap:normal;
+  }
+  .rally-objective-actions #rallyNextButton{grid-column:auto}
+  .rally-objective-actions #rallyCompleteButton[data-photo-state="capturing"]{border-color:#7dd3fc;background:#0369a1;color:#fff}
+  .rally-objective-actions #rallyCompleteButton[data-photo-state="pending"]{border-color:#f59e0b;background:#78350f;color:#fef3c7}
+  .rally-objective-actions #rallyCompleteButton[data-photo-state="ready"]{border-color:#38bdf8;background:#075985}
+
+  .rally-objective-sections{
+    grid-area:notes;
+    min-width:0;
+    display:block;
+    margin:0;
+    overflow:hidden;
+  }
+  .rally-objective-sections section{min-width:0;padding:0;border:0}
+  .rally-objective-sections #rallyObjectiveIntelSection{display:none!important}
+  .rally-objective-sections #rallyRiderNotesSection:not([hidden]){display:flex;align-items:center;gap:5px;overflow:hidden}
+  .rally-objective-sections #rallyRiderNotesSection h3{flex:0 0 auto;font-size:.52rem;line-height:1;color:#94a3b8}
+  .rally-objective-sections #rallyRiderNotesSection h3::after{content:':' }
+  .rally-objective-sections #rallyRiderNotesSection p{min-width:0;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.62rem;line-height:1.1;color:#f8fafc}
+  .rally-objective-sections:has(#rallyWarningsSection:not([hidden])) #rallyRiderNotesSection{display:none!important}
+  .rally-objective-sections #rallyWarningsSection:not([hidden]){display:block;overflow:hidden}
+  .rally-objective-sections #rallyWarnings{margin:0;padding:0;overflow:hidden}
+  .rally-objective-sections #rallyWarnings li{display:none;padding:0;border:0;overflow:hidden;color:#fdba74;font-size:.6rem;line-height:1.15}
+  .rally-objective-sections #rallyWarnings li:first-child{display:block}
+  .rally-objective-sections #rallyWarnings:has(.rally-camera-warning-actions) li{display:none}
+  .rally-objective-sections #rallyWarnings:has(.rally-camera-warning-actions) li:has(.rally-camera-warning-actions){display:block}
+  .rally-objective-sections #rallyWarnings li>span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.6rem;line-height:1.15}
+  .rally-objective-sections #rallyWarnings li>div{display:none}
+  .rally-primary-card:has(.rally-camera-warning-actions) .rally-objective-heading>div,
+  .rally-primary-card:has(.rally-camera-warning-actions) .rally-objective-status{padding-right:196px}
+  .rally-primary-card:has(.rally-camera-warning-actions) .rally-objective-distance{padding-right:126px}
+  .rally-objective-sections #rallyWarnings .rally-camera-warning-actions{
+    position:absolute;
+    z-index:2;
+    top:5px;
+    right:152px;
+    width:190px;
+    height:48px;
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:4px;
+    pointer-events:auto;
+  }
+  .rally-objective-sections #rallyWarnings .rally-camera-warning-actions button{
+    min-width:0;
+    min-height:48px;
+    height:48px;
+    padding:3px 5px;
+    border-radius:9px;
+    font-size:.61rem;
+    line-height:1.05;
+    white-space:normal;
+  }
+  .rally-objective-sections #rallyWarnings .rally-camera-warning-actions.is-single{grid-template-columns:1fr}
+
+  /* A single transparent navigation owner keeps the existing presenter contract,
+     while each button becomes an independent glove-sized edge target. */
+  .rally-actions{position:static;display:contents;pointer-events:none}
+  .rally-actions button{
+    position:fixed;
+    z-index:1260;
+    width:72px;
+    min-width:72px;
+    height:68px;
+    min-height:68px;
+    padding:5px 3px;
+    border-radius:11px;
+    background:rgba(15,23,42,.9);
+    font-size:.65rem;
+    line-height:1.05;
+    pointer-events:auto!important;
+  }
+  #rallyMissionButton{left:max(8px,env(safe-area-inset-left));top:114px}
+  #rallyTrailIntelButton{left:max(8px,env(safe-area-inset-left));top:188px}
+  #rallyJournalButton{right:max(8px,env(safe-area-inset-right));top:114px}
+  #rallyMoreButton{right:max(8px,env(safe-area-inset-right));top:188px}
+
+  .rally-recenter-fab{
+    position:fixed;
+    right:max(18px,calc(env(safe-area-inset-right) + 18px));
+    top:264px;
+    bottom:auto;
+    width:52px;
+    height:52px;
+    border-width:2px;
+    font-size:.7rem;
+    box-shadow:0 7px 18px #000a;
+  }
+
+  /* Every Leaflet layer toggle remains available in MORE; the duplicate map
+     control would occupy the same riding edge as Journal/More. */
+  .leaflet-control-layers{display:none!important}
+
+  .rally-more-sheet,.rally-journal-sheet,.intel-sheet{
+    left:max(88px,calc(env(safe-area-inset-left) + 88px));
+    right:max(88px,calc(env(safe-area-inset-right) + 88px));
+    top:112px;
+    bottom:max(8px,env(safe-area-inset-bottom));
+    max-height:none;
+    border-radius:12px;
+  }
+  .rally-journal-timeline{max-height:calc(100dvh - 230px)}
+
+  /* Day completion is a stopped-state workflow, but its existing sheet must
+     begin below the compact status bar instead of being hidden underneath it. */
+  .rally-day-complete{
+    top:112px;
+    left:clamp(88px,30vw,300px);
+    right:auto;
+    width:min(430px,50vw);
+    max-height:calc(100dvh - 120px);
+    overflow:auto;
+  }
+
+  .map-area:has(.rally-camera-workflow:not([hidden])) .rally-top-bar,
+  .map-area:has(.rally-camera-setup:not([hidden])) .rally-top-bar,
+  .map-area:has(.rally-day-preflight:not([hidden])) .rally-top-bar,
+  .map-area:has(.rally-session-choice:not([hidden])) .rally-top-bar,
+  .rally-mode.backup-open .rally-top-bar{visibility:hidden;pointer-events:none}
+}

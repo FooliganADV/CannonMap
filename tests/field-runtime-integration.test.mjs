@@ -48,16 +48,14 @@ test('only native camera-stage failures revoke automatic camera readiness',()=>{
   assert.match(automationLog,/try\{[\s\S]*await appendRallyJournalEvent[\s\S]*catch\(error\)[\s\S]*camera_automation_journal_failed/);
 });
 
-test('landscape header and action dock preserve score separation and 48px safe-area targets',()=>{
-  assert.match(css,/\.rally-head\{left:max\(8px,env\(safe-area-inset-left\)\);right:max\(8px,env\(safe-area-inset-right\)\);width:auto\}/);
-  assert.doesNotMatch(css,/\.rally-head\{[^}]*width:120px/);
-  assert.match(css,/\.rally-head-day\{[^}]*width:min\(34vw,260px\)[^}]*overflow:hidden/);
-  assert.match(css,/\.rally-primary-card\{[^}]*left:calc\(max\(8px,env\(safe-area-inset-left\)\) \+ min\(34vw,260px\) \+ 12px\)/);
-  assert.match(css,/\.rally-score-slot\{flex:0 0 auto\}/);
-  assert.match(css,/\.rally-actions\{[^}]*grid-template-columns:repeat\(4,minmax\(48px,1fr\)\)/);
-  const iPhone13Landscape={width:844,safeLeft:47,reservedPlannerWidth:486,reservedRight:72,gap:6};
-  const available=iPhone13Landscape.width-iPhone13Landscape.safeLeft-iPhone13Landscape.reservedPlannerWidth-iPhone13Landscape.reservedRight;
-  assert.ok(available>=4*48+3*iPhone13Landscape.gap,'iPhone 13 landscape safe area must fit four 48px actions');
-  const safeStart=Math.max(8,iPhone13Landscape.safeLeft),headerWidth=Math.min(iPhone13Landscape.width*.34,260),primaryLeft=safeStart+headerWidth+12;
-  assert.ok(primaryLeft>=safeStart+headerWidth+12,'landscape objective card must start after the day/GPS header');
+test('Samsung landscape uses one shallow top bar and independent glove-safe edge controls',()=>{
+  assert.match(css,/\.rally-top-bar\{[\s\S]*?height:98px;[\s\S]*?grid-template-columns:minmax\(150px,19vw\) minmax\(0,1fr\) 58px/);
+  assert.match(css,/\.rally-head\{position:static;display:contents\}/);
+  assert.match(css,/\.rally-primary-card\{[\s\S]*?grid-column:2;[\s\S]*?grid-template-areas:[\s\S]*?"notes notes notes notes"/);
+  assert.match(css,/\.rally-score-slot\{[\s\S]*?grid-column:3;[\s\S]*?border-left:1px solid #92400e/);
+  assert.match(css,/\.rally-actions\{position:static;display:contents;pointer-events:none\}/);
+  assert.match(css,/\.rally-actions button\{[\s\S]*?width:72px;[\s\S]*?height:68px/);
+  assert.match(css,/\.rally-recenter-fab\{[\s\S]*?width:52px;[\s\S]*?height:52px/);
+  assert.match(css,/\.leaflet-control-layers\{display:none!important\}/);
+  assert.doesNotMatch(css,/Samsung mounted Rally Mode:[\s\S]*?grid-template-columns:repeat\(4/);
 });

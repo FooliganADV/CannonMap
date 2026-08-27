@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css" />
-  <link rel="stylesheet" href="app.css?v=20260826-samsung-field-data-1" />
+  <link rel="stylesheet" href="app.css?v=20260827-samsung-landscape-ui-1" />
 </head>
 <body>
   <header class="topbar">
@@ -18,7 +18,7 @@
       <span class="brand-mark">CM</span>
       <div>
         <h1>CannonMap</h1>
-          <p>America 250 Planner · <span id="buildLabel">Beta 0.7.18</span></p>
+          <p>America 250 Planner · <span id="buildLabel">Beta 0.7.19</span></p>
       </div>
     </div>
     <div class="top-actions">
@@ -257,23 +257,25 @@
     <main class="map-area">
       <div id="map"></div>
       <section id="rallyMode" class="rally-mode" aria-label="Rally Mode">
-        <header class="rally-head">
-          <div class="rally-head-day"><strong id="rallyActiveProjectName"></strong><small><span id="rallyDay">Day —</span><span id="rallyGpsAccuracy">GPS OFF</span><span id="rallyOnlineStatus">Checking</span><span id="rallyElevation" class="rally-recorded-metadata">Elev —</span></small></div>
-          <div class="rally-score-slot"><span>Score</span><strong id="rallyScore">0</strong></div>
-        </header>
-        <div id="rallyPrimaryCard" class="rally-primary-card is-none">
-          <div class="rally-objective-heading">
-            <div><strong id="rallyNextName">Preparing objective…</strong></div>
-            <button id="rallyDeferIcon" type="button" aria-label="Defer current checkpoint" title="Defer current checkpoint">⇥</button>
-          </div>
-          <span id="rallyNavigationGuidance" class="rally-objective-distance">Preparing navigation…</span>
-          <small id="rallyNextDistance" class="rally-objective-secondary"></small>
-          <small id="rallyObjectiveStatus" class="rally-objective-status"></small>
-          <div id="rallyObjectiveActions" class="rally-objective-actions"><button id="rallyNextButton" type="button">SELECT OBJECTIVE</button><button id="rallyCompleteButton" type="button" title="Manual completion fallback">COMPLETE</button></div>
-          <div class="rally-objective-sections">
-            <section id="rallyRiderNotesSection" hidden><h3>Rider Notes</h3><p id="rallyRiderNotes"></p></section>
-            <section id="rallyObjectiveIntelSection" hidden><h3>Trail Intel</h3><p id="rallyObjectiveIntel"></p></section>
-            <section id="rallyWarningsSection" hidden><ul id="rallyWarnings"></ul></section>
+        <div class="rally-top-bar">
+          <header class="rally-head">
+            <div class="rally-head-day"><strong id="rallyActiveProjectName"></strong><small><span id="rallyDay">Day —</span><span id="rallyGpsAccuracy">GPS OFF</span><span id="rallyOnlineStatus">Checking</span><span id="rallyElevation" class="rally-recorded-metadata">Elev —</span></small></div>
+            <div class="rally-score-slot"><span>Score</span><strong id="rallyScore">0</strong></div>
+          </header>
+          <div id="rallyPrimaryCard" class="rally-primary-card is-none">
+            <div class="rally-objective-heading">
+              <div><strong id="rallyNextName">Preparing objective…</strong></div>
+              <button id="rallyDeferIcon" type="button" aria-label="Defer current checkpoint" title="Defer current checkpoint">⇥</button>
+            </div>
+            <span id="rallyNavigationGuidance" class="rally-objective-distance">Preparing navigation…</span>
+            <small id="rallyNextDistance" class="rally-objective-secondary"></small>
+            <small id="rallyObjectiveStatus" class="rally-objective-status"></small>
+            <div id="rallyObjectiveActions" class="rally-objective-actions"><button id="rallyNextButton" type="button">SELECT OBJECTIVE</button><button id="rallyCompleteButton" type="button" title="Manual completion fallback">COMPLETE</button></div>
+            <div class="rally-objective-sections">
+              <section id="rallyRiderNotesSection" hidden><h3>Rider Notes</h3><p id="rallyRiderNotes"></p></section>
+              <section id="rallyObjectiveIntelSection" hidden><h3>Trail Intel</h3><p id="rallyObjectiveIntel"></p></section>
+              <section id="rallyWarningsSection" hidden><ul id="rallyWarnings"></ul></section>
+            </div>
           </div>
         </div>
         <section id="rallyDeferredPrompt" class="rally-deferred-prompt" hidden>
@@ -430,7 +432,7 @@
       <div class="map-status">
         <span id="cursorCoordinates">—</span>
         <span id="gpsStatus">GPS off</span>
-        <span id="appVersion">v0.7.18 · 2026.08.26.samsung-field-data-1</span>
+        <span id="appVersion">v0.7.19 · 2026.08.27.samsung-landscape-ui-1</span>
       </div>
       <button id="sidebarToggle" class="sidebar-toggle" aria-label="Open planner" aria-expanded="false">Planner</button>
       <button id="intelButton" class="intel-toggle" aria-label="Open live intelligence" aria-expanded="false">Intel</button>
@@ -527,7 +529,7 @@
   <script src="vendor/firebase/firebase-auth.js"></script>
   <script src="vendor/firebase/firebase-app-check.js"></script>
   <script src="gps-checkpoints-feed.js?v=20260725-02"></script>
-  <script src="stationary-events.js?v=20260826-samsung-field-data-1"></script>
-  <script type="module" src="app.js?v=20260826-samsung-field-data-1"></script>
+  <script src="stationary-events.js?v=20260827-samsung-landscape-ui-1"></script>
+  <script type="module" src="app.js?v=20260827-samsung-landscape-ui-1"></script>
 </body>
 </html>

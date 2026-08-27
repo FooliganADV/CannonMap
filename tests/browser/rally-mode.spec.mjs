@@ -160,7 +160,7 @@ test('mission navigation, Journal, Trail Intel, More grouping, Planner transitio
   await page.locator('#rallyPlannerButton').click();await expect(page.locator('#sidebar')).toHaveClass(/open/);await expect(page.locator('.tabs')).toContainText('Project');
 });
 
-test('mobile Rally Mode controls do not overlap and meet 48px targets',async({page},testInfo)=>{
+test('mobile Rally Mode controls use compact landscape perimeter targets without overlap',async({page},testInfo)=>{
   test.skip(testInfo.project.name==='desktop');
   await page.goto('/?e2e=layout');
   await page.waitForFunction(()=>Boolean(window.CannonMapTest));
@@ -170,17 +170,22 @@ test('mobile Rally Mode controls do not overlap and meet 48px targets',async({pa
   const boxes=await controls.evaluateAll(elements=>elements.map(element=>{const r=element.getBoundingClientRect();return {id:element.id,x:r.x,y:r.y,w:r.width,h:r.height};}));
   const viewport=page.viewportSize();for(const box of boxes){expect(box.w,`${box.id} width`).toBeGreaterThanOrEqual(48);expect(box.h,`${box.id} height`).toBeGreaterThanOrEqual(48);expect(box.x,`${box.id} left edge`).toBeGreaterThanOrEqual(0);expect(box.x+box.w,`${box.id} right edge`).toBeLessThanOrEqual(viewport.width);expect(box.y+box.h,`${box.id} bottom edge`).toBeLessThanOrEqual(viewport.height);}
   for(let i=0;i<boxes.length;i++)for(let j=i+1;j<boxes.length;j++){const a=boxes[i],b=boxes[j],overlap=a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;expect(overlap,`${a.id} overlaps ${b.id}`).toBeFalsy();}
+  if(viewport.width>viewport.height&&viewport.height<=500){
+    const topBar=await page.locator('.rally-top-bar').evaluate(element=>{const r=element.getBoundingClientRect();return {top:r.top,bottom:r.bottom,height:r.height};});
+    expect(topBar.top).toBeGreaterThanOrEqual(0);expect(topBar.height).toBeLessThanOrEqual(105);
+    expect(await page.locator('.rally-actions').evaluate(element=>({display:getComputedStyle(element).display,rects:element.getClientRects().length}))).toEqual({display:'contents',rects:0});
+    for(const box of boxes){expect(box.y,`${box.id} clears top Rally bar`).toBeGreaterThan(topBar.bottom);expect(box.w,`${box.id} glove width`).toBeGreaterThanOrEqual(68);expect(box.h,`${box.id} glove height`).toBeGreaterThanOrEqual(64);}
+  }
   const card=page.locator('#rallyPrimaryCard, .rally-primary-card').first();
   await expect(card.locator('#rallyRiderNotesSection')).toBeHidden();
   await expect(card.locator('#rallyRouteIntelligenceSection')).toHaveCount(0);
   await expect(card.locator('#rallyWarningsSection')).toContainText('GPS REQUIRED');
   const cardBox=await card.evaluate(element=>{const r=element.getBoundingClientRect();return {top:r.top,bottom:r.bottom};});
-  expect(cardBox.top).toBeGreaterThanOrEqual(0);expect(cardBox.bottom).toBeLessThan(viewport.height-72);
-  await page.evaluate(()=>document.getElementById('intelSheet').classList.add('open'));
+  expect(cardBox.top).toBeGreaterThanOrEqual(0);expect(cardBox.bottom).toBeLessThanOrEqual(viewport.height);
+  await page.locator('#rallyTrailIntelButton').click();
   await expect(page.locator('#rallyRecenterFab')).toBeHidden();
-  const intelBox=await page.locator('#intelSheet').evaluate(element=>{const r=element.getBoundingClientRect();return {bottom:r.bottom};});
-  const dockBox=await page.locator('.rally-actions').evaluate(element=>{const r=element.getBoundingClientRect();return {top:r.top};});
-  expect(intelBox.bottom,'Intel sheet must stay above the action dock').toBeLessThanOrEqual(dockBox.top);
+  const intelBox=await page.locator('#intelSheet').evaluate(element=>{const r=element.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom};});
+  expect(intelBox.left).toBeGreaterThanOrEqual(0);expect(intelBox.right).toBeLessThanOrEqual(viewport.width);expect(intelBox.top).toBeGreaterThanOrEqual(0);expect(intelBox.bottom).toBeLessThanOrEqual(viewport.height);
   await page.screenshot({path:testInfo.outputPath('rally-mode.png')});
 });
 

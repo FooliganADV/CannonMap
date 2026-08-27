@@ -59,6 +59,7 @@ function warningActions(item,{escapeHtml,cameraCapability,cameraPermission}){
 export function renderRally({getElement,model,escapeHtml}){
   if(!getElement('rallyMode'))return;
   const set=(id,value)=>{const el=getElement(id);if(el)el.textContent=value;};
+  const setTitle=(id,value)=>{const el=getElement(id),label=String(value||'').trim();if(!el)return;if(label)el.setAttribute?.('title',label);else el.removeAttribute?.('title');};
   renderSessionChoice({getElement,model});
   renderDayPreflight({getElement,model});
   renderPendingEvidence({getElement,model,escapeHtml});
@@ -80,18 +81,22 @@ export function renderRally({getElement,model,escapeHtml}){
     const manual=getElement('rallyCameraContinueManualButton');if(manual){manual.disabled=false;manual.textContent=cameraPermission==='denied'?'CONTINUE MANUAL':'USE MANUAL CAMERA';}
   }
   set('rallyActiveProjectName',model.projectName||'');
+  setTitle('rallyActiveProjectName',model.projectName||'');
   set('rallyDay',`Day ${model.day||'—'}`);
   set('rallyOnlineStatus',model.online?'Online':'Offline');
   set('rallyGpsAccuracy',model.gpsAccuracy||'GPS off');
   set('rallyElevation',model.elevation||'Elev —');
   set('rallyScore',model.score);
   set('rallyNextName',model.next?.name||model.emptyLabel||'Preparing next objective…');
+  setTitle('rallyNextName',model.next?.name||model.emptyLabel||'Preparing next objective…');
   set('rallyNavigationGuidance',model.navigationGuidance||'Preparing navigation…');
+  setTitle('rallyNavigationGuidance',model.navigationGuidance||'Preparing navigation…');
   set('rallyNextDistance',model.distance===null?'':`${model.distance.toFixed(1)} mi`);
   const arrivalPhotoMissing=model.next?.arrivalState==='confirmed'&&model.next?.arrivalTrustworthy&&model.next?.photoRequired&&model.next?.photoEvidenceState!=='complete';
   set('rallyObjectiveStatus',arrivalPhotoMissing?'ARRIVAL CONFIRMED · PHOTO MISSING':model.next?`${text(model.next.type||'checkpoint')} · ${Number(model.next.points)||0} points${model.next.extreme?' · EXTREME':''} · ${text(model.next.status||'upcoming')}`:'');
   const notes=text(model.next?.notes),objectiveIntel=text(model.objectiveIntel);
   set('rallyRiderNotes',notes);
+  setTitle('rallyRiderNotes',notes);
   const notesSection=getElement('rallyRiderNotesSection');if(notesSection)notesSection.hidden=!notes;
   set('rallyObjectiveIntel',objectiveIntel);
   const objectiveIntelSection=getElement('rallyObjectiveIntelSection');if(objectiveIntelSection)objectiveIntelSection.hidden=!objectiveIntel;
@@ -119,7 +124,15 @@ export function renderRally({getElement,model,escapeHtml}){
   }
   const photoPending=model.next?.status==='photo_required';
   const defer=getElement('rallyDeferIcon');if(defer)defer.hidden=!model.next||kind==='hotel'||photoPending;
-  const complete=getElement('rallyCompleteButton');if(complete){complete.disabled=Boolean(!model.next||model.dayComplete);complete.textContent=model.next?.photoRecoveryAction||'COMPLETE';}
+  const complete=getElement('rallyCompleteButton');if(complete){
+    const recovery=model.next?.photoRecoveryAction||'',capturing=Boolean(model.photoCaptureActive),pending=Boolean(recovery&&recovery!=='CAPTURE PHOTO');
+    const actionLabel=capturing?'CAPTURING…':recovery==='CAPTURE PHOTO'?'PHOTO':recovery==='RETRY EVIDENCE'?'RETRY PHOTO':recovery||'COMPLETE';
+    complete.disabled=Boolean(!model.next||model.dayComplete);
+    complete.textContent=actionLabel;
+    complete.dataset.photoState=capturing?'capturing':pending?'pending':recovery==='CAPTURE PHOTO'?'ready':'complete';
+    complete.setAttribute('aria-busy',String(capturing));
+    complete.setAttribute('title',capturing?'Automatic checkpoint photography is in progress':pending?'Resume required checkpoint photo evidence':recovery==='CAPTURE PHOTO'?'Capture checkpoint photo':'Complete current objective');
+  }
   const deferredPrompt=getElement('rallyDeferredPrompt');if(deferredPrompt)deferredPrompt.hidden=!model.showDeferredPrompt||Boolean(model.dayComplete);
   set('rallyDeferredMessage',`You have ${model.deferredCount||0} deferred checkpoint${model.deferredCount===1?'':'s'} remaining.`);
   const resume=getElement('rallyResumeDeferredButton');if(resume)resume.disabled=!model.showDeferredPrompt||Boolean(model.dayComplete);

@@ -47,6 +47,24 @@ test('Rally presenter hides empty objective sections and hotel defer control',()
   assert.equal(getElement('rallyDeferIcon').hidden,true);
 });
 
+test('Rally presenter exposes compact truthful PHOTO states without changing the completion control',()=>{
+  const elements=new Map(),getElement=id=>{if(!elements.has(id))elements.set(id,fakeElement());return elements.get(id);};
+  const base={day:1,online:true,score:123,distance:1.25,warnings:[],checkpoints:[],hasHotel:true};
+  const render=(photoRecoveryAction,photoCaptureActive=false)=>renderRally({getElement,escapeHtml:String,model:{...base,photoCaptureActive,next:{id:'cp-1',name:'Long checkpoint name',notes:'Long rider note',type:'checkpoint',photoRecoveryAction}}});
+  render('CAPTURE PHOTO');
+  assert.equal(getElement('rallyCompleteButton').textContent,'PHOTO');
+  assert.equal(getElement('rallyCompleteButton').dataset.photoState,'ready');
+  render('RETRY EVIDENCE');
+  assert.equal(getElement('rallyCompleteButton').textContent,'RETRY PHOTO');
+  assert.equal(getElement('rallyCompleteButton').dataset.photoState,'pending');
+  render('RESUME PAIR',true);
+  assert.equal(getElement('rallyCompleteButton').textContent,'CAPTURING…');
+  assert.equal(getElement('rallyCompleteButton').dataset.photoState,'capturing');
+  assert.equal(getElement('rallyCompleteButton').disabled,false,'presentation must not replace the existing action wiring');
+  assert.equal(getElement('rallyNextName').attributes.title,'Long checkpoint name');
+  assert.equal(getElement('rallyRiderNotes').attributes.title,'Long rider note');
+});
+
 test('camera setup keeps manual escape available while browser acquisition is checking',()=>{
   const elements=new Map(),getElement=id=>{if(!elements.has(id))elements.set(id,fakeElement());return elements.get(id);};
   renderRally({getElement,escapeHtml:String,model:{day:1,online:true,score:0,next:null,distance:null,warnings:[],checkpoints:[],hasHotel:true,showCameraSetup:true,cameraReadiness:{permission:'prompt',capability:'checking'}}});

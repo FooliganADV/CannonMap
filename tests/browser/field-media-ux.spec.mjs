@@ -296,12 +296,19 @@ test('Rally Mode and fallback remain within portrait and landscape safe areas',a
   test.skip(!isPhone(testInfo.project.name));
   await open(page);
   const viewport=page.viewportSize();
-  const dock=await page.locator('.rally-actions').boundingBox();
-  expect(dock).not.toBeNull();
-  expect(dock.x).toBeGreaterThanOrEqual(0);
-  expect(dock.y).toBeGreaterThanOrEqual(0);
-  expect(dock.x+dock.width).toBeLessThanOrEqual(viewport.width);
-  expect(dock.y+dock.height).toBeLessThanOrEqual(viewport.height);
+  const compactLandscape=viewport.width>viewport.height&&viewport.width<=960&&viewport.height<=500;
+  if(compactLandscape){
+    const topBar=await page.locator('.rally-top-bar').boundingBox();
+    expect(topBar).not.toBeNull();expect(topBar.x).toBeGreaterThanOrEqual(0);expect(topBar.y).toBeGreaterThanOrEqual(0);expect(topBar.x+topBar.width).toBeLessThanOrEqual(viewport.width);expect(topBar.height).toBeLessThanOrEqual(105);
+    expect(await page.locator('.rally-actions').evaluate(element=>({display:getComputedStyle(element).display,rects:element.getClientRects().length}))).toEqual({display:'contents',rects:0});
+  }else{
+    const dock=await page.locator('.rally-actions').boundingBox();
+    expect(dock).not.toBeNull();
+    expect(dock.x).toBeGreaterThanOrEqual(0);
+    expect(dock.y).toBeGreaterThanOrEqual(0);
+    expect(dock.x+dock.width).toBeLessThanOrEqual(viewport.width);
+    expect(dock.y+dock.height).toBeLessThanOrEqual(viewport.height);
+  }
 
   const buttons=await page.locator('.rally-actions button:visible').evaluateAll(elements=>elements.map(element=>{
     const rect=element.getBoundingClientRect();
@@ -332,6 +339,7 @@ test('Rally Mode and fallback remain within portrait and landscape safe areas',a
       const overlaps=left.x<right.x+right.width&&left.x+left.width>right.x&&left.y<right.y+right.height&&left.y+left.height>right.y;
       expect(overlaps,`${leftName} overlaps ${rightName}`).toBeFalsy();
     }
+    if(compactLandscape)for(const button of buttons){expect(button.width,`${button.id} landscape width`).toBeGreaterThanOrEqual(68);expect(button.height,`${button.id} landscape height`).toBeGreaterThanOrEqual(64);}
   }
 
   await page.evaluate(()=>window.CannonMapTest.completeCurrentCheckpoint(false));

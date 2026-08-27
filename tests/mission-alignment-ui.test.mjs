@@ -12,11 +12,15 @@ test('Rally navigation is Mission, Trail Intel, Journal, and More while Planner 
   assert.match(nav,/>MISSION</);assert.match(nav,/>TRAIL INTEL</);assert.match(nav,/>JOURNAL</);assert.match(nav,/>MORE</);
   assert.doesNotMatch(nav,/>Project</);assert.doesNotMatch(nav,/>Features</);assert.doesNotMatch(nav,/>Search</);
   assert.match(html,/id="rallyPlannerButton"[^>]*>OPEN PLANNER</);
-  assert.match(css,/\.rally-actions\{[\s\S]*?grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/);
+  assert.match(css,/\.rally-actions\{position:static;display:contents;pointer-events:none\}/);
+  assert.match(css,/#rallyMissionButton\{left:max\(8px,env\(safe-area-inset-left\)\);top:114px\}/);
+  assert.match(css,/#rallyTrailIntelButton\{left:max\(8px,env\(safe-area-inset-left\)\);top:188px\}/);
+  assert.match(css,/#rallyJournalButton\{right:max\(8px,env\(safe-area-inset-right\)\);top:114px\}/);
+  assert.match(css,/#rallyMoreButton\{right:max\(8px,env\(safe-area-inset-right\)\);top:188px\}/);
 });
 
 test('Mission hierarchy keeps score, day, contextual GPS, objective facts, and automatic elevation metadata',()=>{
-  assert.match(html,/id="rallyDay"/);assert.match(html,/class="rally-score-slot"/);assert.doesNotMatch(html,/rally-score-slot" aria-hidden/);
+  assert.match(html,/class="rally-top-bar"/);assert.match(html,/id="rallyDay"/);assert.match(html,/class="rally-score-slot"/);assert.doesNotMatch(html,/rally-score-slot" aria-hidden/);
   assert.match(html,/id="rallyObjectiveIntelSection" hidden/);assert.match(html,/id="rallyElevation" class="rally-recorded-metadata"/);
   assert.match(app,/return accuracy>maximum\?`GPS POOR/);assert.match(app,/:\s*'GPS ✓'/);
   assert.match(app,/NO CHECKPOINTS LOADED/);assert.match(app,/ALL REMAINING CHECKPOINTS DEFERRED/);assert.match(app,/RECOVERY REVIEW/);
