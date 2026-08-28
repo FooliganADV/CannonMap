@@ -1,8 +1,8 @@
-# CannonMap Planner — Beta 0.7.19 Samsung Landscape Rally UI
+# CannonMap Planner — Beta 0.7.20 Trail Intel Field Hardening
 
-Build: `2026.08.27.samsung-landscape-ui-1`
+Build: `2026.08.28.trail-intel-field-hardening-1`
 
-This build targets long, powered, screen-on Samsung Chrome/PWA rides in landscape. It preserves the physically accepted Rally, camera, Ride Memory, backup, lifecycle, hardened competitor-stream, route-membership, and tactical behavior, then replaces the normal landscape Rally card and bottom dock with a compact top bar and glove-safe edge controls without changing their state semantics.
+This build targets long, powered, screen-on Samsung Chrome/PWA rides in landscape. It preserves the physically accepted Rally, camera, Ride Memory, backup, lifecycle, route-membership, tactical presentation, and compact landscape UI, then hardens the validated competitor stream against millisecond duplicate relocation evidence and short-lived divergent field fixes without changing durable source history.
 
 Rally Mode creates an immutable session for every deliberate run, asks riders to **Resume Existing** or **Start New**, and keeps unresolved photo evidence separate from GPS navigation. Camera preflight verifies rear and front native-still capability, closes both streams, and reports READY with zero retained streams. Every checkpoint and Ride Memory side then opens, captures, persists, and fully closes before the next camera opens.
 
@@ -101,7 +101,7 @@ Legacy iOS/WebKit projects remain in the repository but are not pre-rally releas
 
 ## First test
 
-1. Confirm the status shows `v0.7.19 · 2026.08.27.samsung-landscape-ui-1`.
+1. Confirm the status shows `v0.7.20 · 2026.08.28.trail-intel-field-hardening-1`.
 2. Hold the Samsung in landscape and confirm the Rally map remains primary at approximately 915×412.
 3. Load a live competitor event or the sanitized event-60 replay and confirm rider numbers and distinct colors remain stable across refreshes.
 4. Select one rider, confirm other riders dim, dismiss its popup, refresh, and confirm the popup stays dismissed.

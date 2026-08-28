@@ -1,5 +1,15 @@
 const EARTH=6371008.8;
 const METERS_PER_SECOND_TO_MPH=2.236936;
+// Event-60 field exports contain same-fix deliveries 1-100ms apart. They are
+// durable stationary evidence, but not independent proof of a relocation.
+const RELOCATION_CORROBORATION_MIN_MS=500;
+const ISOLATED_SPIKE_MAX_LIFETIME_MS=2500;
+const TRAJECTORY_SPIKE_MIN_RESIDUAL_METERS=50;
+const STATIONARY_SPIKE_MIN_RESIDUAL_METERS=20;
+const TRAJECTORY_SPIKE_MIN_PATH_EXCESS_METERS=10;
+const TRAJECTORY_SPIKE_MAX_HEADING_DELTA=35;
+const TRAJECTORY_SPIKE_MAX_SPEED_DELTA_MPH=35;
+const RECENT_COORDINATE_RUN_MAX_POINTS=32;
 const rad=value=>value*Math.PI/180;
 const finite=value=>value!==null&&value!==undefined&&String(value).trim()!==''&&Number.isFinite(Number(value));
 const clampHeading=value=>((Number(value)%360)+360)%360;
@@ -45,26 +55,72 @@ export function deriveTacticalTrail(points,{gapMs=2*60*1000,maxSpeedMph=130,maxJ
   const ordered=normalizeTrailPoints(points,{now,historyMs,maxPoints}),segments=[],accepted=[],rejected=[];let current=[],pending=null;
   const append=point=>{current.push(point);accepted.push(point);};
   const start=point=>{if(current.length)segments.push(current);current=[];append(point);};
-  const hold=(point,transition)=>({point,reason:transition.reason,boundaryReason:transition.boundaryReason||null,distanceMeters:transition.distanceMeters,speedMph:transition.speedMph,validationSpeedMph:transition.validationSpeedMph??null});
+  const hold=(point,transition,extra={})=>({point,reason:transition.reason,boundaryReason:transition.boundaryReason||null,distanceMeters:transition.distanceMeters,speedMph:transition.speedMph,validationSpeedMph:transition.validationSpeedMph??null,...extra});
+  const transitionOptions={gapMs,maxSpeedMph,maxJumpMeters,equalTimestampMeters};
+  const isolatedSpikeReplacementCount=point=>{
+    if(current.length<2)return 0;
+    const tail=current.at(-1);let startIndex=current.length-1;
+    while(startIndex>0&&current.length-startIndex<RECENT_COORDINATE_RUN_MAX_POINTS&&pointTime(tail)-pointTime(current[startIndex-1])<RELOCATION_CORROBORATION_MIN_MS&&distanceMeters(current[startIndex-1],tail)<=equalTimestampMeters)startIndex--;
+    if(startIndex===0||pointTime(point)-pointTime(current[startIndex])>ISOLATED_SPIKE_MAX_LIFETIME_MS)return 0;
+    const bypass=transitionBetween(current[startIndex-1],point,transitionOptions);
+    return bypass.type==='continue'?current.length-startIndex:0;
+  };
+  const recentCoordinateRuns=()=>{
+    const runs=[];let end=current.length;
+    while(end>0&&runs.length<4){let startIndex=end-1;const tail=current[end-1];while(startIndex>0&&end-startIndex<RECENT_COORDINATE_RUN_MAX_POINTS&&pointTime(tail)-pointTime(current[startIndex-1])<RELOCATION_CORROBORATION_MIN_MS&&distanceMeters(current[startIndex-1],tail)<=equalTimestampMeters)startIndex--;runs.unshift({startIndex,end,points:current.slice(startIndex,end)});end=startIndex;}
+    return runs;
+  };
+  const headingDelta=(a,b)=>Math.abs(((a-b+540)%360)-180);
+  // Four coordinate runs let the later C/D trajectory corroborate that a
+  // short-lived B run was an isolated spike. Genuine bends, gaps, and session
+  // changes remain because the bypass and continuation must agree first.
+  const reconcileIsolatedTrajectorySpike=()=>{
+    for(let attempts=0;attempts<8;attempts++){
+      const runs=recentCoordinateRuns();if(runs.length<4)return;
+      const [aRun,bRun,cRun,dRun]=runs,a=aRun.points.at(-1),b=bRun.points[0],c=cRun.points[0],d=dRun.points[0],bTail=bRun.points.at(-1);
+      if(pointTime(bTail)-pointTime(b)>=RELOCATION_CORROBORATION_MIN_MS)return;
+      const bypass=transitionBetween(a,c,transitionOptions),continuation=transitionBetween(c,d,transitionOptions);if(bypass.type!=='continue'||continuation.type!=='continue')return;
+      const baselineStationary=distanceMeters(a,c)<=equalTimestampMeters&&distanceMeters(c,d)<=equalTimestampMeters;
+      const bypassHeading=distanceMeters(a,c)>equalTimestampMeters?bearingDegrees(a,c):null,continuationHeading=distanceMeters(c,d)>equalTimestampMeters?bearingDegrees(c,d):null;
+      const stableHeading=baselineStationary||(bypassHeading!==null&&continuationHeading!==null&&headingDelta(bypassHeading,continuationHeading)<=TRAJECTORY_SPIKE_MAX_HEADING_DELTA);
+      const stableSpeed=baselineStationary||Math.abs((bypass.speedMph??0)-(continuation.speedMph??0))<=TRAJECTORY_SPIKE_MAX_SPEED_DELTA_MPH;if(!stableHeading||!stableSpeed)return;
+      const elapsed=pointTime(c)-pointTime(a),position=elapsed>0?Math.max(0,Math.min(1,(pointTime(b)-pointTime(a))/elapsed)):0,expected={lat:a.lat+(c.lat-a.lat)*position,lon:a.lon+(c.lon-a.lon)*position},residual=distanceMeters(expected,b),pathExcess=distanceMeters(a,b)+distanceMeters(b,c)-distanceMeters(a,c);
+      const minimumResidual=baselineStationary?STATIONARY_SPIKE_MIN_RESIDUAL_METERS:TRAJECTORY_SPIKE_MIN_RESIDUAL_METERS;
+      if(residual<minimumResidual||pathExcess<TRAJECTORY_SPIKE_MIN_PATH_EXCESS_METERS)return;
+      const removed=current.splice(bRun.startIndex,bRun.end-bRun.startIndex),acceptedOffset=accepted.length-(current.length+removed.length);accepted.splice(acceptedOffset+bRun.startIndex,removed.length);
+      for(const removedPoint of removed){const transition=transitionBetween(a,removedPoint,transitionOptions);rejected.push(hold(removedPoint,{...transition,reason:'corroborated_trajectory_spike'}));}
+    }
+  };
+  const accept=point=>{append(point);reconcileIsolatedTrajectorySpike();};
   for(const point of ordered){
-    const prior=accepted.at(-1);if(!prior){append(point);continue;}
-    const direct=transitionBetween(prior,point,{gapMs,maxSpeedMph,maxJumpMeters,equalTimestampMeters});
+    const prior=accepted.at(-1);if(!prior){accept(point);continue;}
+    const direct=transitionBetween(prior,point,transitionOptions);
     if(pending){
-      if(direct.type==='continue'){rejected.push(pending);pending=null;append(point);continue;}
+      if(direct.type==='continue'){rejected.push(pending);pending=null;accept(point);continue;}
       if(direct.type==='break'){rejected.push(pending);pending=null;start(point);continue;}
-      const corroboration=transitionBetween(pending.point,point,{gapMs,maxSpeedMph,maxJumpMeters,equalTimestampMeters});
+      const corroboration=transitionBetween(pending.point,point,transitionOptions);
+      const independentlyCorroborated=corroboration.type==='continue'&&(corroboration.elapsedMs>=RELOCATION_CORROBORATION_MIN_MS||corroboration.distanceMeters>equalTimestampMeters);
+      if(direct.type==='candidate'&&independentlyCorroborated){
+        if(pending.isolatedSpikeReplacementCount){
+          const removed=current.splice(-pending.isolatedSpikeReplacementCount);accepted.splice(-pending.isolatedSpikeReplacementCount);
+          const anchor=current.at(-1);for(const removedPoint of removed){const transition=transitionBetween(anchor,removedPoint,transitionOptions);rejected.push(hold(removedPoint,{...transition,reason:'isolated_spike'}));}
+          append(pending.point);accept(point);pending=null;continue;
+        }
+        start(pending.point);accept(point);pending=null;continue;
+      }
       if(direct.type==='candidate'&&corroboration.type==='continue'){
-        start(pending.point);append(point);pending=null;continue;
+        rejected.push(hold(point,{...direct,reason:'near_duplicate_corroboration'}));continue;
       }
       if(direct.type==='duplicate'&&corroboration.type!=='continue'){
         rejected.push(hold(point,direct));continue;
       }
       rejected.push(pending);pending=hold(point,direct);continue;
     }
-    if(direct.type==='continue'){append(point);continue;}
+    if(direct.type==='continue'){accept(point);continue;}
     if(direct.type==='break'){start(point);continue;}
     if(direct.type==='duplicate'){rejected.push(hold(point,direct));continue;}
-    pending=hold(point,direct);
+    const isolatedSpikeReplacementCountValue=isolatedSpikeReplacementCount(point);
+    pending=hold(point,direct,isolatedSpikeReplacementCountValue?{isolatedSpikeReplacementCount:isolatedSpikeReplacementCountValue}:{});
   }
   if(current.length)segments.push(current);
   return {points:accepted,segments,latest:accepted.at(-1)||null,pending,quarantined:pending?[...rejected,pending]:rejected};

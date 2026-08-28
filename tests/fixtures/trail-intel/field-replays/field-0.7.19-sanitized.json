@@ -1,0 +1,719 @@
+{
+  "format": "CannonMap Competitor Trails",
+  "appVersion": "0.7.19",
+  "exportedAt": "2026-01-16T14:47:04.032Z",
+  "eventId": "field-event-sanitized",
+  "fixtureMetadata": {
+    "sourceSha256": "01a4079c8af45a2f27924de91a8801c4313ba8123b053c36ddbbe265982f7252",
+    "sourcePointCount": 69,
+    "sanitization": "Rigid projected rotation/translation, stable pseudonymous riders, and constant timestamp shift. Relative timing and failure geometry are preserved."
+  },
+  "competitors": [
+    {
+      "id": "field-rider-01",
+      "name": "Field Rider 01",
+      "points": [],
+      "signature": "field-group-01"
+    },
+    {
+      "id": "field-rider-02",
+      "name": "Field Rider 02",
+      "points": [],
+      "signature": "field-group-01"
+    },
+    {
+      "id": "field-rider-03",
+      "name": "Field Rider 03",
+      "points": [],
+      "signature": "field-group-01"
+    },
+    {
+      "id": "field-rider-04",
+      "name": "Field Rider 04",
+      "points": [],
+      "signature": "field-group-01"
+    },
+    {
+      "id": "field-rider-05",
+      "name": "Field Rider 05",
+      "points": [],
+      "signature": "field-group-01"
+    },
+    {
+      "id": "field-rider-06",
+      "name": "Field Rider 06",
+      "points": [],
+      "signature": "field-group-01"
+    },
+    {
+      "id": "field-rider-07",
+      "name": "Field Rider 07",
+      "points": [],
+      "signature": "field-group-01"
+    },
+    {
+      "id": "field-rider-08",
+      "name": "Field Rider 08",
+      "points": [],
+      "signature": "field-group-01"
+    },
+    {
+      "id": "field-rider-09",
+      "name": "Field Rider 09",
+      "points": [],
+      "signature": "field-group-02"
+    },
+    {
+      "id": "field-rider-10",
+      "name": "Field Rider 10",
+      "points": [],
+      "signature": "field-group-03"
+    },
+    {
+      "id": "field-rider-11",
+      "name": "Field Rider 11",
+      "points": [],
+      "signature": "field-group-03"
+    },
+    {
+      "id": "field-rider-12",
+      "name": "Field Rider 12",
+      "points": [],
+      "signature": "field-group-03"
+    },
+    {
+      "id": "field-rider-13",
+      "name": "Field Rider 13",
+      "points": [],
+      "signature": "field-group-03"
+    },
+    {
+      "id": "field-rider-14",
+      "name": "Field Rider 14",
+      "points": [
+        {
+          "lat": 34.01398345,
+          "lon": -112.14947149,
+          "time": "2026-01-16T14:44:25.719Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 34.01283097,
+          "lon": -112.15074068,
+          "time": "2026-01-16T14:44:30.714Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 34.01283097,
+          "lon": -112.15074068,
+          "time": "2026-01-16T14:44:30.716Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 34.01166069,
+          "lon": -112.15201953,
+          "time": "2026-01-16T14:44:35.716Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.9816865,
+          "lon": -112.17805097,
+          "time": "2026-01-16T14:44:36.614Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 34.01046855,
+          "lon": -112.15325488,
+          "time": "2026-01-16T14:44:40.720Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 34.01046855,
+          "lon": -112.15325488,
+          "time": "2026-01-16T14:44:40.724Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 34.00927571,
+          "lon": -112.15448546,
+          "time": "2026-01-16T14:44:45.719Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 34.00927571,
+          "lon": -112.15448546,
+          "time": "2026-01-16T14:44:45.722Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 34.00807757,
+          "lon": -112.15571122,
+          "time": "2026-01-16T14:44:50.718Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 34.00807757,
+          "lon": -112.15571122,
+          "time": "2026-01-16T14:44:50.721Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 34.00688547,
+          "lon": -112.15694084,
+          "time": "2026-01-16T14:44:55.717Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 34.00688547,
+          "lon": -112.15694084,
+          "time": "2026-01-16T14:44:55.719Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.9989537,
+          "lon": -112.16139932,
+          "time": "2026-01-16T14:44:57.035Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 34.00568887,
+          "lon": -112.15817024,
+          "time": "2026-01-16T14:45:00.717Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 34.00568887,
+          "lon": -112.15817024,
+          "time": "2026-01-16T14:45:00.718Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 34.00449816,
+          "lon": -112.15940168,
+          "time": "2026-01-16T14:45:05.728Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 34.00449816,
+          "lon": -112.15940168,
+          "time": "2026-01-16T14:45:05.729Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 34.00330666,
+          "lon": -112.16061904,
+          "time": "2026-01-16T14:45:10.723Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 34.00330666,
+          "lon": -112.16061904,
+          "time": "2026-01-16T14:45:10.733Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 34.00210597,
+          "lon": -112.16185507,
+          "time": "2026-01-16T14:45:15.722Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.9816865,
+          "lon": -112.17805097,
+          "time": "2026-01-16T14:45:16.725Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 34.00090735,
+          "lon": -112.16308286,
+          "time": "2026-01-16T14:45:20.724Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 34.00090735,
+          "lon": -112.16308286,
+          "time": "2026-01-16T14:45:20.725Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.99971929,
+          "lon": -112.16432121,
+          "time": "2026-01-16T14:45:25.723Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.99971929,
+          "lon": -112.16432121,
+          "time": "2026-01-16T14:45:25.724Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.99854443,
+          "lon": -112.16558227,
+          "time": "2026-01-16T14:45:30.721Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.99854443,
+          "lon": -112.16558227,
+          "time": "2026-01-16T14:45:30.725Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.99737268,
+          "lon": -112.16684223,
+          "time": "2026-01-16T14:45:35.725Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.99737268,
+          "lon": -112.16684223,
+          "time": "2026-01-16T14:45:35.727Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.9816865,
+          "lon": -112.17805097,
+          "time": "2026-01-16T14:45:37.286Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.99619827,
+          "lon": -112.1681043,
+          "time": "2026-01-16T14:45:40.713Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.99619827,
+          "lon": -112.1681043,
+          "time": "2026-01-16T14:45:40.718Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.99502448,
+          "lon": -112.16936334,
+          "time": "2026-01-16T14:45:45.727Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.99502448,
+          "lon": -112.16936334,
+          "time": "2026-01-16T14:45:45.728Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.99385759,
+          "lon": -112.17061847,
+          "time": "2026-01-16T14:45:50.722Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.99385759,
+          "lon": -112.17061847,
+          "time": "2026-01-16T14:45:50.728Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.99267475,
+          "lon": -112.17188411,
+          "time": "2026-01-16T14:45:55.722Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.99267475,
+          "lon": -112.17188411,
+          "time": "2026-01-16T14:45:55.725Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.98116202,
+          "lon": -112.1772565,
+          "time": "2026-01-16T14:45:57.913Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.98116202,
+          "lon": -112.1772565,
+          "time": "2026-01-16T14:45:57.916Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.99149989,
+          "lon": -112.17314589,
+          "time": "2026-01-16T14:46:00.720Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.99149989,
+          "lon": -112.17314589,
+          "time": "2026-01-16T14:46:00.721Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.99033526,
+          "lon": -112.17440174,
+          "time": "2026-01-16T14:46:05.722Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.99033526,
+          "lon": -112.17440174,
+          "time": "2026-01-16T14:46:05.723Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.98915219,
+          "lon": -112.1756655,
+          "time": "2026-01-16T14:46:10.716Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.98915219,
+          "lon": -112.1756655,
+          "time": "2026-01-16T14:46:10.717Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.98798106,
+          "lon": -112.17693248,
+          "time": "2026-01-16T14:46:15.723Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.98798106,
+          "lon": -112.17693248,
+          "time": "2026-01-16T14:46:15.724Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.98758104,
+          "lon": -112.17954205,
+          "time": "2026-01-16T14:46:18.972Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.98758104,
+          "lon": -112.17954205,
+          "time": "2026-01-16T14:46:18.974Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.98681597,
+          "lon": -112.17818636,
+          "time": "2026-01-16T14:46:20.717Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.98564619,
+          "lon": -112.17944724,
+          "time": "2026-01-16T14:46:25.725Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.98564619,
+          "lon": -112.17944724,
+          "time": "2026-01-16T14:46:25.726Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.98447193,
+          "lon": -112.1807039,
+          "time": "2026-01-16T14:46:30.721Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.98447193,
+          "lon": -112.1807039,
+          "time": "2026-01-16T14:46:30.722Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.98328541,
+          "lon": -112.18196635,
+          "time": "2026-01-16T14:46:35.721Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.98328541,
+          "lon": -112.18196635,
+          "time": "2026-01-16T14:46:35.722Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.9859002,
+          "lon": -112.18577023,
+          "time": "2026-01-16T14:46:39.600Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.9859002,
+          "lon": -112.18577023,
+          "time": "2026-01-16T14:46:39.601Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.98212004,
+          "lon": -112.18321922,
+          "time": "2026-01-16T14:46:40.728Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.98095481,
+          "lon": -112.1844758,
+          "time": "2026-01-16T14:46:45.721Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.98095481,
+          "lon": -112.1844758,
+          "time": "2026-01-16T14:46:45.722Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.97976805,
+          "lon": -112.1857393,
+          "time": "2026-01-16T14:46:50.723Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.97976805,
+          "lon": -112.1857393,
+          "time": "2026-01-16T14:46:50.724Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.97857402,
+          "lon": -112.18698,
+          "time": "2026-01-16T14:46:55.728Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.97857402,
+          "lon": -112.18698,
+          "time": "2026-01-16T14:46:55.731Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.9859002,
+          "lon": -112.18577023,
+          "time": "2026-01-16T14:47:00.326Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        },
+        {
+          "lat": 33.97739049,
+          "lon": -112.18822093,
+          "time": "2026-01-16T14:47:00.718Z",
+          "sessionId": "",
+          "observationId": "",
+          "speedMph": null,
+          "heading": null
+        }
+      ],
+      "signature": "field-group-03"
+    }
+  ]
+}

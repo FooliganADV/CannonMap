@@ -77,13 +77,13 @@ import {
 import {createFirebaseAuthentication} from './src/infrastructure/firebase/authentication.js';
 import {createObservationIngressClient} from './src/infrastructure/firebase/observation-ingress-client.js';
 
-const APP_VERSION = '0.7.19';
-const BUILD_ID = '2026.08.27.samsung-landscape-ui-1';
+const APP_VERSION = '0.7.20';
+const BUILD_ID = '2026.08.28.trail-intel-field-hardening-1';
 const SETTINGS_KEY = 'cannonmap.settings.v6';
 const SNAPSHOT_KEY = 'cannonmap.snapshots.v1';
 const CAMERA_SETUP_HINT_KEY = 'cannonmap.camera-setup-succeeded.v1';
-const APP_SHELL_CACHE = 'cannonmap-v0.7.19-20260827-samsung-landscape-ui-1';
-const PREFLIGHT_SHELL_ASSETS = Object.freeze(['./index.html','./app.js?v=20260827-samsung-landscape-ui-1','./app.css?v=20260827-samsung-landscape-ui-1']);
+const APP_SHELL_CACHE = 'cannonmap-v0.7.20-20260828-trail-intel-field-hardening-1';
+const PREFLIGHT_SHELL_ASSETS = Object.freeze(['./index.html','./app.js?v=20260828-trail-intel-field-hardening-1','./app.css?v=20260828-trail-intel-field-hardening-1']);
 const AUTOMATIC_BACKUP_INTERVAL_MS=2*60*60*1000;
 const RELIABILITY_HEALTH_INTERVAL_MS=5*60*1000;
 const GPS_FOREGROUND_STALL_MS=45*1000;
@@ -2471,7 +2471,8 @@ function normalizeFeedPoint(source) {
   if((!Number.isFinite(lat)||!Number.isFinite(lon)) && geometry?.type==='Point' && Array.isArray(geometry.coordinates)){
     lon=Number(geometry.coordinates[0]);lat=Number(geometry.coordinates[1]);
   }
-  const point={lat,lon,time:source.time||source.timestamp||source.recordedAt||source.updatedAt||source.lastUpdate||source.datetime||nested.time||nested.timestamp||'',sessionId:source.sessionId||source.session_id||source.deviceSessionId||'',observationId:source.observationId||source.locationId||source.pointId||'',speedMph:Number.isFinite(Number(source.speedMph))?Number(source.speedMph):Number.isFinite(Number(source.speed))?Number(source.speed):null,heading:Number.isFinite(Number(source.heading??source.course))?Number(source.heading??source.course):null};
+  const optionalNumber=value=>value!==null&&value!==undefined&&String(value).trim()!==''&&Number.isFinite(Number(value))?Number(value):null;
+  const point={lat,lon,time:source.time||source.timestamp||source.recordedAt||source.updatedAt||source.lastUpdate||source.datetime||nested.time||nested.timestamp||'',sessionId:source.sessionId||source.session_id||source.deviceSessionId||'',observationId:source.observationId||source.locationId||source.pointId||'',speedMph:optionalNumber(source.speedMph)??optionalNumber(source.speed),heading:optionalNumber(source.heading)??optionalNumber(source.course)};
   return validPoint(point)?point:null;
 }
 function competitorIdentity(entry,index=0) {

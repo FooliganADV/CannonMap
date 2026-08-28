@@ -4,15 +4,15 @@ import test from 'node:test';
 
 const read=file=>readFile(new URL(`../${file}`,import.meta.url),'utf8');
 
-test('0.7.19 identity and offline tactical module are release-consistent',async()=>{
+test('0.7.20 identity and offline tactical module are release-consistent',async()=>{
   const [packageSource,app,index,worker]=await Promise.all([
     read('package.json'),read('app.js'),read('index.html'),read('sw.js')
   ]),packageJson=JSON.parse(packageSource);
-  assert.equal(packageJson.version,'0.7.19');
-  assert.match(app,/const APP_VERSION = '0\.7\.19'/);
-  assert.match(app,/const BUILD_ID = '2026\.08\.27\.samsung-landscape-ui-1'/);
-  assert.match(index,/v0\.7\.19 · 2026\.08\.27\.samsung-landscape-ui-1/);
-  assert.match(worker,/cannonmap-v0\.7\.19-20260827-samsung-landscape-ui-1/);
+  assert.equal(packageJson.version,'0.7.20');
+  assert.match(app,/const APP_VERSION = '0\.7\.20'/);
+  assert.match(app,/const BUILD_ID = '2026\.08\.28\.trail-intel-field-hardening-1'/);
+  assert.match(index,/v0\.7\.20 · 2026\.08\.28\.trail-intel-field-hardening-1/);
+  assert.match(worker,/cannonmap-v0\.7\.20-20260828-trail-intel-field-hardening-1/);
   assert.match(worker,/\.\/src\/ui\/trail-intel\/tactical-presentation\.js/);
 });
 
@@ -31,10 +31,9 @@ test('Samsung mounted landscape is the sole default browser release gate',async(
 
 test('immutable preview workflow is fenced to this isolated branch and build',async()=>{
   const workflow=await read('.github/workflows/deploy-persistent-camera-preview.yml');
-  assert.match(workflow,/agent\/samsung-landscape-rally-ui/);
-  assert.doesNotMatch(workflow,/agent\/samsung-field-data-hardening/);
-  assert.doesNotMatch(workflow,/agent\/samsung-trail-intel-rc/);
-  assert.match(workflow,/2026\.08\.27\.samsung-landscape-ui-1/);
+  assert.match(workflow,/agent\/trail-intel-field-forensics/);
+  assert.doesNotMatch(workflow,/agent\/samsung-landscape-rally-ui/);
+  assert.match(workflow,/2026\.08\.28\.trail-intel-field-hardening-1/);
   assert.match(workflow,/--commit-hash=\$\{\{ github\.sha \}\}/);
   assert.match(workflow,/Cloudflare did not return an immutable deployment URL/);
 });
