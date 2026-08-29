@@ -17,7 +17,7 @@ import {
 const HISTORY_MS=8*60*60*1000;
 const MAX_DURABLE_POINTS=12_000;
 const MAX_RENDER_POINTS=720;
-const fixtureNames=['field-0.7.17-sanitized.json','field-0.7.18-sanitized.json','field-0.7.19-sanitized.json'];
+const fixtureNames=['field-0.7.17-sanitized.json','field-0.7.18-sanitized.json','field-0.7.19-sanitized.json','field-0.7.20-sanitized.json'];
 const fixtures=await Promise.all(fixtureNames.map(async name=>JSON.parse(await readFile(new URL(`./fixtures/trail-intel/field-replays/${name}`,import.meta.url),'utf8'))));
 
 function replayRider(rider,now){
@@ -39,12 +39,72 @@ const replays=fixtures.map(replayFixture);
 const replayByVersion=new Map(replays.map(replay=>[replay.fixture.appVersion,replay]));
 
 test('field replay fixture census remains stable under the exact runtime bounds',()=>{
-  assert.deepEqual(replays.map(replay=>replay.fixture.competitors.length),[14,14,14]);
+  assert.deepEqual(replays.map(replay=>replay.fixture.competitors.length),[14,14,14,14]);
   assert.deepEqual(Object.fromEntries(replays.map(replay=>[replay.fixture.appVersion,replay.counts])),{
     '0.7.17':{received:895,durable:895,accepted:895,quarantined:0,segments:3,rendered:721,omitted:174},
     '0.7.18':{received:3930,durable:3928,accepted:3361,quarantined:567,segments:1,rendered:720,omitted:2641},
-    '0.7.19':{received:69,durable:69,accepted:58,quarantined:11,segments:1,rendered:58,omitted:0}
+    '0.7.19':{received:69,durable:69,accepted:58,quarantined:11,segments:1,rendered:58,omitted:0},
+    '0.7.20':{received:1892,durable:1892,accepted:1892,quarantined:0,segments:2,rendered:720,omitted:1172}
   });
+});
+
+test('0.7.20 field replay preserves stop/restart truth and resets pace across the long reconnect gap',()=>{
+  const replay=replayByVersion.get('0.7.20'),row=replay.riders.find(item=>item.rider.id==='field-rider-13');
+  assert.equal(replay.fixture.competitors.filter(rider=>rider.points.length===0).length,13);
+  assert.deepEqual(row.tactical.segments.map(segment=>segment.length),[688,1204]);
+  assert.deepEqual(row.renderedSegments.map(segment=>segment.length),[183,537]);
+  assert.equal(row.tactical.quarantined.length,0);
+  assert.equal(row.tactical.pending,null);
+  assert.ok(row.received.every(point=>point.speedMph===null&&point.heading===null&&point.sessionId===null&&point.observationId===null));
+
+  const statusAt=index=>{
+    const points=row.received.slice(0,index+1),now=pointTime(points.at(-1)),tactical=deriveTacticalTrail(points,{now,historyMs:HISTORY_MS,maxPoints:MAX_DURABLE_POINTS});
+    return trailStatus(points,{now,tacticalTrail:tactical});
+  };
+  assert.deepEqual([23,58,71,127].map(index=>statusAt(index).motion),['stationary','moving','stationary','moving']);
+
+  const before=row.tactical.segments[0].at(-1),after=row.tactical.segments[1][0],gapMs=pointTime(after)-pointTime(before);
+  assert.equal(gapMs,3_362_994);
+  assert.ok(distanceMeters(before,after)>9_000&&distanceMeters(before,after)<10_000);
+  const beforeKey=breadcrumbKey(before),afterKey=breadcrumbKey(after);
+  assert.ok(row.renderedSegments.every(segment=>{
+    const keys=new Set(segment.map(breadcrumbKey));return !(keys.has(beforeKey)&&keys.has(afterKey));
+  }),'the long outage must remain two rendered lines with no chord');
+
+  const reconnectIndex=row.received.findIndex(point=>breadcrumbKey(point)===afterKey),reconnectAt=pointTime(after);
+  const atOrAfter=offsetMs=>row.received.findIndex((point,index)=>index>=reconnectIndex&&pointTime(point)>=reconnectAt+offsetMs);
+  const immediate=statusAt(reconnectIndex),afterThirtySeconds=statusAt(atOrAfter(30_000)),afterTwoMinutes=statusAt(atOrAfter(120_000));
+  const beforeTenMinutes=statusAt(row.received.findLastIndex((point,index)=>index>=reconnectIndex&&pointTime(point)<reconnectAt+600_000));
+  const atTenMinutes=statusAt(atOrAfter(600_000));
+  assert.deepEqual([immediate.motion,immediate.speedMph,immediate.headingDegrees,immediate.rollingPaceMph,immediate.sustainedPaceMph],['unknown',null,null,null,null]);
+  assert.deepEqual([immediate.rollingCoverageMs,immediate.sustainedCoverageMs],[0,0]);
+  assert.equal(afterThirtySeconds.motion,'stationary');
+  assert.equal(afterThirtySeconds.speedMph,0);
+  assert.equal(afterThirtySeconds.rollingPaceMph,0);
+  assert.equal(afterThirtySeconds.sustainedPaceMph,null);
+  assert.equal(afterTwoMinutes.rollingPaceMph,0);
+  assert.ok(afterTwoMinutes.rollingCoverageMs>=120_000);
+  assert.equal(beforeTenMinutes.sustainedPaceMph,null);
+  assert.equal(beforeTenMinutes.sustainedPaceSufficient,false);
+  assert.equal(atTenMinutes.sustainedPaceMph,0);
+  assert.equal(atTenMinutes.sustainedPaceSufficient,true);
+  assert.ok(atTenMinutes.sustainedCoverageMs>=600_000);
+
+  const exactRuns=[];
+  for(let start=0;start<row.tactical.segments[1].length;){
+    const point=row.tactical.segments[1][start];let end=start+1;
+    while(end<row.tactical.segments[1].length&&row.tactical.segments[1][end].lat===point.lat&&row.tactical.segments[1][end].lon===point.lon)end++;
+    exactRuns.push(end-start);start=end;
+  }
+  assert.deepEqual(exactRuns.sort((left,right)=>right-left).slice(0,2),[790,412]);
+  assert.equal(row.status.motion,'stationary');
+  assert.equal(row.status.speedMph,0);
+  assert.equal(row.status.headingDegrees,null);
+  assert.equal(row.status.rollingPaceMph,0);
+  assert.equal(row.status.rollingCoverageMs,180_000);
+  assert.equal(row.status.sustainedPaceMph,0);
+  assert.equal(row.status.sustainedCoverageMs,900_000);
+  assert.equal(row.status.trailGapCount,1);
 });
 
 test('Rider field-rider-14 dirty feeds quarantine divergent observations without fragmenting the valid track',()=>{
