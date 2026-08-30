@@ -30,7 +30,7 @@ test('Mission hierarchy keeps score, day, contextual GPS, objective facts, and a
 test('Trail Intel remains factual and configuration stays behind Advanced settings',()=>{
   assert.match(html,/id="mobileObjectiveIntel"/);assert.match(html,/id="rallyTrailSettingsButton"[^>]*>Trail Intel Advanced</);
   for(const label of ['COMPETITORS','BREADCRUMBS','CHECKPOINTS','ROUTE / TRACK','RADAR'])assert.match(html,new RegExp(`>${label}<`));
-  assert.match(app,/rider.*near objective/);assert.match(app,/recent trail/);assert.match(app,/Newest activity/);
+  assert.match(app,/validated rider relationship/);assert.match(app,/TARGET UNKNOWN/);assert.match(app,/compactTargetIntelligenceModel/);
   assert.doesNotMatch(app,/road is good|checkpoint accessible|take this route/i);
   assert.match(app,/\[data-tab="tracking"\]/);
 });

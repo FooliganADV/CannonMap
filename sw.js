@@ -1,12 +1,12 @@
-const CACHE = 'cannonmap-v0.7.20-20260828-trail-intel-field-hardening-1';
+const CACHE = 'cannonmap-v0.7.21-20260830-target-intel-final-samsung-rc-1';
 const RADAR_CACHE='cannonmap-radar-v1',RADAR_CACHE_LIMIT=96;
 const APP_SHELL = [
   './',
   './index.html',
-  './app.css?v=20260828-trail-intel-field-hardening-1',
+  './app.css?v=20260830-target-intel-final-samsung-rc-1',
   './gps-checkpoints-feed.js?v=20260725-02',
-  './stationary-events.js?v=20260828-trail-intel-field-hardening-1',
-  './app.js?v=20260828-trail-intel-field-hardening-1',
+  './stationary-events.js?v=20260830-target-intel-final-samsung-rc-1',
+  './app.js?v=20260830-target-intel-final-samsung-rc-1',
   './src/core/clock.js',
   './src/core/compatibility.js',
   './src/core/errors.js',
@@ -22,6 +22,7 @@ const APP_SHELL = [
   './src/domain/projects/errors.js',
   './src/domain/projects/finalized.js',
   './src/domain/competitors/trails.js',
+  './src/domain/competitors/target-intelligence.js',
   './src/ui/trail-intel/tactical-presentation.js',
   './src/domain/media/camera-preference.js',
   './src/domain/templates/model.js',

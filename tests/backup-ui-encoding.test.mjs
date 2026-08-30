@@ -15,7 +15,7 @@ test('completion and backup assets are valid UTF-8 without mojibake',async()=>{
 
 test('service worker caches the current UTF-8 backup-interface assets',async()=>{
   const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-  assert.match(sw,/20260828-trail-intel-field-hardening-1/);
-  assert.match(sw,/app\.css\?v=20260828-trail-intel-field-hardening-1/);
-  assert.match(sw,/app\.js\?v=20260828-trail-intel-field-hardening-1/);
+  assert.match(sw,/20260830-target-intel-final-samsung-rc-1/);
+  assert.match(sw,/app\.css\?v=20260830-target-intel-final-samsung-rc-1/);
+  assert.match(sw,/app\.js\?v=20260830-target-intel-final-samsung-rc-1/);
 });

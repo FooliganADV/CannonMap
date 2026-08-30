@@ -3,6 +3,7 @@ import {readFile} from 'node:fs/promises';
 import test from 'node:test';
 import {
   assignRiderColors,clusterPresentationRider,compactRiderListHtml,compactRiderRowHtml,compactRiderRowModel,
+  compactTargetIntelligenceHtml,compactTargetIntelligenceModel,
   competitorClusterFingerprint,competitorClusterIconSpec,competitorClusterPopupHtml,competitorMarkerIconSpec,
   competitorTrailStyle,deterministicMarkerOffsets,headingPresentation,riderSourceLabel,riderVisualIdentity,
   shouldShowTacticalCluster
@@ -46,6 +47,26 @@ test('compact tactical row exposes immediate, 3-minute, 15-minute, freshness, mo
   const insufficient=compactRiderRowModel(rider88,{status:'stale',motion:'stationary',rollingPaceMph:null,sustainedPaceMph:null});
   assert.deepEqual([insufficient.rollingLabel,insufficient.sustainedLabel,insufficient.motion,insufficient.freshness],['—','—','STOPPED','STALE']);
   assert.equal(compactRiderRowModel(rider88,{status:'offline',ageMs:74*60_000}).freshness,'OFFLINE');
+});
+
+test('selected-rider target presentation stays compact and formats current geometry truthfully',()=>{
+  const approaching=compactTargetIntelligenceModel({state:'APPROACHING',targetLabel:'CP 4.7',latestDistanceMeters:675.92448,closestApproach:{distanceMeters:640}}),html=compactTargetIntelligenceHtml({state:'APPROACHING',targetLabel:'CP 4.7',latestDistanceMeters:675.92448});
+  assert.deepEqual({state:approaching.state,stateLabel:approaching.stateLabel,targetLabel:approaching.targetLabel,distanceLabel:approaching.distanceLabel,dwellLabel:approaching.dwellLabel,closestApproachLabel:approaching.closestApproachLabel},{state:'approaching',stateLabel:'APPROACHING',targetLabel:'CP 4.7',distanceLabel:'0.42 mi',dwellLabel:null,closestApproachLabel:'0.40 mi'});
+  for(const value of ['TARGET','CP 4.7','APPROACHING','0.42 mi'])assert.match(html,new RegExp(value));
+  assert.doesNotMatch(html,/DWELL|CLOSEST/);
+});
+
+test('stopped-near target presentation exposes bounded dwell and closest approach without stale fields in other states',()=>{
+  const result={state:'STOPPED_NEAR_TARGET',targetLabel:'CP 4.7',latestDistanceMeters:48.28032,dwellDurationMs:134000,closestApproach:32.18688},model=compactTargetIntelligenceModel(result),html=compactTargetIntelligenceHtml(result);
+  assert.deepEqual({state:model.state,stateLabel:model.stateLabel,distanceLabel:model.distanceLabel,dwellLabel:model.dwellLabel,closestApproachLabel:model.closestApproachLabel},{state:'stopped-near-target',stateLabel:'STOPPED NEAR TARGET',distanceLabel:'0.03 mi',dwellLabel:'02:14',closestApproachLabel:'0.02 mi'});
+  assert.match(html,/STOPPED NEAR TARGET/);assert.match(html,/DWELL 02:14/);assert.match(html,/CLOSEST 0.02 mi/);
+  assert.equal(compactTargetIntelligenceModel({...result,state:'DEPARTED'}).dwellLabel,null);
+});
+
+test('unknown or malformed target intelligence cannot become a tactical claim',()=>{
+  const unknown=compactTargetIntelligenceModel(),invalid=compactTargetIntelligenceModel({state:'probably approaching',targetLabel:'',latestDistanceMeters:-1,dwellDurationMs:Infinity,closestApproach:{distanceMeters:'not-a-number'}}),html=compactTargetIntelligenceHtml({state:'UNKNOWN',targetLabel:'<unknown>'});
+  for(const model of [unknown,invalid])assert.deepEqual({known:model.known,state:model.state,stateLabel:model.stateLabel,targetLabel:model.targetLabel,distanceLabel:model.distanceLabel,dwellLabel:model.dwellLabel,closestApproachLabel:model.closestApproachLabel},{known:false,state:'unknown',stateLabel:'UNKNOWN',targetLabel:'UNKNOWN',distanceLabel:'—',dwellLabel:null,closestApproachLabel:'—'});
+  assert.match(html,/&lt;unknown&gt;/);assert.doesNotMatch(html,/<unknown>/);
 });
 
 test('overlapping marker fan-out is deterministic, stable under reorder, and leaves isolated riders centered',()=>{

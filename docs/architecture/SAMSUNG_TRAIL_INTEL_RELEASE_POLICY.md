@@ -53,15 +53,19 @@ projection remain authoritative.
 - Explicit popup dismissal state; live refresh may update a popup that remains
   open but may not reopen one the rider closed.
 - Low-zoom-only clusters and deliberate rider selection from a cluster.
+- Conservative current-day target observations derived only from the latest
+  accepted tactical segment: APPROACHING, NEAR TARGET, STOPPED NEAR TARGET,
+  DEPARTED, or UNKNOWN. The compact rider surfaces may also show current
+  distance, closest accepted approach, and qualifying dwell.
 
 ### B - useful, deliberately deferred for this release
 
 - Configurable segmentation threshold and separately durable gap-event history.
   The current two-minute hardened threshold is not changed before the rally.
-- Semantic target activity, closest approach, speed, dwell, bounded target
-  persistence, and checkpoint halo. These require a new excursion-safe,
-  freshness-gated implementation on current validated segments rather than a
-  port of the older code.
+- Durable target-activity history and checkpoint halo presentation. The current
+  release deliberately presents a bounded, cached observation of present
+  accepted evidence; it does not promote that projection into historical rally
+  truth.
 
 ### C - post-rally
 
@@ -83,6 +87,41 @@ pace. Provider speed and heading are optional; the current bounded median
 immediate speed and positional bearing remain available when they are absent.
 Positional heading remains unknown until movement exceeds the existing jitter
 floor; stationary fixes do not fabricate a northbound heading.
+
+## Conservative target-intelligence contract
+
+Target intelligence consumes the already-derived tactical trail and never
+rescans or accepts the raw competitor feed. Only the latest accepted segment is
+eligible. A pending relocation, quarantined observation, telemetry gap, source
+session boundary, stale/offline feed, or inconsistent tactical projection
+returns UNKNOWN. No target conclusion is carried across those boundaries.
+
+The target catalog is restricted to stable checkpoint/hotel IDs in the current
+explicitly numbered Rally day. All Days and an unresolved day provide no target
+catalog. Target matching is bounded to 256 relevant targets and eight nearby
+candidates; an overflow or materially ambiguous nearby match returns UNKNOWN
+instead of silently selecting a target.
+
+The current thresholds are intentionally conservative:
+
+- evidence must be no more than two minutes old;
+- analysis inspects at most five minutes and 360 accepted observations, with
+  sub-500 ms redeliveries excluded as independent evidence;
+- APPROACHING requires moving telemetry plus at least four observations over 15
+  seconds, at least 100 feet of closure, and a 70 percent decreasing-distance
+  trend;
+- NEAR TARGET requires the latest accepted fix within 500 feet;
+- STOPPED NEAR TARGET additionally requires stationary motion and four
+  contiguous near-target observations spanning at least 30 seconds, with a
+  bounded jitter and inter-observation allowance;
+- DEPARTED requires a prior accepted vicinity entry followed by moving evidence
+  outside a 200-foot exit hysteresis, at least four observations over 15
+  seconds, at least 100 feet of outward travel, and a 70 percent outward trend.
+
+Closest approach and speed at closest approach are calculated only from that
+same accepted segment. Provider speed remains optional; bounded positional
+speed may be derived when needed. The feature does not predict routes, ETA,
+scores, rider-ahead status, closing rate, or future behavior.
 
 ## Event-60 evidence fixture
 

@@ -167,6 +167,54 @@ export function compactRiderListHtml(riders,{selectedRiderId=null,statusForRider
   return `${reset}<div class="tactical-rider-list">${rows}</div>`;
 }
 
+const TARGET_STATE_LABELS=Object.freeze({
+  unknown:'UNKNOWN',approaching:'APPROACHING','near-target':'NEAR TARGET',
+  'stopped-near-target':'STOPPED NEAR TARGET',departed:'DEPARTED'
+});
+
+const targetState=value=>{
+  const normalized=String(value??'').trim().toLowerCase().replace(/[\s_]+/g,'-');
+  return Object.hasOwn(TARGET_STATE_LABELS,normalized)?normalized:'unknown';
+};
+
+const distancePresentation=meters=>{
+  const value=finite(meters);
+  if(value===null||value<0)return Object.freeze({meters:null,label:'—'});
+  const miles=value/1609.344,digits=miles<10?2:1;
+  return Object.freeze({meters:value,label:`${miles.toFixed(digits)} mi`});
+};
+
+const durationPresentation=milliseconds=>{
+  const value=finite(milliseconds);
+  if(value===null||value<0)return Object.freeze({milliseconds:null,label:null});
+  const seconds=Math.floor(value/1000),hours=Math.floor(seconds/3600),minutes=Math.floor(seconds%3600/60),remainder=seconds%60;
+  return Object.freeze({milliseconds:value,label:hours?`${hours}:${String(minutes).padStart(2,'0')}:${String(remainder).padStart(2,'0')}`:`${String(minutes).padStart(2,'0')}:${String(remainder).padStart(2,'0')}`});
+};
+
+/** Pure selected-rider target view model. It never invents a target or tactical state. */
+export function compactTargetIntelligenceModel(result={}){
+  const state=targetState(result?.state),distance=distancePresentation(result?.latestDistanceMeters),dwell=durationPresentation(result?.dwellDurationMs);
+  const closestValue=typeof result?.closestApproach==='object'&&result.closestApproach!==null?result.closestApproach.distanceMeters:result?.closestApproach,closest=distancePresentation(closestValue);
+  const suppliedTarget=String(result?.targetLabel??'').trim(),targetLabel=suppliedTarget||'UNKNOWN',showDwell=state==='stopped-near-target'&&dwell.label!==null;
+  return Object.freeze({
+    known:state!=='unknown',state,stateLabel:TARGET_STATE_LABELS[state],targetLabel,
+    latestDistanceMeters:distance.meters,distanceLabel:distance.label,
+    dwellDurationMs:showDwell?dwell.milliseconds:null,dwellLabel:showDwell?dwell.label:null,
+    closestApproachMeters:closest.meters,closestApproachLabel:closest.label
+  });
+}
+
+/** Compact perimeter/popup markup for a selected rider at Samsung landscape size. */
+export function compactTargetIntelligenceHtml(result={}, {escapeHtml=htmlEscape}={}){
+  const model=compactTargetIntelligenceModel(result),details=[
+    `<span class="tactical-target-summary__state">${escapeHtml(model.stateLabel)}</span>`,
+    model.distanceLabel!=='—'?`<span class="tactical-target-summary__distance">${escapeHtml(model.distanceLabel)}</span>`:'',
+    model.dwellLabel?`<span class="tactical-target-summary__dwell">DWELL ${escapeHtml(model.dwellLabel)}</span>`:'',
+    model.closestApproachLabel!=='—'?`<span class="tactical-target-summary__closest">CLOSEST ${escapeHtml(model.closestApproachLabel)}</span>`:''
+  ].filter(Boolean).join('');
+  return `<section class="tactical-target-summary is-${model.state}" aria-label="Target intelligence"><small class="tactical-target-summary__label">TARGET</small><strong class="tactical-target-summary__target">${escapeHtml(model.targetLabel)}</strong>${details}</section>`;
+}
+
 /** Pure deterministic screen-space fan-out for overlapping markers. */
 export function deterministicMarkerOffsets(markers,{project=point=>point,minimumSeparationPx=46}={}){
   const rows=(markers||[]).map(marker=>({id:String(marker.id),screen:project(marker.point),offset:{x:0,y:0}})).filter(row=>finite(row.screen?.x)!==null&&finite(row.screen?.y)!==null),visited=new Set();

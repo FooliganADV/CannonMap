@@ -1,16 +1,16 @@
-name: Deploy Trail Intel field-hardening preview
+name: Deploy target-intelligence final Samsung RC preview
 
 on:
   push:
     branches:
-      - agent/trail-intel-field-forensics
+      - agent/target-intel-final-samsung-rc
 
 permissions:
   contents: read
   deployments: write
 
 concurrency:
-  group: cannonmap-trail-intel-field-forensics-preview
+  group: cannonmap-target-intel-final-samsung-rc-preview
   cancel-in-progress: true
 
 jobs:
@@ -18,7 +18,7 @@ jobs:
     name: Deploy exact commit to Cloudflare Pages preview
     runs-on: ubuntu-latest
     environment:
-      name: cannonmap-trail-intel-field-forensics-preview
+      name: cannonmap-target-intel-final-samsung-rc-preview
       url: ${{ steps.deploy.outputs.deployment-url || steps.deploy.outputs.pages-deployment-alias-url }}
 
     steps:
@@ -36,7 +36,7 @@ jobs:
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing required repository secret CLOUDFLARE_API_TOKEN"; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing required repository secret CLOUDFLARE_ACCOUNT_ID"; exit 1; }
-          test "$GITHUB_REF_NAME" = "agent/trail-intel-field-forensics" || { echo "::error::Unexpected preview branch"; exit 1; }
+          test "$GITHUB_REF_NAME" = "agent/target-intel-final-samsung-rc" || { echo "::error::Unexpected preview branch"; exit 1; }
 
       - name: Run Samsung release gates
         shell: bash
@@ -56,7 +56,7 @@ jobs:
           command: >-
             pages deploy .
             --project-name=cannonmap
-            --branch=agent/trail-intel-field-forensics
+            --branch=agent/target-intel-final-samsung-rc
             --commit-hash=${{ github.sha }}
             --commit-dirty=false
 
@@ -67,9 +67,22 @@ jobs:
         run: |
           test -n "$DEPLOYMENT_URL" || { echo "::error::Cloudflare did not return an immutable deployment URL"; exit 1; }
           curl --retry 12 --retry-delay 5 --retry-all-errors --fail --silent --show-error --location "$DEPLOYMENT_URL/" --output /tmp/cannonmap-index.html
-          curl --retry 12 --retry-delay 5 --retry-all-errors --fail --silent --show-error --location "$DEPLOYMENT_URL/app.js?20260828-trail-intel-field-hardening-1" --output /tmp/cannonmap-app.js
-          grep -F "2026.08.28.trail-intel-field-hardening-1" /tmp/cannonmap-index.html
-          grep -F "2026.08.28.trail-intel-field-hardening-1" /tmp/cannonmap-app.js
+          curl --retry 12 --retry-delay 5 --retry-all-errors --fail --silent --show-error --location "$DEPLOYMENT_URL/app.js?20260830-target-intel-final-samsung-rc-1" --output /tmp/cannonmap-app.js
+          curl --retry 12 --retry-delay 5 --retry-all-errors --fail --silent --show-error --location "$DEPLOYMENT_URL/app.css?20260830-target-intel-final-samsung-rc-1" --output /tmp/cannonmap-app.css
+          curl --retry 12 --retry-delay 5 --retry-all-errors --fail --silent --show-error --location "$DEPLOYMENT_URL/sw.js" --output /tmp/cannonmap-sw.js
+          curl --retry 12 --retry-delay 5 --retry-all-errors --fail --silent --show-error --location "$DEPLOYMENT_URL/src/domain/competitors/target-intelligence.js" --output /tmp/cannonmap-target-intelligence.js
+          curl --retry 12 --retry-delay 5 --retry-all-errors --fail --silent --show-error --location "$DEPLOYMENT_URL/src/domain/competitors/trails.js" --output /tmp/cannonmap-trails.js
+          curl --retry 12 --retry-delay 5 --retry-all-errors --fail --silent --show-error --location "$DEPLOYMENT_URL/src/ui/trail-intel/tactical-presentation.js" --output /tmp/cannonmap-tactical-presentation.js
+          grep -F "2026.08.30.target-intel-final-samsung-rc-1" /tmp/cannonmap-index.html
+          grep -F "2026.08.30.target-intel-final-samsung-rc-1" /tmp/cannonmap-app.js
+          grep -F "cannonmap-v0.7.21-20260830-target-intel-final-samsung-rc-1" /tmp/cannonmap-sw.js
+          cmp index.html /tmp/cannonmap-index.html
+          cmp app.js /tmp/cannonmap-app.js
+          cmp app.css /tmp/cannonmap-app.css
+          cmp sw.js /tmp/cannonmap-sw.js
+          cmp src/domain/competitors/target-intelligence.js /tmp/cannonmap-target-intelligence.js
+          cmp src/domain/competitors/trails.js /tmp/cannonmap-trails.js
+          cmp src/ui/trail-intel/tactical-presentation.js /tmp/cannonmap-tactical-presentation.js
 
       - name: Publish deployment summary
         if: ${{ always() }}
@@ -80,13 +93,13 @@ jobs:
           DEPLOYMENT_STATUS: ${{ job.status }}
         run: |
           {
-            echo "## CannonMap Trail Intel field-hardening preview"
+            echo "## CannonMap target-intelligence final Samsung RC preview"
             echo
             echo "| Field | Value |"
             echo "| --- | --- |"
             echo "| Commit | \`${GITHUB_SHA}\` |"
             echo "| Project | \`cannonmap\` |"
-            echo "| Branch | \`agent/trail-intel-field-forensics\` |"
+            echo "| Branch | \`agent/target-intel-final-samsung-rc\` |"
             echo "| Status | \`${DEPLOYMENT_STATUS}\` |"
             echo "| Deployment URL | ${DEPLOYMENT_URL:-Not returned} |"
             echo "| Branch alias URL | ${PREVIEW_ALIAS_URL:-Not returned} |"

@@ -1,8 +1,8 @@
-# CannonMap Planner — Beta 0.7.20 Trail Intel Field Hardening
+# CannonMap Planner — Beta 0.7.21 Final Samsung Release Candidate
 
-Build: `2026.08.28.trail-intel-field-hardening-1`
+Build: `2026.08.30.target-intel-final-samsung-rc-1`
 
-This build targets long, powered, screen-on Samsung Chrome/PWA rides in landscape. It preserves the physically accepted Rally, camera, Ride Memory, backup, lifecycle, route-membership, tactical presentation, and compact landscape UI, then hardens the validated competitor stream against millisecond duplicate relocation evidence and short-lived divergent field fixes without changing durable source history.
+This build targets long, powered, screen-on Samsung Chrome/PWA rides in landscape. It preserves the physically accepted Rally, camera, Ride Memory, backup, lifecycle, route-membership, tactical presentation, compact landscape UI, and the 0.7.20 validated competitor stream, then adds conservative checkpoint relationship observations over accepted same-segment telemetry only.
 
 Rally Mode creates an immutable session for every deliberate run, asks riders to **Resume Existing** or **Start New**, and keeps unresolved photo evidence separate from GPS navigation. Camera preflight verifies rear and front native-still capability, closes both streams, and reports READY with zero retained streams. Every checkpoint and Ride Memory side then opens, captures, persists, and fully closes before the next camera opens.
 
@@ -27,7 +27,8 @@ CannonMap is a rally decision system. The primary live-rally function is display
 - Low-zoom clusters remain an overview tool; individual tactical markers return at riding zoom and cluster rider buttons preserve normal selection semantics
 - A sanitized replay derived from a real event-60 export exercises approximately 1 Hz updates, null upstream speed/heading/IDs, real stops, gaps, and reconnects
 - Samsung Android Chromium at 915×412 landscape is the sole pre-rally browser release gate; retained iOS/WebKit tests are informational and nonblocking unless they expose shared logic
-- Semantic target activity remains intentionally deferred until its older freshness and dwell assumptions can be made truthful against the hardened stream
+- Conservative target observations report only UNKNOWN, APPROACHING, NEAR TARGET, STOPPED NEAR TARGET, or DEPARTED from the current accepted segment; ambiguity, gaps, relocations, pending fixes, and stale telemetry fall back to UNKNOWN
+- Target dwell, hysteresis, closest approach, current-day candidate fencing, and scan/cache bounds are explicit; quarantined observations cannot influence target state or closest approach
 - Foreground resume invalidates stale operational camera readiness while preserving the browser permission state, closes every old track, and performs one fresh bounded rear/front probe with zero retained streams
 - A GPS arrival during that probe is persisted immediately; checkpoint capture fences the lower-priority probe and directly invokes the existing exclusive fresh-stream capture/recovery path
 - Pending evidence no longer turns the next sequential arrival into an out-of-order objective when its radius dwell began under an earlier target
@@ -101,7 +102,7 @@ Legacy iOS/WebKit projects remain in the repository but are not pre-rally releas
 
 ## First test
 
-1. Confirm the status shows `v0.7.20 · 2026.08.28.trail-intel-field-hardening-1`.
+1. Confirm the status shows `v0.7.21 · 2026.08.30.target-intel-final-samsung-rc-1`.
 2. Hold the Samsung in landscape and confirm the Rally map remains primary at approximately 915×412.
 3. Load a live competitor event or the sanitized event-60 replay and confirm rider numbers and distinct colors remain stable across refreshes.
 4. Select one rider, confirm other riders dim, dismiss its popup, refresh, and confirm the popup stays dismissed.
